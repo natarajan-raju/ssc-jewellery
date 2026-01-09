@@ -1,0 +1,17 @@
+[
+  {
+    "id": "1767970225251",
+    "name": "Natarajan Raju",
+    "email": "natarajan.raju90@gmail.com",
+    "mobile": "6380435136",
+    "password": "$2b$10$lYlmxf2gUJQ3xw5gsUN1IegFhy8MIZ3ne6L8A0y7tIIW4ZCFD9WX6",
+    "address": {
+      "line1": "Anuraag",
+      "city": "Madurai",
+      "state": "Tamil Nadu",
+      "zip": "625007"
+    },
+    "role": "customer",
+    "createdAt": "2026-01-09T14:50:25.252Z"
+  }
+]
