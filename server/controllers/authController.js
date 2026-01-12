@@ -55,37 +55,83 @@ exports.sendOtp = async (req, res) => {
     }
 };
 
+// exports.register = async (req, res) => {
+//     try {
+//         // 1. Sanitize ALL inputs first
+//         const safeData = {
+//             name: sanitize(req.body.name),
+//             email: sanitize(req.body.email).toLowerCase(),
+//             mobile: sanitize(req.body.mobile),
+//             password: req.body.password, // Don't sanitize password characters, just hash them
+//             otp: sanitize(req.body.otp),
+//             address: req.body.address // Address is an object, sanitizing separately below if needed
+//         };
+
+//         // 2. Run Strict Validation
+//         const validationErrors = validateRegistration(safeData);
+//         if (validationErrors.length > 0) {
+//             return res.status(400).json({ message: validationErrors[0] }); // Return first error
+//         }
+
+//         // 3. Check for existing user
+//         if (User.findByEmail(safeData.email) || User.findByMobile(safeData.mobile)) {
+//             return res.status(400).json({ message: 'User already exists' });
+//         }
+
+//         // 4. Verify OTP
+//         const isValidOtp = await OtpService.verifyOtp(safeData.mobile, safeData.otp);
+//         if (!isValidOtp) return res.status(400).json({ message: 'Invalid or Expired OTP' });
+
+//         // 5. Hash Password (The ultimate protection for storing passwords)
+//         const hashedPassword = await bcrypt.hash(safeData.password, 10);
+        
+//         // 6. Create User (Using sanitized data)
+//         const user = User.create({ 
+//             name: safeData.name, 
+//             email: safeData.email, 
+//             mobile: safeData.mobile, 
+//             password: hashedPassword, 
+//             address: safeData.address 
+//         });
+
+//         const token = generateToken(user);
+//         res.status(201).json({ message: 'Registered successfully', token, user });
+
+//     } catch (error) {
+//         console.error("Register Error:", error);
+//         res.status(500).json({ message: "Server error during registration" });
+//     }
+// };
 exports.register = async (req, res) => {
     try {
-        // 1. Sanitize ALL inputs first
+        // ... sanitize logic ...
         const safeData = {
             name: sanitize(req.body.name),
             email: sanitize(req.body.email).toLowerCase(),
             mobile: sanitize(req.body.mobile),
-            password: req.body.password, // Don't sanitize password characters, just hash them
+            password: req.body.password,
             otp: sanitize(req.body.otp),
-            address: req.body.address // Address is an object, sanitizing separately below if needed
+            address: req.body.address 
         };
 
-        // 2. Run Strict Validation
+        // ... validation logic ...
         const validationErrors = validateRegistration(safeData);
         if (validationErrors.length > 0) {
-            return res.status(400).json({ message: validationErrors[0] }); // Return first error
+            return res.status(400).json({ message: validationErrors[0] });
         }
 
-        // 3. Check for existing user
+        // Check user existence
         if (User.findByEmail(safeData.email) || User.findByMobile(safeData.mobile)) {
-            return res.status(400).json({ message: 'User already exists' });
+            // Specific message for frontend to detect
+            return res.status(409).json({ message: 'User already exists' }); 
         }
 
-        // 4. Verify OTP
-        const isValidOtp = await OtpService.verifyOtp(safeData.mobile, safeData.otp);
+        // Verify OTP (Consume/Delete it here using 'true')
+        const isValidOtp = await OtpService.verifyOtp(safeData.mobile, safeData.otp, true);
         if (!isValidOtp) return res.status(400).json({ message: 'Invalid or Expired OTP' });
 
-        // 5. Hash Password (The ultimate protection for storing passwords)
+        // Hash & Create
         const hashedPassword = await bcrypt.hash(safeData.password, 10);
-        
-        // 6. Create User (Using sanitized data)
         const user = User.create({ 
             name: safeData.name, 
             email: safeData.email, 
@@ -99,10 +145,9 @@ exports.register = async (req, res) => {
 
     } catch (error) {
         console.error("Register Error:", error);
-        res.status(500).json({ message: "Server error during registration" });
+        res.status(500).json({ message: "Server error" });
     }
 };
-
 exports.login = async (req, res) => {
     try {
         const { type, identifier, password, mobile, otp } = req.body;
@@ -154,5 +199,22 @@ exports.resetPassword = async (req, res) => {
         res.json({ message: 'Password reset successful' });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+
+exports.verifyOtpOnly = async (req, res) => {
+    try {
+        const { mobile, otp } = req.body;
+        // Pass 'false' to NOT delete the OTP yet
+        const isValid = await OtpService.verifyOtp(mobile, otp, false);
+        
+        if (isValid) {
+            res.json({ message: "OTP Verified", valid: true });
+        } else {
+            res.status(400).json({ message: "Invalid OTP", valid: false });
+        }
+    } catch (error) {
+        res.status(500).json({ message: "Server error" });
     }
 };

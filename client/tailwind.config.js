@@ -7,28 +7,22 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // The rich deep blue from the logo background
         primary: {
           DEFAULT: '#0A192F', 
-          light: '#172A46', // For hover states
+          light: '#172A46',
         },
-        // The metallic gold from the text and borders
         accent: {
-          DEFAULT: '#D4AF37',
-          hover: '#B3932B', // A slightly darker gold for hover
+          DEFAULT: '#D4AF37', // Use this for Buttons or Dark Backgrounds
+          hover: '#B3932B',   // Button Hover state
+          deep: '#4c3e10',    // Use this for Text on White Backgrounds
         },
-        // A clean, professional white variant for backgrounds and text
         secondary: '#F8F9FA', 
-        // A solid black/dark grey for standard text
         dark: '#1A1A1A',
       },
       fontFamily: {
-        // A modern, clean sans-serif for body text
         sans: ['"Inter"', 'system-ui', 'sans-serif'],
-        // A classic serif for headings, matching the logo's vibe
         serif: ['"Playfair Display"', 'Georgia', 'serif'],
       },
-      // Standard container padding
       container: {
         center: true,
         padding: '1.5rem',

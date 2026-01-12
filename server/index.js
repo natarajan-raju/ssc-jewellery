@@ -12,7 +12,7 @@ app.use(express.json());
 
 // Mount the Auth Routes
 app.use('/api/auth', authRoutes);
-
+app.use('/api/admin', require('./routes/adminRoutes'));
 // Test Route
 app.get('/api/test', (req, res) => res.json({ message: "Server is working" }));
 

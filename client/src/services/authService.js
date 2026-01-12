@@ -9,6 +9,14 @@ export const authService = {
     });
     return res.json();
   },
+  verifyOtp: async (mobile, otp) => {
+    const res = await fetch(`${API_URL}/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mobile, otp })
+    });
+    return res.json();
+  },
 
   register: async (userData) => {
     const res = await fetch(`${API_URL}/register`, {

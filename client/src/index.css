@@ -25,7 +25,10 @@
   /* 3. Standardize Paragraphs & Links */
   p { @apply mb-4 leading-relaxed text-gray-600; }
   
-  a { @apply text-primary hover:text-accent transition-colors duration-200 font-medium; }
+  a { 
+    @apply text-accent-deep hover:text-accent-hover transition-colors duration-200 font-medium; 
+    /* Now links on white pages will automatically be the readable #4c3e10 */
+  }
 
   /* 4. Define a Standard Section Container */
   .section {
