@@ -2,9 +2,9 @@ const bcrypt = require('bcryptjs'); // Ensure bcrypt is imported at top
 const User = require('../models/User');
 
 // Get all users (customers)
-exports.getUsers = (req, res) => {
+exports.getUsers = async (req, res) => {
     try {
-        const users = User.getAll();
+        const users = await User.getAll();
         // Filter out sensitive data like passwords before sending
         const safeUsers = users.map(user => {
             const { password, ...rest } = user;

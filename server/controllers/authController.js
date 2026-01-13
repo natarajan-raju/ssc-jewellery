@@ -121,9 +121,12 @@ exports.register = async (req, res) => {
         }
 
         // Check user existence
-        if (User.findByEmail(safeData.email) || User.findByMobile(safeData.mobile)) {
-            // Specific message for frontend to detect
-            return res.status(409).json({ message: 'User already exists' }); 
+       
+        const existingEmail = await User.findByEmail(safeData.email);
+        const existingMobile = await User.findByMobile(safeData.mobile);
+
+        if (existingEmail || existingMobile) {
+            return res.status(409).json({ message: 'User already exists' });
         }
 
         // Verify OTP (Consume/Delete it here using 'true')
@@ -132,7 +135,7 @@ exports.register = async (req, res) => {
 
         // Hash & Create
         const hashedPassword = await bcrypt.hash(safeData.password, 10);
-        const user = User.create({ 
+        const user = await User.create({ 
             name: safeData.name, 
             email: safeData.email, 
             mobile: safeData.mobile, 
@@ -159,14 +162,16 @@ exports.login = async (req, res) => {
         let user;
 
         if (type === 'password') {
-            user = User.findByEmail(safeIdentifier) || User.findByMobile(safeIdentifier);
+            const userByEmail = await User.findByEmail(identifier);
+            const userByMobile = await User.findByMobile(identifier);
+            user = userByEmail || userByMobile;
             if (!user) return res.status(400).json({ message: 'User not found' });
 
             const isMatch = await bcrypt.compare(password, user.password);
             if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
         } 
         else if (type === 'otp') {
-            user = User.findByMobile(safeMobile);
+            user = await User.findByMobile(safeMobile);
             if (!user) return res.status(400).json({ message: 'Mobile not registered' });
 
             const isValidOtp = await OtpService.verifyOtp(safeMobile, sanitize(otp));

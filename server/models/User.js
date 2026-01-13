@@ -1,56 +1,101 @@
 const fs = require('fs');
 const path = require('path');
+const db = require('../config/db'); // MySQL Connection
 
-// Points to server/data/users.json
 const filePath = path.join(__dirname, '../data/users.json');
 
-// Ensure the data folder and file exist automatically
-if (!fs.existsSync(path.dirname(filePath))) {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-}
-if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, '[]');
-}
+// Helper for JSON Mode (Local)
+const getLocalUsers = () => {
+    try {
+        if (!fs.existsSync(filePath)) return [];
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (err) { return []; }
+};
 
 class User {
-    static getAll() {
-        try {
-            const data = fs.readFileSync(filePath, 'utf8');
-            return JSON.parse(data) || [];
-        } catch (error) {
-            return [];
+    // --- FIND BY EMAIL ---
+    static async findByEmail(email) {
+        if (process.env.NODE_ENV === 'production') {
+            // MySQL Mode
+            const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
+            return rows[0];
+        } else {
+            // JSON Mode
+            return getLocalUsers().find(u => u.email === email);
         }
     }
 
-    static findByEmail(email) {
-        return this.getAll().find(u => u.email === email);
+    // --- FIND BY MOBILE ---
+    static async findByMobile(mobile) {
+        if (process.env.NODE_ENV === 'production') {
+            const [rows] = await db.execute('SELECT * FROM users WHERE mobile = ?', [mobile]);
+            return rows[0];
+        } else {
+            return getLocalUsers().find(u => u.mobile === mobile);
+        }
+    }
+    
+    // --- FIND BY ID ---
+    static async findById(id) {
+        if (process.env.NODE_ENV === 'production') {
+            const [rows] = await db.execute('SELECT * FROM users WHERE id = ?', [id]);
+            return rows[0];
+        } else {
+            return getLocalUsers().find(u => u.id === id);
+        }
+    }
+    
+    // --- GET ALL (Admin) ---
+    static async getAll() {
+        if (process.env.NODE_ENV === 'production') {
+            const [rows] = await db.execute('SELECT * FROM users');
+            return rows;
+        } else {
+            return getLocalUsers();
+        }
     }
 
-    static findByMobile(mobile) {
-        return this.getAll().find(u => u.mobile === mobile);
-    }
-
-    static create(userData) {
-        const users = this.getAll();
-        const newUser = { 
-            id: Date.now().toString(), 
-            ...userData, 
-            role: 'customer', 
-            createdAt: new Date().toISOString() 
+    // --- CREATE USER ---
+    static async create(userData) {
+        const newUser = {
+            id: Date.now().toString(),
+            ...userData,
+            role: 'customer',
+            createdAt: new Date().toISOString()
         };
-        users.push(newUser);
-        fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
-        return newUser;
+
+        if (process.env.NODE_ENV === 'production') {
+            // MySQL Insert
+            const query = `INSERT INTO users (id, name, email, mobile, password, role, address, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+            const addressJson = newUser.address ? JSON.stringify(newUser.address) : null;
+            
+            await db.execute(query, [
+                newUser.id, newUser.name, newUser.email, newUser.mobile, newUser.password, 
+                newUser.role, addressJson, new Date(newUser.createdAt)
+            ]);
+            return newUser;
+        } else {
+            // JSON Write
+            const users = getLocalUsers();
+            users.push(newUser);
+            fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
+            return newUser;
+        }
     }
 
-    static updatePassword(mobile, hashedPassword) {
-        const users = this.getAll();
-        const index = users.findIndex(u => u.mobile === mobile);
-        if (index === -1) return null;
-        
-        users[index].password = hashedPassword;
-        fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
-        return users[index];
+    // --- UPDATE PASSWORD ---
+    static async updatePassword(mobile, hashedPassword) {
+        if (process.env.NODE_ENV === 'production') {
+            await db.execute('UPDATE users SET password = ? WHERE mobile = ?', [hashedPassword, mobile]);
+            return true;
+        } else {
+            const users = getLocalUsers();
+            const index = users.findIndex(u => u.mobile === mobile);
+            if (index === -1) return null;
+            users[index].password = hashedPassword;
+            fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
+            return users[index];
+        }
     }
 }
 
