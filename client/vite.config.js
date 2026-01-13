@@ -15,12 +15,12 @@ export default defineConfig({
         theme_color: '#0A192F',
         icons: [
           {
-            src: './src/assets/logo.webp', // You need to add these images later
+            src: '/logo.webp', // You need to add these images later
             sizes: '192x192',
             type: 'image/webp'
           },
           {
-            src: './src/assets/logo.webp',
+            src: '/logo.webp',
             sizes: '512x512',
             type: 'image/webp'
           }

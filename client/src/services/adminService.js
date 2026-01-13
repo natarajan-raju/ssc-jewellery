@@ -1,4 +1,6 @@
-const API_URL = 'http://localhost:5000/api/admin';
+const API_URL = import.meta.env.PROD 
+  ? '/api/admin' 
+  : 'http://localhost:5000/api/admin';
 
 const getAuthHeader = () => {
     const token = localStorage.getItem('token'); // We will assume you store token here
