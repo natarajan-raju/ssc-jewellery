@@ -1,7 +1,6 @@
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
-// Create a connection pool
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -12,18 +11,46 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
-// Test the connection
-pool.getConnection()
-    .then(connection => {
-        console.log('✅ Connected to Hostinger MySQL Database');
+// --- AUTOMATIC TABLE CREATION ---
+const initDB = async () => {
+    try {
+        const connection = await pool.getConnection();
+        console.log("✅ DB Connected! Checking tables...");
+
+        // 1. Create OTP Table (If not exists)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS otps (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                mobile VARCHAR(15) NOT NULL,
+                otp VARCHAR(10) NOT NULL,
+                expires_at DATETIME NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // 2. Create Users Table (If not exists)
+        // (I added standard fields based on your authController)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100),
+                email VARCHAR(100) UNIQUE,
+                mobile VARCHAR(15) UNIQUE NOT NULL,
+                password VARCHAR(255),
+                address TEXT,
+                role VARCHAR(20) DEFAULT 'user',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        console.log("✅ Tables verified/created successfully!");
         connection.release();
-    })
-    .catch(err => {
-        if (process.env.NODE_ENV === 'production') {
-            console.error('❌ Database Connection Failed:', err.message);
-        } else {
-            console.log('ℹ️ Running in Local/JSON Mode (No DB Connection)');
-        }
-    });
+    } catch (error) {
+        console.error("❌ Database Initialization Failed:", error.message);
+    }
+};
+
+// Run the check immediately when server starts
+initDB();
 
 module.exports = pool;

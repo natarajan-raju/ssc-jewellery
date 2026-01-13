@@ -40,21 +40,33 @@ const validateRegistration = (data) => {
 
 exports.sendOtp = async (req, res) => {
     try {
-        // Sanitize Input
         const mobile = sanitize(req.body.mobile);
-        
-        // Strict Validation
         if (!/^[0-9]{10,12}$/.test(mobile)) {
-            return res.status(400).json({ message: "Invalid mobile number format." });
+            return res.status(400).json({ message: "Invalid mobile number." });
         }
 
-        await OtpService.sendOtp(mobile);
-        res.json({ message: 'OTP sent successfully (Check Server Console)' });
+        // 1. Generate OTP Here
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+        // 2. Save using our new Hybrid Service
+        // - Local: Saves to RAM
+        // - Prod: Saves to DB (Tests connection!)
+        await OtpService.saveOtp(mobile, otp);
+
+        // 3. Send OTP to Frontend
+        res.json({ 
+            message: 'OTP generated', 
+            debug_otp: otp  // <--- This is how you retrieve it in Prod!
+        });
+
     } catch (error) {
-        res.status(500).json({ message: 'Error sending OTP' });
+        console.error("❌ OTP Error:", error);
+        // Returns the specific DB error if in Prod
+        res.status(500).json({ 
+            message: "Error: " + error.message 
+        });
     }
 };
-
 // exports.register = async (req, res) => {
 //     try {
 //         // 1. Sanitize ALL inputs first
