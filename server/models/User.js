@@ -26,27 +26,23 @@ const saveLocalUsers = (users) => {
 };
 
 class User {
-    // --- 1. GET ALL (Admin First, then Recent) ---
+    // --- 1. GET ALL ---
     static async getAll() {
         if (process.env.NODE_ENV === 'production') {
-            // "ORDER BY (role = 'admin') DESC" puts Admin(1) before User(0)
             const [rows] = await db.execute(`
                 SELECT * FROM users 
                 ORDER BY (role = 'admin') DESC, createdAt DESC
             `);
             return rows;
         } else {
-            const users = getLocalUsers();
-            // Local Sort: Admin first, then date
-            return users.sort((a, b) => {
-                if (a.role === 'admin' && b.role !== 'admin') return -1;
-                if (a.role !== 'admin' && b.role === 'admin') return 1;
+            return getLocalUsers().sort((a, b) => {
+                if (a.role === 'admin') return -1;
                 return new Date(b.createdAt) - new Date(a.createdAt);
             });
         }
     }
 
-    // --- 2. FIND BY EMAIL ---
+    // --- 2. FIND HELPERS ---
     static async findByEmail(email) {
         if (process.env.NODE_ENV === 'production') {
             const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
@@ -56,7 +52,6 @@ class User {
         }
     }
 
-    // --- 3. FIND BY MOBILE ---
     static async findByMobile(mobile) {
         if (process.env.NODE_ENV === 'production') {
             const [rows] = await db.execute('SELECT * FROM users WHERE mobile = ?', [mobile]);
@@ -66,7 +61,6 @@ class User {
         }
     }
 
-    // --- 4. FIND BY ID ---
     static async findById(id) {
         if (process.env.NODE_ENV === 'production') {
             const [rows] = await db.execute('SELECT * FROM users WHERE id = ?', [id]);
@@ -76,34 +70,41 @@ class User {
         }
     }
 
-    // --- 5. CREATE USER (Fixed ID Crash) ---
+    // --- 3. CREATE USER (Base36 "Smart Shrink" ID) ---
     static async create(userData) {
-        // Base object for Local/Logic
         const baseData = {
             ...userData,
             role: userData.role || 'customer',
             createdAt: new Date()
         };
 
+        // GENERATE ID: Base36 Timestamp + Random
+        // 1. Timestamp (Base36): "170523..." becomes "lr6x2z..." (8 chars)
+        const timePart = Date.now().toString(36);
+        
+        // 2. Random (Base36): 4 random chars to prevent collision in same millisecond
+        const randomPart = Math.random().toString(36).substring(2, 6);
+        
+        // 3. Result: "lr6x2z-9b2a" (Approx 12 chars, fits in VARCHAR)
+        const uniqueId = `${timePart}${randomPart}`;
+
         if (process.env.NODE_ENV === 'production') {
-            // --- FIX 1: REMOVE 'id' FROM QUERY ---
-            // Let MySQL Auto-Increment handle the ID.
-            const query = `INSERT INTO users (name, email, mobile, password, role, address, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+            // PRODUCTION: Insert with Generated ID
+            const query = `INSERT INTO users (id, name, email, mobile, password, role, address, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
             
-            // Ensure address is string or null
             const addressJson = baseData.address ? JSON.stringify(baseData.address) : null;
             
-            const [result] = await db.execute(query, [
+            await db.execute(query, [
+                uniqueId, 
                 baseData.name, baseData.email, baseData.mobile, baseData.password, 
                 baseData.role, addressJson, baseData.createdAt
             ]);
             
-            // Return with the REAL ID from MySQL
-            return { id: result.insertId, ...baseData };
+            return { id: uniqueId, ...baseData };
 
         } else {
-            // Local Mode: We still need to fake an ID
-            const newUser = { id: Date.now().toString(), ...baseData };
+            // LOCAL: Use same ID logic
+            const newUser = { id: uniqueId, ...baseData };
             const users = getLocalUsers();
             users.push(newUser);
             saveLocalUsers(users);
@@ -111,7 +112,7 @@ class User {
         }
     }
 
-    // --- 6. DELETE USER ---
+    // --- 4. DELETE USER ---
     static async delete(id) {
         if (process.env.NODE_ENV === 'production') {
             const connection = await db.getConnection();
@@ -139,7 +140,7 @@ class User {
         }
     }
 
-    // --- 7. UPDATE PASSWORD ---
+    // --- 5. UPDATE PASSWORD ---
     static async updatePasswordById(id, hashedPassword) {
         if (process.env.NODE_ENV === 'production') {
             await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, id]);
@@ -155,8 +156,7 @@ class User {
             return false;
         }
     }
-    
-    // Legacy support for Forgot Password (by mobile)
+
     static async updatePassword(mobile, hashedPassword) {
         if (process.env.NODE_ENV === 'production') {
             await db.execute('UPDATE users SET password = ? WHERE mobile = ?', [hashedPassword, mobile]);
