@@ -114,6 +114,10 @@ exports.createUser = async (req, res) => {
 
     } catch (error) {
         console.error("Create User Error:", error);
-        res.status(500).json({ message: "Server Error" });
+        res.status(500).json({ 
+            message: "Server Error", 
+            error_details: error.message,  // <--- The clue we need
+            error_code: error.code         // <--- SQL Error Code
+        });
     }
 };
