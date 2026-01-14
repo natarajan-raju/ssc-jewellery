@@ -2,20 +2,32 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User'); // Import the hybrid model
 
 // 1. GET ALL USERS
+// 1. GET ALL USERS (Debug Mode)
 exports.getUsers = async (req, res) => {
     try {
-        const users = await User.getAll();
+        console.log("Attempting to fetch users...");
         
-        // Remove passwords before sending to frontend
+        // Call the Model
+        const users = await User.getAll();
+        console.log("Users fetched from DB:", users.length); // See if we got data
+
+        // Remove passwords
         const safeUsers = users.map(user => {
             const { password, ...rest } = user;
             return rest;
         });
         
         res.json(safeUsers);
+
     } catch (error) {
-        console.error("Get Users Error:", error);
-        res.status(500).json({ message: "Server Error" });
+        console.error("❌ CRASH IN GET USERS:", error);
+        
+        // IMPORTANT: Send the ACTUAL error message to the browser
+        res.status(500).json({ 
+            message: "Server Crash", 
+            error_details: error.message,
+            error_stack: error.stack 
+        });
     }
 };
 
