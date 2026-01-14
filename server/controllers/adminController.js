@@ -1,40 +1,44 @@
-const bcrypt = require('bcryptjs'); // Ensure bcrypt is imported at top
-const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const User = require('../models/User'); // Import the hybrid model
 
-// Get all users (customers)
+// 1. GET ALL USERS
 exports.getUsers = async (req, res) => {
     try {
         const users = await User.getAll();
-        // Filter out sensitive data like passwords before sending
+        
+        // Remove passwords before sending to frontend
         const safeUsers = users.map(user => {
             const { password, ...rest } = user;
             return rest;
         });
+        
         res.json(safeUsers);
     } catch (error) {
+        console.error("Get Users Error:", error);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// Delete a user
-exports.deleteUser = (req, res) => {
+// 2. DELETE USER
+exports.deleteUser = async (req, res) => {
     try {
-        const users = User.getAll();
-        const newUsers = users.filter(u => u.id !== req.params.id);
+        const userId = req.params.id;
         
-        // Save back to file (In a real DB, this is a delete query)
-        const fs = require('fs');
-        const path = require('path');
-        const filePath = path.join(__dirname, '../data/users.json');
-        fs.writeFileSync(filePath, JSON.stringify(newUsers, null, 2));
+        // Call the Model (handles both JSON and MySQL logic)
+        const success = await User.delete(userId);
         
-        res.json({ message: "User removed" });
+        if (!success) {
+            return res.status(404).json({ message: "User not found" });
+        }
+        
+        res.json({ message: "User removed successfully" });
     } catch (error) {
+        console.error("Delete User Error:", error);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// Force Reset User Password (Admin Action)
+// 3. ADMIN RESET PASSWORD
 exports.adminResetPassword = async (req, res) => {
     try {
         const { id } = req.params;
@@ -44,63 +48,60 @@ exports.adminResetPassword = async (req, res) => {
             return res.status(400).json({ message: "Password must be 6+ chars" });
         }
 
-        const users = User.getAll();
-        const userIndex = users.findIndex(u => u.id === id);
-        
-        if (userIndex === -1) return res.status(404).json({ message: "User not found" });
+        // Check user existence
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ message: "User not found" });
 
         // Hash new password
         const salt = await bcrypt.genSalt(10);
-        users[userIndex].password = await bcrypt.hash(newPassword, salt);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-        // Save to file
-        const fs = require('fs');
-        const path = require('path');
-        const filePath = path.join(__dirname, '../data/users.json');
-        fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
+        // Update via Model
+        await User.updatePasswordById(id, hashedPassword);
 
-        res.json({ message: `Password updated for ${users[userIndex].name}` });
-
+        res.json({ message: `Password updated successfully` });
     } catch (error) {
-        console.error(error);
+        console.error("Admin Reset Error:", error);
         res.status(500).json({ message: "Server Error" });
     }
 };
 
-// Create User (Admin Manual Add)
+// 4. CREATE USER (Manual Admin Add)
 exports.createUser = async (req, res) => {
     try {
         const { name, email, mobile, password, address } = req.body;
 
-        // Basic Validation
         if (!name || !email || !mobile || !password) {
-            return res.status(400).json({ message: "Name, Email, Mobile and Password are required" });
+            return res.status(400).json({ message: "All fields are required" });
         }
 
-        // Check if user exists
-        if (User.findByEmail(email) || User.findByMobile(mobile)) {
-            return res.status(409).json({ message: "User with this Email or Mobile already exists" });
+        // Check duplicates (MUST await these!)
+        const existingEmail = await User.findByEmail(email);
+        const existingMobile = await User.findByMobile(mobile);
+
+        if (existingEmail || existingMobile) {
+            return res.status(409).json({ message: "User already exists" });
         }
 
-        // Hash Password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Create User
-        const newUser = User.create({
+        // Create User (MUST await this!)
+        const newUser = await User.create({
             name,
             email,
             mobile,
             password: hashedPassword,
-            address: address || null
+            address: address || null,
+            role: 'customer'
         });
 
-        // Return user without password
+        // Return without password
         const { password: _, ...userWithoutPass } = newUser;
-        res.status(201).json({ message: "Customer created successfully", user: userWithoutPass });
+        res.status(201).json({ message: "Customer created", user: userWithoutPass });
 
     } catch (error) {
-        console.error(error);
+        console.error("Create User Error:", error);
         res.status(500).json({ message: "Server Error" });
     }
 };
