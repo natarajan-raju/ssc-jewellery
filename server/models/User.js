@@ -4,7 +4,7 @@ const db = require('../config/db'); // MySQL Pool
 
 const filePath = path.join(__dirname, '../data/users.json');
 
-// --- HELPER FUNCTIONS (LOCAL JSON) ---
+// --- HELPER FUNCTIONS ---
 const getLocalUsers = () => {
     try {
         if (!fs.existsSync(filePath)) {
@@ -26,14 +26,23 @@ const saveLocalUsers = (users) => {
 };
 
 class User {
-    // --- 1. GET ALL (Fixes the 500 Error) ---
+    // --- 1. GET ALL (Admin First, then Recent) ---
     static async getAll() {
         if (process.env.NODE_ENV === 'production') {
-            // FIX: Changed 'created_at' to 'createdAt' to match your table
-            const [rows] = await db.execute('SELECT * FROM users ORDER BY createdAt DESC');
+            // "ORDER BY (role = 'admin') DESC" puts Admin(1) before User(0)
+            const [rows] = await db.execute(`
+                SELECT * FROM users 
+                ORDER BY (role = 'admin') DESC, createdAt DESC
+            `);
             return rows;
         } else {
-            return getLocalUsers();
+            const users = getLocalUsers();
+            // Local Sort: Admin first, then date
+            return users.sort((a, b) => {
+                if (a.role === 'admin' && b.role !== 'admin') return -1;
+                if (a.role !== 'admin' && b.role === 'admin') return 1;
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            });
         }
     }
 
@@ -67,27 +76,34 @@ class User {
         }
     }
 
-    // --- 5. CREATE USER ---
+    // --- 5. CREATE USER (Fixed ID Crash) ---
     static async create(userData) {
-        const newUser = {
-            id: Date.now().toString(),
+        // Base object for Local/Logic
+        const baseData = {
             ...userData,
-            role: 'customer',
-            createdAt: new Date() // Local uses camelCase
+            role: userData.role || 'customer',
+            createdAt: new Date()
         };
 
         if (process.env.NODE_ENV === 'production') {
-            // FIX: Using 'createdAt' in SQL to match your table
+            // --- FIX 1: REMOVE 'id' FROM QUERY ---
+            // Let MySQL Auto-Increment handle the ID.
             const query = `INSERT INTO users (name, email, mobile, password, role, address, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-            const addressJson = newUser.address ? JSON.stringify(newUser.address) : null;
+            
+            // Ensure address is string or null
+            const addressJson = baseData.address ? JSON.stringify(baseData.address) : null;
             
             const [result] = await db.execute(query, [
-                newUser.name, newUser.email, newUser.mobile, newUser.password, 
-                newUser.role, addressJson, newUser.createdAt
+                baseData.name, baseData.email, baseData.mobile, baseData.password, 
+                baseData.role, addressJson, baseData.createdAt
             ]);
             
-            return { ...newUser, id: result.insertId };
+            // Return with the REAL ID from MySQL
+            return { id: result.insertId, ...baseData };
+
         } else {
+            // Local Mode: We still need to fake an ID
+            const newUser = { id: Date.now().toString(), ...baseData };
             const users = getLocalUsers();
             users.push(newUser);
             saveLocalUsers(users);
@@ -101,13 +117,10 @@ class User {
             const connection = await db.getConnection();
             try {
                 await connection.beginTransaction();
-                
-                // Get mobile first to delete OTPs
                 const [user] = await connection.query('SELECT mobile FROM users WHERE id = ?', [id]);
                 if (user.length > 0) {
                     await connection.query('DELETE FROM otps WHERE mobile = ?', [user[0].mobile]);
                 }
-
                 await connection.query('DELETE FROM users WHERE id = ?', [id]);
                 await connection.commit();
                 return true;
@@ -126,7 +139,7 @@ class User {
         }
     }
 
-    // --- 7. UPDATE PASSWORD (ID) ---
+    // --- 7. UPDATE PASSWORD ---
     static async updatePasswordById(id, hashedPassword) {
         if (process.env.NODE_ENV === 'production') {
             await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, id]);
@@ -134,6 +147,23 @@ class User {
         } else {
             const users = getLocalUsers();
             const index = users.findIndex(u => u.id == id);
+            if (index !== -1) {
+                users[index].password = hashedPassword;
+                saveLocalUsers(users);
+                return true;
+            }
+            return false;
+        }
+    }
+    
+    // Legacy support for Forgot Password (by mobile)
+    static async updatePassword(mobile, hashedPassword) {
+        if (process.env.NODE_ENV === 'production') {
+            await db.execute('UPDATE users SET password = ? WHERE mobile = ?', [hashedPassword, mobile]);
+            return true;
+        } else {
+            const users = getLocalUsers();
+            const index = users.findIndex(u => u.mobile === mobile);
             if (index !== -1) {
                 users[index].password = hashedPassword;
                 saveLocalUsers(users);
