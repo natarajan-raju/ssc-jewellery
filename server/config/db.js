@@ -18,8 +18,9 @@ const initDB = async () => {
         console.log("⚠️  Local Mode Detected: Skipping MySQL Connection. Using JSON files.");
         return; 
     }
+    let connection;
     try {
-        const connection = await pool.getConnection();
+        connection = await pool.getConnection();
         console.log("✅ DB Connected! Checking tables...");
 
         // 1. Create OTP Table (If not exists)
