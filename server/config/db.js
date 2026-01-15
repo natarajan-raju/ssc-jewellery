@@ -75,9 +75,7 @@ const initDB = async () => {
         connection.release();
     } catch (error) {
         console.error("❌ Database Initialization Failed:", error.message);
-    } finally {
-        if (connection) connection.release();
-    }
+    } 
 };
 
 // Run the check immediately when server starts
