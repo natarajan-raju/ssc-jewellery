@@ -4,15 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 
 export default defineConfig({
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5000', // Points to your Node Backend
-        changeOrigin: true,
-        secure: false,
-      },
-    },
-  },
+ 
   plugins: [
     react(),
     VitePWA({
