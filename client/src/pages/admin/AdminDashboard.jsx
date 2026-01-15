@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Customers from './Customers';
 import { Users, ShoppingBag, LayoutDashboard, LogOut, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -8,8 +8,16 @@ export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
     const navigate = useNavigate();
 
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            navigate('/admin/login');
+        }
+    }, [navigate]);
+
     const handleLogout = () => {
         localStorage.removeItem('token');
+        localStorage.removeItem('userInfo');
         navigate('/admin/login');
     };
 

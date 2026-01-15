@@ -2,9 +2,29 @@ const API_URL = import.meta.env.PROD
   ? '/api/admin' 
   : 'http://localhost:5000/api/admin';
 
+// --- FIX: Robust Token Retrieval ---
 const getAuthHeader = () => {
-    const token = localStorage.getItem('token'); // We will assume you store token here
-    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+    let token = null;
+
+    // 1. Try finding token in 'user' object (Pattern used in Customers.jsx)
+    const userObj = JSON.parse(localStorage.getItem('user') || '{}');
+    if (userObj.token) token = userObj.token;
+
+    // 2. Fallback: Try 'userInfo' object (Common pattern)
+    if (!token) {
+        const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+        if (userInfo.token) token = userInfo.token;
+    }
+
+    // 3. Fallback: Try direct 'token' string
+    if (!token) {
+        token = localStorage.getItem('token');
+    }
+
+    return { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/json' 
+    };
 };
 
 export const adminService = {
