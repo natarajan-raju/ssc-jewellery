@@ -1,48 +1,64 @@
-import { X, AlertTriangle, Key } from 'lucide-react';
+import { X, AlertTriangle, Key, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 export default function Modal({ isOpen, onClose, title, message, type = 'default', onConfirm, isLoading }) {
   if (!isOpen) return null;
+  
+  // --- STATE FIX ---
+  const [showPass, setShowPass] = useState(false);
+  const [inputValue, setInputValue] = useState(''); 
+
+  // Reset input when modal opens
+  useEffect(() => {
+    if (isOpen) {
+        setInputValue('');
+        setShowPass(false);
+    }
+  }, [isOpen]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-      {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
         onClick={onClose}
       ></div>
 
-      {/* Modal Content */}
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm relative z-10 overflow-hidden transform transition-all scale-100">
-        
-        {/* Header Color Bar */}
         <div className={`h-2 w-full ${type === 'delete' ? 'bg-red-500' : 'bg-accent'}`}></div>
 
         <div className="p-6">
           <div className="flex items-start gap-4">
-            {/* Icon */}
             <div className={`p-3 rounded-full shrink-0 ${type === 'delete' ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-accent-deep'}`}>
               {type === 'delete' ? <AlertTriangle size={24} /> : <Key size={24} />}
             </div>
 
-            {/* Text Content */}
             <div className="flex-1">
               <h3 className="text-lg font-bold text-gray-900">{title}</h3>
               <p className="text-sm text-gray-500 mt-1">{message}</p>
               
-              {/* Input Field (Only for 'input' type modals) */}
-              {type === 'input' && (
-                <input 
-                  id="modal-input"
-                  type="text" 
-                  placeholder="Enter new password" 
-                  className="mt-4 w-full input-field py-2 text-sm"
-                  autoFocus
-                />
+              {(type === 'input' || type === 'password') && (
+                  <div className="relative mt-4">
+                      <input 
+                          type={type === 'password' && !showPass ? "password" : "text"}
+                          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-accent outline-none"
+                          placeholder="Enter value..."
+                          value={inputValue}
+                          onChange={(e) => setInputValue(e.target.value)}
+                          autoFocus
+                      />
+                      {type === 'password' && (
+                          <button 
+                              onClick={() => setShowPass(!showPass)}
+                              className="absolute right-3 top-2.5 text-gray-400 hover:text-primary"
+                          >
+                              {showPass ? <EyeOff size={20} /> : <Eye size={20} />}
+                          </button>
+                      )}
+                  </div>
               )}
             </div>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex justify-end gap-3 mt-6">
             <button 
               onClick={onClose}
@@ -52,11 +68,7 @@ export default function Modal({ isOpen, onClose, title, message, type = 'default
               Cancel
             </button>
             <button 
-              onClick={() => {
-                // If it's an input modal, pass the input value
-                const inputValue = type === 'input' ? document.getElementById('modal-input').value : null;
-                onConfirm(inputValue);
-              }}
+              onClick={() => onConfirm(inputValue)} // --- PASSES VALUE CORRECTLY ---
               disabled={isLoading}
               className={`px-4 py-2 text-sm font-medium text-white rounded-lg shadow-md transition-all active:scale-95
                 ${type === 'delete' 
@@ -69,7 +81,6 @@ export default function Modal({ isOpen, onClose, title, message, type = 'default
           </div>
         </div>
 
-        {/* Close X Button */}
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
           <X size={18} />
         </button>

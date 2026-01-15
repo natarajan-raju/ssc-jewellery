@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Customers from './Customers';
 import { Users, ShoppingBag, LayoutDashboard, LogOut, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import logo from '../../assets/logo.webp'; 
+import logo from '../../assets/logo_light.webp'; 
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
@@ -87,7 +87,7 @@ export default function AdminDashboard() {
             </main>
 
             {/* --- MOBILE BOTTOM NAV --- */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-6 flex justify-between items-center z-50">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-6 flex justify-between items-center z-40">
                 <MobileNavBtn icon={LayoutDashboard} label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
                 <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />

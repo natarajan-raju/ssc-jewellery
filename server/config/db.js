@@ -13,6 +13,11 @@ const pool = mysql.createPool({
 
 // --- AUTOMATIC TABLE CREATION ---
 const initDB = async () => {
+    // --- THE FIX: Skip DB connection if we are Local ---
+    if (process.env.NODE_ENV !== 'production') {
+        console.log("⚠️  Local Mode Detected: Skipping MySQL Connection. Using JSON files.");
+        return; 
+    }
     try {
         const connection = await pool.getConnection();
         console.log("✅ DB Connected! Checking tables...");
@@ -43,10 +48,34 @@ const initDB = async () => {
             )
         `);
 
+        // 3. PRODUCTS TABLE (New!)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS products (
+                id BIGINT PRIMARY KEY, 
+                title VARCHAR(255) NOT NULL,
+                subtitle VARCHAR(255),
+                description TEXT,
+                ribbon_tag VARCHAR(15), -- Max 15 chars as requested
+                media JSON, -- Stores images/videos as JSON array
+                mrp DECIMAL(10, 2) NOT NULL,
+                discount_price DECIMAL(10, 2),
+                sku VARCHAR(50),
+                weight_kg DECIMAL(6, 3),
+                track_quantity TINYINT(1) DEFAULT 0, -- Checkbox logic
+                quantity INT DEFAULT 0,
+                track_low_stock TINYINT(1) DEFAULT 0, -- Checkbox logic
+                low_stock_threshold INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
         console.log("✅ Tables verified/created successfully!");
         connection.release();
     } catch (error) {
         console.error("❌ Database Initialization Failed:", error.message);
+    } finally {
+        if (connection) connection.release();
     }
 };
 

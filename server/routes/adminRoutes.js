@@ -1,11 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const { protect, admin } = require('../middleware/authMiddleware');
-const adminController = require('../controllers/adminController');
+const { protect, authorize } = require('../middleware/authMiddleware');
+const { getUsers, createUser, deleteUser, resetUserPassword } = require('../controllers/adminController');
 
-// All routes here are protected and require admin role
-router.get('/users', protect, admin, adminController.getUsers);
-router.delete('/users/:id', protect, admin, adminController.deleteUser);
-router.put('/users/:id/reset-password', protect, admin, adminController.adminResetPassword);
-router.post('/users', protect, admin, adminController.createUser);
+// All routes here require login (protect) and must be either Admin or Staff
+router.use(protect);
+router.use(authorize('admin', 'staff'));
+
+router.get('/users', getUsers);
+router.post('/users', createUser);
+router.delete('/users/:id', deleteUser);
+
+// ✅ REVERTED TO ORIGINAL PATH:
+router.put('/users/:id/reset-password', resetUserPassword);
+
 module.exports = router;

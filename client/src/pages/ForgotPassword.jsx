@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { authService } from '../services/authService';
 import { useNavigate, Link, useLocation } from 'react-router-dom'; // Import useLocation
-import { Loader2, ArrowLeft } from 'lucide-react';
+import { Loader2, ArrowLeft,Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import logo from '../assets/logo.webp';
 
@@ -20,7 +20,7 @@ export default function ForgotPassword() {
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
+  const [showPassword, setShowPassword] = useState(false);  
   const handleSendOtp = async (e) => {
     e.preventDefault();
     if (mobile.length < 10) return toast.error("Invalid mobile number");
@@ -97,14 +97,23 @@ export default function ForgotPassword() {
                     onChange={e => setOtp(e.target.value)} 
                     required 
                 />
-                <input 
-                    placeholder="New Password" 
-                    type="password" 
-                    className="input-field" 
-                    value={newPassword} 
-                    onChange={e => setNewPassword(e.target.value)} 
-                    required 
-                />
+                <div className="relative">
+                    <input 
+                        placeholder="New Password" 
+                        type={showPassword ? "text" : "password"} 
+                        className="input-field pr-10" 
+                        value={newPassword} 
+                        onChange={e => setNewPassword(e.target.value)} 
+                        required 
+                    />
+                    <button 
+                        type="button" 
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-3 text-gray-400 hover:text-primary"
+                    >
+                        {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                    </button>
+                </div>
                 <button type="submit" className="btn-primary w-full" disabled={isLoading}>
                     {isLoading ? "Resetting..." : "Set New Password"}
                 </button>

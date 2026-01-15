@@ -1,123 +1,127 @@
+const User = require('../models/User');
 const bcrypt = require('bcryptjs');
-const User = require('../models/User'); // Import the hybrid model
 
-// 1. GET ALL USERS
-// 1. GET ALL USERS (Debug Mode)
-exports.getUsers = async (req, res) => {
+// --- 1. GET ALL USERS ---
+const getUsers = async (req, res) => {
     try {
-        console.log("Attempting to fetch users...");
-        
-        // Call the Model
         const users = await User.getAll();
-        console.log("Users fetched from DB:", users.length); // See if we got data
-
-        // Remove passwords
-        const safeUsers = users.map(user => {
-            const { password, ...rest } = user;
-            return rest;
-        });
-        
-        res.json(safeUsers);
-
+        res.json(users);
     } catch (error) {
-        console.error("❌ CRASH IN GET USERS:", error);
-        
-        // IMPORTANT: Send the ACTUAL error message to the browser
-        res.status(500).json({ 
-            message: "Server Crash", 
-            error_details: error.message,
-            error_stack: error.stack 
-        });
+        res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
 
-// 2. DELETE USER
-exports.deleteUser = async (req, res) => {
-    try {
-        const userId = req.params.id;
-        
-        // Call the Model (handles both JSON and MySQL logic)
-        const success = await User.delete(userId);
-        
-        if (!success) {
-            return res.status(404).json({ message: "User not found" });
-        }
-        
-        res.json({ message: "User removed successfully" });
-    } catch (error) {
-        console.error("Delete User Error:", error);
-        res.status(500).json({ message: "Server Error" });
-    }
-};
+// --- 2. CREATE USER ---
+const createUser = async (req, res) => {
+    const { name, email, mobile, password, address, role } = req.body;
 
-// 3. ADMIN RESET PASSWORD
-exports.adminResetPassword = async (req, res) => {
     try {
-        const { id } = req.params;
-        const { newPassword } = req.body;
-
-        if (!newPassword || newPassword.length < 6) {
-            return res.status(400).json({ message: "Password must be 6+ chars" });
+        const userExists = await User.findByMobile(mobile);
+        if (userExists) {
+            return res.status(400).json({ message: 'User already exists' });
         }
 
-        // Check user existence
-        const user = await User.findById(id);
-        if (!user) return res.status(404).json({ message: "User not found" });
+        // SECURITY: Role Assignment
+        let roleToAssign = 'customer'; // Default
 
-        // Hash new password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-        // Update via Model
-        await User.updatePasswordById(id, hashedPassword);
-
-        res.json({ message: `Password updated successfully` });
-    } catch (error) {
-        console.error("Admin Reset Error:", error);
-        res.status(500).json({ message: "Server Error" });
-    }
-};
-
-// 4. CREATE USER (Manual Admin Add)
-exports.createUser = async (req, res) => {
-    try {
-        const { name, email, mobile, password, address } = req.body;
-
-        if (!name || !email || !mobile || !password) {
-            return res.status(400).json({ message: "All fields are required" });
-        }
-
-        // Check duplicates (MUST await these!)
-        const existingEmail = await User.findByEmail(email);
-        const existingMobile = await User.findByMobile(mobile);
-
-        if (existingEmail || existingMobile) {
-            return res.status(409).json({ message: "User already exists" });
+        // Only Admin can assign 'staff' or 'admin' roles
+        if (req.user.role === 'admin' && role) {
+            roleToAssign = role; 
+        } 
+        // Staff force-assigned to create customers only
+        else if (req.user.role === 'staff') {
+            roleToAssign = 'customer';
         }
 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Create User (MUST await this!)
         const newUser = await User.create({
             name,
             email,
             mobile,
             password: hashedPassword,
-            address: address || null,
-            role: 'customer'
+            role: roleToAssign,
+            address
         });
 
-        // Return without password
-        const { password: _, ...userWithoutPass } = newUser;
-        res.status(201).json({ message: "Customer created", user: userWithoutPass });
+        res.status(201).json({ message: 'User created successfully', user: newUser });
 
     } catch (error) {
-        console.error("Create User Error:", error);
-        res.status(500).json({ 
-            message: "Server Error", 
-            error_details: error.message,  // <--- The clue we need
-            error_code: error.code         // <--- SQL Error Code
-        });
+        console.error(error);
+        res.status(500).json({ message: 'Server Error' });
     }
 };
+
+// --- 3. DELETE USER (Strict Security) ---
+const deleteUser = async (req, res) => {
+    try {
+        const userToDelete = await User.findById(req.params.id);
+        
+        if (!userToDelete) return res.status(404).json({ message: 'User not found' });
+
+        // RULE 1: PROTECT ADMINS
+        // Nobody (not even other Admins) can delete an Admin account via this panel.
+        // This prevents accidental lockouts or malicious deletions.
+        if (userToDelete.role === 'admin') {
+            return res.status(403).json({ 
+                message: 'Action Denied: System Admins cannot be deleted.' 
+            });
+        }
+
+        // RULE 2: STAFF LIMITATIONS
+        // Staff can only delete Customers.
+        if (req.user.role === 'staff') {
+            if (userToDelete.role !== 'customer') {
+                return res.status(403).json({ 
+                    message: 'Access Denied: Staff can only delete customers.' 
+                });
+            }
+        }
+
+        await User.delete(req.params.id);
+        res.json({ message: 'User removed' });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+// --- 4. RESET PASSWORD (Strict Security) ---
+const resetUserPassword = async (req, res) => {
+    const { password } = req.body;
+    try {
+        const userToUpdate = await User.findById(req.params.id);
+        if (!userToUpdate) return res.status(404).json({ message: 'User not found' });
+
+        // RULE 1: CUSTOMER PRIVACY
+        // Nobody (Admin or Staff) can manually reset a Customer's password.
+        if (userToUpdate.role === 'customer') {
+            return res.status(403).json({ 
+                message: 'Action Denied: Customer passwords are private. Please ask them to use "Forgot Password".' 
+            });
+        }
+
+        // RULE 2: STAFF LIMITATIONS
+        if (req.user.role === 'staff') {
+            // Staff can ONLY reset their OWN password.
+            // We compare IDs as strings to ensure matching works correctly.
+            if (String(req.user.id) !== String(req.params.id)) {
+                return res.status(403).json({ 
+                    message: 'Access Denied: You can only reset your own password.' 
+                });
+            }
+        }
+
+        // (Implicit Rule: Admins can reset Staff or other Admins because they pass Rule 1 and skip Rule 2)
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        await User.updatePassword(req.params.id, hashedPassword);
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+module.exports = { getUsers, createUser, deleteUser, resetUserPassword };

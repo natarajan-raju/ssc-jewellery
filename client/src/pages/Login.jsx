@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { Link, useNavigate } from 'react-router-dom';
-import { Loader2, Check, X as XIcon, ShieldCheck } from 'lucide-react'; // Added ShieldCheck
+import { Loader2, Check, X as XIcon, ShieldCheck, Eye, EyeOff} from 'lucide-react'; // Added ShieldCheck
 import { useToast } from '../context/ToastContext';
 import logo from '../assets/logo.webp';
 
@@ -12,7 +12,7 @@ export default function Login() {
   const [method, setMethod] = useState('password');
   const [formData, setFormData] = useState({ identifier: '', password: '', mobile: '', otp: '' });
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [showPassword, setShowPassword] = useState(false);
   const [timer, setTimer] = useState(0);
   const [otpStatus, setOtpStatus] = useState('neutral');
 
@@ -60,18 +60,26 @@ export default function Login() {
         const res = await authService.login(payload);
         if (res.token) {
             if (method === 'otp') setOtpStatus('valid');
+            
+            // --- FIX STARTS HERE ---
             localStorage.setItem('token', res.token);
+            // Save the user object
+            localStorage.setItem('user', JSON.stringify(res.user));
+            // --- FIX ENDS HERE ---
+
             toast.success(`Welcome back, ${res.user.name}!`);
             setTimeout(() => {
                 if (res.user.role === 'admin') navigate('/admin/dashboard');
                 else navigate('/');
             }, 800); 
         } else {
+            // ... existing error handling ...
             if (method === 'otp') setOtpStatus('invalid');
             toast.error(res.message || "Login Failed");
             setIsLoading(false);
         }
     } catch (error) {
+        // ... existing error handling ...
         if (method === 'otp') setOtpStatus('invalid');
         toast.error("Connection Error");
         setIsLoading(false);
@@ -109,7 +117,24 @@ export default function Login() {
             <div className="animate-fade-in space-y-4">
               <input name="identifier" placeholder="Email or Mobile" className="input-field" value={formData.identifier} onChange={handleChange} required />
               <div>
-                <input name="password" placeholder="Password" type="password" className="input-field" value={formData.password} onChange={handleChange} required />
+                <div className="relative">
+                  <input 
+                      name="password" 
+                      placeholder="Password" 
+                      type={showPassword ? "text" : "password"} 
+                      className="input-field pr-10" 
+                      value={formData.password} 
+                      onChange={handleChange} 
+                      required 
+                  />
+                  <button 
+                      type="button" 
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-3 text-gray-400 hover:text-primary"
+                  >
+                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
                 <div className="text-right mt-2">
                     <Link to="/forgot-password" state={{ from: 'customer' }} className="text-xs text-accent-deep hover:underline font-medium">Forgot Password?</Link>
                 </div>

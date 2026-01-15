@@ -26,18 +26,34 @@ const saveLocalUsers = (users) => {
 };
 
 class User {
-    // --- 1. GET ALL ---
+    
+    // --- 1. GET ALL (Admin > Staff > Customer) ---
     static async getAll() {
         if (process.env.NODE_ENV === 'production') {
+            // SQL Sort: 3=Admin, 2=Staff, 1=Customer
             const [rows] = await db.execute(`
                 SELECT * FROM users 
-                ORDER BY (role = 'admin') DESC, createdAt DESC
+                ORDER BY 
+                 CASE 
+                    WHEN role = 'admin' THEN 3
+                    WHEN role = 'staff' THEN 2
+                    ELSE 1
+                 END DESC, 
+                 createdAt DESC
             `);
             return rows;
         } else {
-            return getLocalUsers().sort((a, b) => {
-                if (a.role === 'admin') return -1;
-                return new Date(b.createdAt) - new Date(a.createdAt);
+            // Local JSON Sort
+            const users = getLocalUsers();
+            return users.sort((a, b) => {
+                const getPriority = (role) => {
+                    if (role === 'admin') return 3;
+                    if (role === 'staff') return 2;
+                    return 1;
+                };
+                const diff = getPriority(b.role) - getPriority(a.role);
+                if (diff !== 0) return diff;
+                return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
             });
         }
     }

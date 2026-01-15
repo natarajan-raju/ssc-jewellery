@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { useNavigate, Link } from 'react-router-dom';
-import { Loader2, Check, X as XIcon, AlertCircle } from 'lucide-react';
+import { Loader2, Check, X as XIcon, AlertCircle,Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext'; 
 import logo from '../assets/logo.webp'; 
 
@@ -19,7 +19,7 @@ export default function Register() {
   const [isLoading, setIsLoading] = useState(false);
   const [timer, setTimer] = useState(0); 
   const [otpStatus, setOtpStatus] = useState('neutral'); 
-  
+  const [showPassword, setShowPassword] = useState(false);
   // NEW: Specific state for "User Already Exists" error
   const [userExistsError, setUserExistsError] = useState(false);
 
@@ -203,11 +203,24 @@ export default function Register() {
 
           {/* --- NEW: Password Field with Warning --- */}
           <div>
-            <input 
-                name="password" placeholder="Password" type="password" 
-                className={`input-field ${errors.password ? 'border-red-500 ring-1 ring-red-500' : ''}`}
-                value={formData.password} onChange={handleChange} required 
-            />
+            <div className="relative">
+                <input 
+                    name="password" 
+                    placeholder="Password" 
+                    type={showPassword ? "text" : "password"} 
+                    className={`input-field pr-10 ${errors.password ? 'border-red-500 ring-1 ring-red-500' : ''}`}
+                    value={formData.password} 
+                    onChange={handleChange} 
+                    required 
+                />
+                <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-gray-400 hover:text-primary"
+                >
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+            </div>
             {/* Show error immediately while typing if length < 6 and length > 0 */}
             {errors.password && (
                 <p className="text-xs text-red-500 mt-1 flex items-center gap-1">

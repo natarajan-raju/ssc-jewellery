@@ -13,20 +13,5 @@
     },
     "role": "admin",
     "createdAt": "2026-01-12T15:34:44.683Z"
-  },
-  {
-    "id": "1768235174281",
-    "name": "Natarajan",
-    "email": "natarajan.raju90@gmail.com",
-    "mobile": "6380435136",
-    "password": "$2b$10$M9/qihgVjjyhbRQOPaqsW.1Hdu07z9pNMMvDEpV0FVGzTdbCikt5a",
-    "address": {
-      "line1": "Tets",
-      "city": "Test",
-      "state": "Test",
-      "zip": "780543"
-    },
-    "role": "customer",
-    "createdAt": "2026-01-12T16:26:14.281Z"
   }
 ]

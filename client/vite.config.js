@@ -2,27 +2,43 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+
 export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000', // Points to your Node Backend
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
       manifest: {
-        name: 'SSC Impon Admin',
-        short_name: 'SSC Admin',
-        description: 'SSC Impon Jewellery Store Admin Dashboard',
-        theme_color: '#0A192F',
+        name: 'SSC Impon Jewellery',      // <--- Fixed Full Name
+        short_name: 'SSC Impon',          // <--- Fixed App Name (Home Screen)
+        description: 'SSC Impon Jewellery Store App',
+        theme_color: '#D4AF37',           // <--- Matched your Gold theme
+        background_color: '#ffffff',
+        display: 'standalone',            // <--- Forces "App" mode (no URL bar)
+        start_url: '/',                   // <--- Ensures it opens the homepage
+        orientation: 'portrait',
         icons: [
           {
-            src: '/logo.webp', // You need to add these images later
+            src: '/logo.webp', 
             sizes: '192x192',
-            type: 'image/webp'
+            type: 'image/webp',
+            purpose: 'any maskable'
           },
           {
             src: '/logo.webp',
             sizes: '512x512',
-            type: 'image/webp'
+            type: 'image/webp',
+            purpose: 'any maskable'
           }
         ]
       }
