@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { adminService } from '../../services/adminService';
 import { 
     Loader2, Trash2, Search, Mail, Phone, Key, 
-    ShieldCheck, Plus, UserCog 
+    ShieldCheck, Plus, UserCog, Filter, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
@@ -12,6 +12,10 @@ export default function Customers() {
     const [users, setUsers] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [roleFilter, setRoleFilter] = useState('all');
     
     // --- ROLE & ID TRACKING ---
     const [currentUserRole, setCurrentUserRole] = useState(null);
@@ -27,13 +31,31 @@ export default function Customers() {
         const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
         setCurrentUserRole(storedUser.role || 'customer');
         setCurrentUserId(storedUser.id);
-    }, []);
+    }, [page, roleFilter]);
 
     const loadUsers = async () => {
+        setIsLoading(true);
         try {
-            const data = await adminService.getUsers();
-            setUsers(data);
-        } catch (error) { toast.error("Failed to load users"); } 
+            const data = await adminService.getUsers(page, roleFilter);
+            
+            // --- FIX: Bounce back if current page is empty ---
+            if (data.users && data.users.length === 0 && page > 1) {
+                // If we are on Page 2 and it's now empty, go back to Page 1
+                setPage(prev => prev - 1);
+                return; // Stop here, the useEffect will fetch the previous page
+            }
+            // -------------------------------------------------
+
+            if (data.users) {
+                setUsers(data.users);
+                setTotalPages(data.pagination?.totalPages || 1);
+            } else {
+                setUsers(data);
+            }
+        } catch (error) { 
+            console.error(error);
+            toast.error("Failed to load users"); 
+        } 
         finally { setIsLoading(false); }
     };
 
@@ -42,8 +64,9 @@ export default function Customers() {
         if (addModalRole === 'staff') {
             delete payload.addressLine1; delete payload.city; delete payload.state; delete payload.zip;
         }
-        const res = await adminService.createUser(payload);
-        setUsers([...users, res.user]); 
+        await adminService.createUser(payload);
+        // adminService.clearCache();
+        await loadUsers();
         setAddModalRole(null);
         toast.success(`${addModalRole === 'staff' ? 'Staff' : 'Customer'} added successfully`);
     };
@@ -68,7 +91,8 @@ export default function Customers() {
         try {
             if (type === 'delete') {
                 await adminService.deleteUser(targetUser.id);
-                setUsers(users.filter(u => u.id !== targetUser.id));
+                // adminService.clearCache();
+                await loadUsers();
                 toast.success("User deleted successfully");
             } else if (type === 'password' || type === 'input') {
                 if (!inputValue || inputValue.length < 6) {
@@ -136,7 +160,24 @@ export default function Customers() {
                 </div>
                 
                 <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-                    <div className="relative flex-1 md:w-64 lg:w-80">
+                    {/* --- INSERT THIS BLOCK BEFORE SEARCH --- */}
+                    <div className="relative hidden md:block">
+                        <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                        <select 
+                            value={roleFilter}
+                            onChange={(e) => {
+                                setRoleFilter(e.target.value);
+                                setPage(1); // Reset to page 1
+                            }}
+                            className="pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
+                        >
+                            <option value="all">All Roles</option>
+                            <option value="customer">Customers</option>
+                            <option value="staff">Staff</option>
+                            <option value="admin">Admins</option>
+                        </select>
+                    </div>
+                    <div className="relative flex-1 md:w-64 lg:w-80">                        
                         <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <input 
                             placeholder="Search users..." 
@@ -272,7 +313,40 @@ export default function Customers() {
                                 ))}
                             </tbody>
                         </table>
+                        
+                        
                     </div>
+                    {/* --- PAGINATION CONTROLS (Mobile Optimized) --- */}
+                    {!isLoading && users.length > 0 && (
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-gray-200 mt-4">
+                            
+                            {/* Text: Page Info */}
+                            <p className="text-sm text-gray-500 font-medium order-2 md:order-1">
+                                Page <span className="text-primary font-bold">{page}</span> of {totalPages}
+                            </p>
+
+                            {/* Buttons: Prev/Next */}
+                            <div className="flex gap-3 order-1 md:order-2 w-full md:w-auto justify-center">
+                                <button 
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={page === 1}
+                                    className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-white hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all bg-gray-50 text-sm font-bold flex-1 md:flex-none justify-center"
+                                >
+                                    <ChevronLeft size={18} />
+                                    Prev
+                                </button>
+                                
+                                <button 
+                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={page === totalPages}
+                                    className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-white hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all bg-gray-50 text-sm font-bold flex-1 md:flex-none justify-center"
+                                >
+                                    Next
+                                    <ChevronRight size={18} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </>
             )}
         </div>

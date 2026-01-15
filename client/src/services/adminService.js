@@ -15,6 +15,9 @@ const getAuthHeader = () => {
     };
 };
 
+// --- SIMPLE IN-MEMORY CACHE ---
+let userCache = {};
+
 // 2. ERROR HANDLER (The Fix for "Fake Success")
 const handleResponse = async (res) => {
     if (!res.ok) {
@@ -30,9 +33,24 @@ const handleResponse = async (res) => {
 };
 
 export const adminService = {
-    getUsers: async () => {
-        const res = await fetch(`${API_URL}/users`, { headers: getAuthHeader() });
-        return handleResponse(res);
+    getUsers: async (page = 1, role = 'all') => {
+        // 1. Create a unique key for this request (e.g., "page1_roleadmin")
+        const cacheKey = `page${page}_role${role}`;
+
+        // 2. Check Cache
+        if (userCache[cacheKey]) {
+            console.log("Serving from Cache:", cacheKey); // Debug
+            return userCache[cacheKey];
+        }
+
+        // 3. Fetch from Network
+        const query = `?page=${page}&limit=10&role=${role}`;
+        const res = await fetch(`${API_URL}/users${query}`, { headers: getAuthHeader() });
+        const data = await handleResponse(res);
+
+        // 4. Save to Cache
+        userCache[cacheKey] = data;
+        return data;
     },
 
     deleteUser: async (id) => {
@@ -40,6 +58,7 @@ export const adminService = {
             method: 'DELETE',
             headers: getAuthHeader() 
         });
+        userCache = {};
         return handleResponse(res);
     },
 
@@ -59,6 +78,13 @@ export const adminService = {
             headers: getAuthHeader(),
             body: JSON.stringify(userData)
         });
+        userCache = {};
         return handleResponse(res);
+    },
+
+    // IMPORTANT: Clear cache when data changes!
+    clearCache: () => {
+        console.log("Invalidating Cache...");
+        userCache = {};
     }
 };

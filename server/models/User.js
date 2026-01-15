@@ -186,6 +186,77 @@ class User {
         }
     }
 
+    // --- 6. PAGINATION & FILTERING ---
+    static async getPaginated(page = 1, limit = 10, roleFilter = null) {
+        const offset = (page - 1) * limit;
+        
+        if (process.env.NODE_ENV === 'production') {
+            let query = 'SELECT * FROM users';
+            let countQuery = 'SELECT COUNT(*) as total FROM users';
+            const params = [];
+            
+            // Apply Role Filter
+            if (roleFilter && roleFilter !== 'all') {
+                query += ' WHERE role = ?';
+                countQuery += ' WHERE role = ?';
+                params.push(roleFilter);
+            }
+
+            // Apply Sorting (Admin > Staff > Customer) & Pagination
+            query += ` 
+                ORDER BY 
+                 CASE 
+                    WHEN role = 'admin' THEN 3
+                    WHEN role = 'staff' THEN 2
+                    ELSE 1
+                 END DESC, 
+                 createdAt DESC
+                LIMIT ? OFFSET ?`;
+            
+            // Add limit/offset to params
+            // Note: MySQL require integers for LIMIT/OFFSET
+            params.push(parseInt(limit), parseInt(offset));
+
+            const [users] = await db.execute(query, params);
+            const [countResult] = await db.execute(countQuery, roleFilter && roleFilter !== 'all' ? [roleFilter] : []);
+            
+            return {
+                users,
+                total: countResult[0].total,
+                totalPages: Math.ceil(countResult[0].total / limit)
+            };
+        } else {
+            // Local JSON Logic
+            let users = getLocalUsers();
+            if (roleFilter && roleFilter !== 'all') {
+                users = users.filter(u => u.role === roleFilter);
+            }
+            // Sort
+            // FIX: Add Priority Sorting
+            users.sort((a, b) => {
+                const getPriority = (role) => {
+                    if (role === 'admin') return 3;
+                    if (role === 'staff') return 2;
+                    return 1;
+                };
+                const diff = getPriority(b.role || 'customer') - getPriority(a.role || 'customer');
+                
+                // If roles are same, sort by date (Newest first)
+                if (diff !== 0) return diff;
+                return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+            });
+            
+            const total = users.length;
+            const paginatedUsers = users.slice(offset, offset + parseInt(limit));
+            
+            return {
+                users: paginatedUsers,
+                total,
+                totalPages: Math.ceil(total / limit)
+            };
+        }
+    }
+
     static async updatePassword(mobile, hashedPassword) {
         if (process.env.NODE_ENV === 'production') {
             await db.execute('UPDATE users SET password = ? WHERE mobile = ?', [hashedPassword, mobile]);

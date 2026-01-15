@@ -1,12 +1,25 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 
-// --- 1. GET ALL USERS ---
+// --- 1. GET ALL USERS (PAGINATED) ---
 const getUsers = async (req, res) => {
     try {
-        const users = await User.getAll();
-        res.json(users);
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const role = req.query.role || 'all';
+
+        const result = await User.getPaginated(page, limit, role);
+        
+        res.json({
+            users: result.users,
+            pagination: {
+                currentPage: page,
+                totalPages: result.totalPages,
+                totalUsers: result.total
+            }
+        });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };

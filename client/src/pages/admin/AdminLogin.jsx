@@ -25,7 +25,7 @@ export default function AdminLogin() {
                 localStorage.setItem('user', JSON.stringify(res.user)); 
                 // --- FIX ENDS HERE ---
 
-                toast.success("Welcome, Admin!");
+                toast.success(`Welcome, ${res.user.name || res.user.role || "Admin"}!`);
                 navigate('/admin/dashboard');
             } else {
                 toast.error(res.message);
