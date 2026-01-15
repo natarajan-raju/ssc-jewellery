@@ -33,6 +33,15 @@ export default defineConfig({
             purpose: 'any maskable'
           }
         ]
+      },
+      workbox: {
+        // This ensures the SW cleans up old files aggressively
+        cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
+        // 3. Ensure the index.html is never cached blindly
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api/], // Don't cache API calls
       }
     })
   ],
