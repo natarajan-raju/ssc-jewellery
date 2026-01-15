@@ -2,24 +2,12 @@ const API_URL = import.meta.env.PROD
   ? '/api/admin' 
   : 'http://localhost:5000/api/admin';
 
-// --- FIX: Robust Token Retrieval ---
+// 1. Get Token Securely
 const getAuthHeader = () => {
     let token = null;
-
-    // 1. Try finding token in 'user' object (Pattern used in Customers.jsx)
     const userObj = JSON.parse(localStorage.getItem('user') || '{}');
-    if (userObj.token) token = userObj.token;
-
-    // 2. Fallback: Try 'userInfo' object (Common pattern)
-    if (!token) {
-        const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-        if (userInfo.token) token = userInfo.token;
-    }
-
-    // 3. Fallback: Try direct 'token' string
-    if (!token) {
-        token = localStorage.getItem('token');
-    }
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    token = userObj.token || userInfo.token || localStorage.getItem('token');
 
     return { 
         'Authorization': `Bearer ${token}`, 
@@ -27,38 +15,50 @@ const getAuthHeader = () => {
     };
 };
 
+// 2. ERROR HANDLER (The Fix for "Fake Success")
+const handleResponse = async (res) => {
+    if (!res.ok) {
+        try {
+            const err = await res.json();
+            throw new Error(err.message || 'Action failed');
+        } catch (e) {
+            // Pass the error message to the UI
+            throw new Error(e.message || res.statusText || 'Server Error');
+        }
+    }
+    return res.json();
+};
+
 export const adminService = {
     getUsers: async () => {
         const res = await fetch(`${API_URL}/users`, { headers: getAuthHeader() });
-        if (!res.ok) throw new Error('Unauthorized');
-        return res.json();
+        return handleResponse(res);
     },
+
     deleteUser: async (id) => {
         const res = await fetch(`${API_URL}/users/${id}`, { 
             method: 'DELETE',
             headers: getAuthHeader() 
         });
-        return res.json();
+        return handleResponse(res);
     },
+
     resetPassword: async (id, newPassword) => {
+        // Sends 'password' to match controller expectation
         const res = await fetch(`${API_URL}/users/${id}/reset-password`, { 
             method: 'PUT',
             headers: getAuthHeader(),
-            body: JSON.stringify({ newPassword })
+            body: JSON.stringify({ password: newPassword }) 
         });
-        return res.json();
+        return handleResponse(res);
     },
+
     createUser: async (userData) => {
         const res = await fetch(`${API_URL}/users`, { 
             method: 'POST',
             headers: getAuthHeader(),
             body: JSON.stringify(userData)
         });
-        // Handle non-200 errors specifically to parse backend message
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.message || 'Failed to create user');
-        }
-        return res.json();
+        return handleResponse(res);
     }
 };

@@ -129,25 +129,38 @@ class User {
     }
 
     // --- 4. DELETE USER ---
+    // --- 4. DELETE USER (Leak-Proof Version) ---
     static async delete(id) {
         if (process.env.NODE_ENV === 'production') {
-            const connection = await db.getConnection();
+            let connection; // Declare outside
             try {
+                connection = await db.getConnection(); // Get connection
                 await connection.beginTransaction();
-                const [user] = await connection.query('SELECT mobile FROM users WHERE id = ?', [id]);
-                if (user.length > 0) {
-                    await connection.query('DELETE FROM otps WHERE mobile = ?', [user[0].mobile]);
+
+                // 1. Get mobile to delete related OTPs (if any)
+                const [userRows] = await connection.query('SELECT mobile FROM users WHERE id = ?', [id]);
+                
+                if (userRows.length > 0) {
+                    const mobile = userRows[0].mobile;
+                    // Delete OTPs first (clean up)
+                    await connection.query('DELETE FROM otps WHERE mobile = ?', [mobile]);
                 }
+
+                // 2. Delete the User
                 await connection.query('DELETE FROM users WHERE id = ?', [id]);
+
                 await connection.commit();
                 return true;
+
             } catch (error) {
-                await connection.rollback();
+                if (connection) await connection.rollback();
                 throw error;
             } finally {
-                connection.release();
+                // SAFETY CHECK: Only release if connection exists
+                if (connection) connection.release(); 
             }
         } else {
+            // Local JSON Logic (Keep as is)
             let users = getLocalUsers();
             const initialLength = users.length;
             users = users.filter(u => u.id != id);
