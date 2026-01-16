@@ -1,10 +1,11 @@
 const mysql = require('mysql2/promise');
-require('dotenv').config();
+
+// 1. REMOVED dotenv config (It is handled in server/index.js now)
 
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
+    password: process.env.DB_PASSWORD, // 2. FIXED: Changed DB_PASSWORD to DB_PASS
     database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
@@ -13,17 +14,15 @@ const pool = mysql.createPool({
 
 // --- AUTOMATIC TABLE CREATION ---
 const initDB = async () => {
-    // --- THE FIX: Skip DB connection if we are Local ---
-    if (process.env.NODE_ENV !== 'production') {
-        console.log("⚠️  Local Mode Detected: Skipping MySQL Connection. Using JSON files.");
-        return; 
-    }
+    // 3. REMOVED "Skip if Local" block. 
+    // We want this to run on Remote SQL (Dev) and Production alike.
+
     let connection;
     try {
         connection = await pool.getConnection();
-        console.log("✅ DB Connected! Checking tables...");
+        console.log(`✅ Connected to DB: ${process.env.DB_NAME} on ${process.env.DB_HOST}`);
 
-        // 1. Create OTP Table (If not exists)
+        // 1. Create OTP Table
         await connection.query(`
             CREATE TABLE IF NOT EXISTS otps (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -34,38 +33,39 @@ const initDB = async () => {
             )
         `);
 
-        // 2. Create Users Table (If not exists)
-        // (I added standard fields based on your authController)
+        // 2. Create Users Table (UPDATED SCHEMA)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                id VARCHAR(50) PRIMARY KEY, -- 4. FIXED: Changed INT to VARCHAR for "lr6x2z..." IDs
                 name VARCHAR(100),
                 email VARCHAR(100) UNIQUE,
                 mobile VARCHAR(15) UNIQUE NOT NULL,
                 password VARCHAR(255),
                 address TEXT,
-                role VARCHAR(20) DEFAULT 'user',
+                role VARCHAR(20) DEFAULT 'customer', -- Updated default to match logic
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
 
-        // 3. PRODUCTS TABLE (New!)
+        // 3. PRODUCTS TABLE (Updated with status & categories)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS products (
-                id BIGINT PRIMARY KEY, 
+                id VARCHAR(50) PRIMARY KEY,
                 title VARCHAR(255) NOT NULL,
                 subtitle VARCHAR(255),
                 description TEXT,
-                ribbon_tag VARCHAR(15), -- Max 15 chars as requested
-                media JSON, -- Stores images/videos as JSON array
+                ribbon_tag VARCHAR(50), 
+                media JSON,            -- Stores [ {type: 'image', url: '...'}, {type: 'youtube', url: '...'} ]
+                categories JSON,       -- Stores ["Necklaces", "Gold"]
                 mrp DECIMAL(10, 2) NOT NULL,
                 discount_price DECIMAL(10, 2),
                 sku VARCHAR(50),
                 weight_kg DECIMAL(6, 3),
-                track_quantity TINYINT(1) DEFAULT 0, -- Checkbox logic
+                track_quantity TINYINT(1) DEFAULT 0,
                 quantity INT DEFAULT 0,
-                track_low_stock TINYINT(1) DEFAULT 0, -- Checkbox logic
+                track_low_stock TINYINT(1) DEFAULT 0,
                 low_stock_threshold INT DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'active', -- 'active' or 'inactive'
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
@@ -78,7 +78,7 @@ const initDB = async () => {
     } 
 };
 
-// Run the check immediately when server starts
+// Run check on startup
 initDB();
 
 module.exports = pool;

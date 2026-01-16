@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Customers from './Customers';
-import { Users, ShoppingBag, LayoutDashboard, LogOut, ExternalLink } from 'lucide-react';
+import Products from './Products';
+import { Users, ShoppingBag, LayoutDashboard, LogOut, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo_light.webp'; 
 
@@ -46,6 +47,7 @@ export default function AdminDashboard() {
                 
                 <nav className="flex-1 p-4 space-y-2">
                     <NavItem icon={LayoutDashboard} label="Dashboard" id="dashboard" />
+                    <NavItem icon={Package} label="Products" id="products" />
                     <NavItem icon={Users} label="Customers" id="customers" />
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
                 </nav>
@@ -78,6 +80,7 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
+                    {activeTab === 'products' && <Products />}
                     {activeTab === 'customers' && <Customers />}
                     {activeTab === 'dashboard' && <div className="p-10 text-center text-gray-400">Dashboard Stats Coming Soon</div>}
                     {activeTab === 'orders' && <div className="p-10 text-center text-gray-400">Order Management Coming Soon</div>}
@@ -97,6 +100,7 @@ export default function AdminDashboard() {
             {/* --- MOBILE BOTTOM NAV --- */}
             <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-6 flex justify-between items-center z-40">
                 <MobileNavBtn icon={LayoutDashboard} label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+                <MobileNavBtn icon={Package} label="Products" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
                 <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
             </div>
