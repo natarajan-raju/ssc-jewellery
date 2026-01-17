@@ -106,7 +106,7 @@ export default function Products() {
                 productToEdit={editingProduct}
             />
 
-            {/* --- DELETE CONFIRMATION MODAL (Custom UI) --- */}
+            {/* --- DELETE CONFIRMATION MODAL --- */}
             {productToDelete && (
                  <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
                      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 animate-in zoom-in-95">
@@ -175,29 +175,79 @@ export default function Products() {
                 <>
                     {/* 1. MOBILE LIST (Card View) */}
                     <div className="grid grid-cols-1 gap-4 md:hidden">
-                        {filteredProducts.map(product => (
-                            <div key={product.id} className="p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex gap-4">
-                                <div className="w-20 h-24 rounded-lg bg-gray-100 overflow-hidden shrink-0 relative border border-gray-200">
-                                    {product.media && product.media.find(m => m.type === 'image') ? (
-                                        <img src={product.media.find(m => m.type === 'image').url} className="w-full h-full object-cover" alt="" />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-gray-300"><Package size={20}/></div>
-                                    )}
-                                </div>
-                                <div className="flex-1 flex flex-col justify-between">
-                                    <div>
-                                        <h3 className="font-bold text-gray-800 line-clamp-1">{product.title}</h3>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-primary font-bold">₹{product.discount_price || product.mrp}</span>
+                        {filteredProducts.map(product => {
+                            // --- 1. CALCULATE PRICE DISPLAY (Same as Desktop) ---
+                            let priceDisplay;
+                            if (product.variants && product.variants.length > 1) { // FIX: Only range if >1 variant
+                                const prices = product.variants.map(v => Number(v.discount_price || v.price || 0));
+                                const minPrice = Math.min(...prices);
+                                const maxPrice = Math.max(...prices);
+                                priceDisplay = minPrice === maxPrice 
+                                    ? `₹${minPrice}` 
+                                    : `₹${minPrice} - ₹${maxPrice}`;
+                            } else {
+                                priceDisplay = `₹${product.discount_price || product.mrp}`;
+                            }
+
+                            // --- 2. INACTIVE STATUS VISUALS ---
+                            const isInactive = product.status !== 'active';
+                            const cardClasses = isInactive 
+                                ? "p-4 bg-gray-50 rounded-xl shadow-sm border border-gray-100 flex gap-4 grayscale opacity-80" 
+                                : "p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex gap-4";
+
+                            // --- 3. ROBUST TRACKING CHECK ---
+                            const isTracked = String(product.track_quantity) === '1' || String(product.track_quantity) === 'true' || product.track_quantity === true;
+
+                            return (
+                                <div key={product.id} className={cardClasses}>
+                                    {/* Image */}
+                                    <div className="w-20 h-24 rounded-lg bg-gray-100 overflow-hidden shrink-0 relative border border-gray-200">
+                                        {product.media && product.media.find(m => m.type === 'image') ? (
+                                            <img src={product.media.find(m => m.type === 'image').url} className="w-full h-full object-cover" alt="" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-gray-300"><Package size={20}/></div>
+                                        )}
+                                    </div>
+
+                                    {/* Content */}
+                                    <div className="flex-1 flex flex-col justify-between">
+                                        <div>
+                                            <div className="flex justify-between items-start">
+                                                <h3 className="font-bold text-gray-800 line-clamp-1 mr-2">{product.title}</h3>
+                                                {/* Status Badge */}
+                                                {isInactive ? (
+                                                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-600 uppercase tracking-wide">Hidden</span>
+                                                ) : (
+                                                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 uppercase tracking-wide">Active</span>
+                                                )}
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-2 mt-1">
+                                                <span className="text-primary font-bold">{priceDisplay}</span>
+                                            </div>
+                                            
+                                            {/* Stock Summary */}
+                                            {isTracked && (
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    {product.variants?.length > 0 
+                                                        ? `${product.variants.reduce((acc, v) => {
+                                                            const vTracked = String(v.track_quantity) === '1' || String(v.track_quantity) === 'true' || v.track_quantity === true;
+                                                            return acc + (vTracked ? Number(v.quantity || 0) : 0);
+                                                        }, 0)} units`
+                                                        : `${product.quantity || 0} units`
+                                                    }
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div className="flex justify-end gap-2 mt-2">
+                                            <button onClick={() => openEditModal(product)} className="p-2 bg-gray-50 rounded-lg text-gray-600 hover:text-accent-deep"><Edit3 size={16}/></button>
+                                            <button onClick={() => initiateDelete(product)} className="p-2 bg-red-50 rounded-lg text-red-500 hover:bg-red-100"><Trash2 size={16}/></button>
                                         </div>
                                     </div>
-                                    <div className="flex justify-end gap-2 mt-2">
-                                        <button onClick={() => openEditModal(product)} className="p-2 bg-gray-50 rounded-lg text-gray-600 hover:text-accent-deep"><Edit3 size={16}/></button>
-                                        <button onClick={() => initiateDelete(product)} className="p-2 bg-red-50 rounded-lg text-red-500 hover:bg-red-100"><Trash2 size={16}/></button>
-                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     {/* 2. DESKTOP LIST (Table View) */}
@@ -213,58 +263,108 @@ export default function Products() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredProducts.map((product) => (
-                                    <tr key={product.id} className="hover:bg-gray-50/50 transition-colors group">
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
-                                                    {product.media && product.media.find(m => m.type === 'image') ? (
-                                                        <img src={product.media.find(m => m.type === 'image').url} className="w-full h-full object-cover" alt="" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center text-gray-300"><Package size={20}/></div>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <h3 className="font-bold text-gray-800 text-sm">{product.title}</h3>
-                                                    <p className="text-xs text-gray-500 line-clamp-1 max-w-[200px]">{product.sku || 'No SKU'}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold text-gray-900">₹{product.discount_price || product.mrp}</span>
-                                            </div>
-                                        </td>
+                                {filteredProducts.map((product) => {
+                                    // --- 1. ROBUST PRICE DISPLAY ---
+                                    let priceDisplay;
+                                    if (product.variants && product.variants.length > 1) { // FIX: Only range if >1 variant
+                                        const prices = product.variants.map(v => Number(v.discount_price || v.price || 0));
+                                        const minPrice = Math.min(...prices);
+                                        const maxPrice = Math.max(...prices);
+                                        priceDisplay = minPrice === maxPrice 
+                                            ? `₹${minPrice}` 
+                                            : `₹${minPrice} - ₹${maxPrice}`;
+                                    } else {
+                                        priceDisplay = `₹${product.discount_price || product.mrp}`;
+                                    }
+
+                                    // --- 2. ROBUST TRACKING CHECK ---
+                                    const isTracked = String(product.track_quantity) === '1' || String(product.track_quantity) === 'true' || product.track_quantity === true;
+
+                                    // --- 3. STOCK DISPLAY LOGIC ---
+                                    let stockDisplay;
+                                    if (product.variants && product.variants.length > 0) {
+                                        const isAnyVariantTracked = product.variants.some(v => String(v.track_quantity) === '1' || String(v.track_quantity) === 'true' || v.track_quantity === true);
                                         
-                                        {/* --- UPDATED STOCK COLUMN --- */}
-                                        <td className="px-6 py-4">
-                                            {product.track_quantity ? (
-                                                <div className={`text-sm font-medium ${product.quantity <= (product.low_stock_threshold || 0) ? 'text-red-500' : 'text-gray-600'}`}>
-                                                    {product.quantity} units
+                                        if (isAnyVariantTracked) {
+                                            const totalStock = product.variants.reduce((sum, v) => {
+                                                const vTracked = String(v.track_quantity) === '1' || String(v.track_quantity) === 'true' || v.track_quantity === true;
+                                                return sum + (vTracked ? (Number(v.quantity) || 0) : 0);
+                                            }, 0);
+                                            stockDisplay = (
+                                                <div className="text-sm font-medium text-gray-600">
+                                                    {totalStock} units <span className="text-xs text-gray-400">(Total)</span>
                                                 </div>
-                                            ) : (
+                                            );
+                                        } else {
+                                            stockDisplay = (
                                                 <div className="flex items-center gap-1 text-gray-400">
-                                                    <InfinityIcon size={18} />
-                                                    <span className="text-xs">Untracked</span>
+                                                    <InfinityIcon size={18} /> <span className="text-xs">Unlimited</span>
                                                 </div>
-                                            )}
-                                        </td>
-                                        
-                                        <td className="px-6 py-4">
-                                            {product.status === 'active' ? (
-                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700"><Eye size={12}/> Active</span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"><EyeOff size={12}/> Hidden</span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex justify-end gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={() => openEditModal(product)} className="p-2 text-gray-400 hover:text-accent-deep hover:bg-amber-50 rounded-lg transition-colors"><Edit3 size={18} /></button>
-                                                <button onClick={() => initiateDelete(product)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                            );
+                                        }
+                                    } else {
+                                        // Single Product
+                                        stockDisplay = isTracked ? (
+                                            <div className={`text-sm font-medium ${product.quantity <= (product.low_stock_threshold || 0) ? 'text-red-500' : 'text-gray-600'}`}>
+                                                {product.quantity} units
                                             </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                        ) : (
+                                            <div className="flex items-center gap-1 text-gray-400">
+                                                <InfinityIcon size={18} /> <span className="text-xs">Untracked</span>
+                                            </div>
+                                        );
+                                    }
+
+                                    // --- 4. ROW CLASSES (Grayscale) ---
+                                    const isInactive = product.status !== 'active';
+                                    const rowClasses = isInactive 
+                                        ? "hover:bg-gray-50/50 transition-colors group grayscale opacity-75 bg-gray-50" 
+                                        : "hover:bg-gray-50/50 transition-colors group";
+
+                                    return (
+                                        <tr key={product.id} className={rowClasses}>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0 border border-gray-200">
+                                                        {product.media && product.media.find(m => m.type === 'image') ? (
+                                                            <img src={product.media.find(m => m.type === 'image').url} className="w-full h-full object-cover" alt="" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-gray-300"><Package size={20}/></div>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="font-bold text-gray-800 text-sm">{product.title}</h3>
+                                                        <p className="text-xs text-gray-500 line-clamp-1 max-w-[200px]">{product.sku || 'No SKU'}</p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-gray-900">{priceDisplay}</span>
+                                                </div>
+                                            </td>
+                                            
+                                            <td className="px-6 py-4">
+                                                {stockDisplay}
+                                            </td>
+                                            
+                                            <td className="px-6 py-4">
+                                                {product.status === 'active' ? (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700"><Eye size={12}/> Active</span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"><EyeOff size={12}/> Hidden</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="flex justify-end gap-2 opacity-100 ">
+                                                    <button onClick={() => openEditModal(product)} className="p-2 text-gray-400 hover:text-accent-deep hover:bg-amber-50 rounded-lg transition-colors"><Edit3 size={18} /></button>
+                                                    <button onClick={() => initiateDelete(product)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>

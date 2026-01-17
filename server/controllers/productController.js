@@ -2,6 +2,14 @@ const Product = require('../models/Product');
 const fs = require('fs');
 const path = require('path');
 
+// --- Helper to parse JSON safely ---
+const safeParse = (data, fallback = []) => {
+    try {
+        return typeof data === 'string' ? JSON.parse(data) : (data || fallback);
+    } catch {
+        return fallback;
+    }
+};
 // --- 1. LIST PRODUCTS ---
 const getProducts = async (req, res) => {
     try {
@@ -22,44 +30,34 @@ const getProducts = async (req, res) => {
 // --- 2. CREATE PRODUCT ---
 const createProduct = async (req, res) => {
     try {
-        // req.body contains text fields
-        // req.files contains uploaded images
-        
         const media = [];
-
-        // 1. Process Uploaded Images
         if (req.files) {
-            req.files.forEach(file => {
-                media.push({
-                    type: 'image',
-                    url: `/uploads/products/${file.filename}`
-                });
-            });
+            req.files.forEach(file => media.push({ type: 'image', url: `/uploads/products/${file.filename}` }));
         }
-
-        // 2. Process YouTube Links (Sent as a JSON string or array in body)
         if (req.body.youtubeLinks) {
-            const links = JSON.parse(req.body.youtubeLinks);
-            links.forEach(link => {
-                media.push({ type: 'youtube', url: link });
-            });
+            safeParse(req.body.youtubeLinks).forEach(link => media.push({ type: 'youtube', url: link }));
         }
 
-        // 3. Prepare Data
         const productData = {
             ...req.body,
-            media: media, // Combined Media Array
-            categories: req.body.categories ? JSON.parse(req.body.categories) : []
+            track_quantity: req.body.track_quantity === 'true' || req.body.track_quantity === true ? 1 : 0,
+            quantity: req.body.quantity || 0,
+            track_low_stock: req.body.track_low_stock === 'true' || req.body.track_low_stock === true ? 1 : 0,
+            low_stock_threshold: req.body.low_stock_threshold || 0,
+            media: media,
+            categories: safeParse(req.body.categories),
+            additional_info: safeParse(req.body.additional_info),
+            options: safeParse(req.body.options), // [NEW]
+            variants: safeParse(req.body.variants) // [NEW]
         };
 
         const newProduct = await Product.create(productData);
         res.status(201).json(newProduct);
     } catch (error) {
-        console.error(error);
+        console.error("Create Error:", error);
         res.status(500).json({ message: 'Create Failed', error: error.message });
     }
 };
-
 // --- 3. DELETE PRODUCT ---
 const deleteProduct = async (req, res) => {
     try {
@@ -74,49 +72,16 @@ const deleteProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
     try {
         const { id } = req.params;
-        console.log(`📝 Updating Product: ${id}`);
-
-        // 1. Handle New Images (Uploaded via Multer)
+        
+        // Media Logic
         const newImages = [];
-        if (req.files && req.files.length > 0) {
-            req.files.forEach(file => {
-                newImages.push({
-                    type: 'image',
-                    url: `/uploads/products/${file.filename}`
-                });
-            });
+        if (req.files) {
+            req.files.forEach(file => newImages.push({ type: 'image', url: `/uploads/products/${file.filename}` }));
         }
-
-        // 2. Handle New YouTube Links (Parsed from JSON)
-        let newYoutube = [];
-        if (req.body.youtubeLinks) {
-            try {
-                const links = JSON.parse(req.body.youtubeLinks);
-                if (Array.isArray(links)) {
-                    newYoutube = links.map(link => ({ type: 'youtube', url: link }));
-                }
-            } catch (e) {
-                console.error("Error parsing youtubeLinks:", e);
-            }
-        }
-
-        // 3. Handle Existing Media (Parsed from JSON)
-        // This preserves images/videos that were NOT deleted by the user
-        let existingMedia = [];
-        if (req.body.existingMedia) {
-            try {
-                existingMedia = JSON.parse(req.body.existingMedia);
-            } catch (e) {
-                console.error("Error parsing existingMedia:", e);
-            }
-        }
-
-        // 4. Combine All Media
-        // Order: Existing Items + New Images + New YouTube
+        const newYoutube = safeParse(req.body.youtubeLinks).map(link => ({ type: 'youtube', url: link }));
+        const existingMedia = safeParse(req.body.existingMedia);
         const finalMedia = [...existingMedia, ...newImages, ...newYoutube];
 
-        // 5. Prepare Update Data
-        // We use || null to prevent 'undefined' errors in MySQL
         const productData = {
             title: req.body.title,
             subtitle: req.body.subtitle || null,
@@ -128,22 +93,22 @@ const updateProduct = async (req, res) => {
             weight_kg: req.body.weight_kg || null,
             status: req.body.status || 'active',
             
-            // Inventory Logic
             track_quantity: req.body.track_quantity === 'true' || req.body.track_quantity === true ? 1 : 0,
             quantity: req.body.quantity || 0,
             track_low_stock: req.body.track_low_stock === 'true' || req.body.track_low_stock === true ? 1 : 0,
             low_stock_threshold: req.body.low_stock_threshold || 0,
 
-            // JSON Fields
             media: finalMedia,
-            categories: req.body.categories ? JSON.parse(req.body.categories) : []
+            categories: safeParse(req.body.categories),
+            additional_info: safeParse(req.body.additional_info),
+            options: safeParse(req.body.options), // [NEW]
+            variants: safeParse(req.body.variants) // [NEW]
         };
 
         await Product.update(id, productData);
-        res.json({ message: 'Product updated successfully', product: { id, ...productData } });
-
+        res.json({ message: 'Product updated successfully' });
     } catch (error) {
-        console.error("❌ Update Product Error:", error);
+        console.error("Update Error:", error);
         res.status(500).json({ message: 'Update Failed', error: error.message });
     }
 };

@@ -47,7 +47,7 @@ const initDB = async () => {
             )
         `);
 
-        // 3. PRODUCTS TABLE (Updated with status & categories)
+        // 3. PRODUCTS TABLE (Added 'options' column)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS products (
                 id VARCHAR(50) PRIMARY KEY,
@@ -55,8 +55,10 @@ const initDB = async () => {
                 subtitle VARCHAR(255),
                 description TEXT,
                 ribbon_tag VARCHAR(50), 
-                media JSON,            -- Stores [ {type: 'image', url: '...'}, {type: 'youtube', url: '...'} ]
-                categories JSON,       -- Stores ["Necklaces", "Gold"]
+                media JSON,
+                categories JSON,
+                additional_info JSON,
+                options JSON,          -- [NEW] Stores definitions e.g. [{name: 'Size', values: ['S', 'M']}]
                 mrp DECIMAL(10, 2) NOT NULL,
                 discount_price DECIMAL(10, 2),
                 sku VARCHAR(50),
@@ -65,11 +67,32 @@ const initDB = async () => {
                 quantity INT DEFAULT 0,
                 track_low_stock TINYINT(1) DEFAULT 0,
                 low_stock_threshold INT DEFAULT 0,
-                status VARCHAR(20) DEFAULT 'active', -- 'active' or 'inactive'
+                status VARCHAR(20) DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+
+        // 4. [NEW] PRODUCT VARIANTS TABLE
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS product_variants (
+                id VARCHAR(50) PRIMARY KEY,
+                product_id VARCHAR(50) NOT NULL,
+                variant_title VARCHAR(255), -- e.g. "Small / Red"
+                variant_options JSON,       -- e.g. {"Size": "Small", "Color": "Red"}
+                price DECIMAL(10, 2) NOT NULL,
+                discount_price DECIMAL(10, 2),
+                sku VARCHAR(50),
+                weight_kg DECIMAL(6, 3),
+                quantity INT DEFAULT 0,
+                track_quantity TINYINT(1) DEFAULT 0,
+                track_low_stock TINYINT(1) DEFAULT 0,
+                low_stock_threshold INT DEFAULT 0,
+                image_url TEXT,             -- Specific image for this variant
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        `);
+        
 
         console.log("✅ Tables verified/created successfully!");
         connection.release();
