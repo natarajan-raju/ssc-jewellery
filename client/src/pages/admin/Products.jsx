@@ -171,7 +171,7 @@ export default function Products() {
             {/* --- LIST VIEW --- */}
             {isLoading ? (
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
-            ) : (
+            ) : products.length > 0 ? (
                 <>
                     {/* 1. MOBILE LIST (Card View) */}
                     <div className="grid grid-cols-1 gap-4 md:hidden">
@@ -386,7 +386,25 @@ export default function Products() {
                         </div>
                     )}
                 </>
-            )}
+            ) : (// --- EMPTY STATE ILLUSTRATION ---
+                <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
+                    <img 
+                        src="/product_add.svg" 
+                        alt="No products" 
+                        className="w-48 h-48 md:w-64 md:h-64 mb-6 opacity-90"
+                    />
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">No products yet</h3>
+                    <p className="text-gray-500 text-center max-w-md mb-6">
+                        Get started by adding your first product to the inventory.
+                    </p>
+                    <button 
+                        onClick={() => setIsAddModalOpen(true)}
+                        className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                        <Plus size={20} strokeWidth={3} />
+                        <span>Add First Product</span>
+                    </button>
+                </div>)}
         </div>
     );
 }

@@ -316,6 +316,29 @@ export default function Customers() {
                         
                         
                     </div>
+
+                    {/* --- EMPTY STATE ILLUSTRATION (Only Admins Visible) --- */}
+                    {!isLoading && filteredUsers.length > 0 && filteredUsers.every(u => u.role === 'admin') && (
+                        <div className="flex flex-col items-center justify-center py-12 animate-fade-in bg-white rounded-2xl border border-dashed border-gray-200 mt-6 mx-4 md:mx-0 shadow-sm">
+                            <img 
+                                src="/user_add.svg" 
+                                alt="Add users" 
+                                className="w-40 h-40 md:w-56 md:h-56 mb-4 opacity-80"
+                            />
+                            <h3 className="text-lg font-bold text-gray-800 mb-2">No customers or staff yet</h3>
+                            <p className="text-gray-500 text-center max-w-sm mb-6 text-sm">
+                                It looks like only administrators are here. Start adding your team or customers.
+                            </p>
+                            <button 
+                                onClick={() => setAddModalRole('customer')}
+                                className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-2.5 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                                <Plus size={18} strokeWidth={3} />
+                                <span>Add First Customer</span>
+                            </button>
+                        </div>
+                    )}
+                    
                     {/* --- PAGINATION CONTROLS (Mobile Optimized) --- */}
                     {!isLoading && users.length > 0 && (
                         <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-gray-200 mt-4">

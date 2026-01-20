@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square } from 'lucide-react';
+import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChveronDown } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null }) {
@@ -12,7 +12,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const [formData, setFormData] = useState({
         title: '', subtitle: '', description: '', mrp: '', discount_price: '',
         ribbon_tag: '', sku: '', weight_kg: '', status: 'active',
-        track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0
+        track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0,
+        categories: []
     });
 
     const [mediaItems, setMediaItems] = useState([]); 
@@ -38,6 +39,11 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
     const [currentVariantIndex, setCurrentVariantIndex] = useState(null);
 
+    //Categories State
+    const [availableCategories, setAvailableCategories] = useState([]); // List of all categories from DB
+    const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+    const [categorySearch, setCategorySearch] = useState('');
+
     // --- 2. EFFECT: POPULATE ON EDIT ---
     useEffect(() => {
         if (isOpen && productToEdit) {
@@ -54,6 +60,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 sku: productToEdit.sku || '', 
                 weight_kg: productToEdit.weight_kg || '',
                 status: productToEdit.status || 'active', 
+                categories: productToEdit.categories || [],
                 // Fix: Correctly read boolean from DB
                 track_quantity: toBool(productToEdit.track_quantity),
                 quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
@@ -121,20 +128,32 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     };
     const handleOptionValueDragEnd = () => setDraggedValueIndex(null);
 
-    const handleAddOptionValue = (e) => {
-        if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            const val = optionForm.inputValue.trim();
-            if (val && !optionForm.values.includes(val)) {
-                setOptionForm(prev => ({ ...prev, values: [...prev.values, val], inputValue: '' }));
-            }
-        }
+    // const handleAddOptionValue = (e) => {
+    //     if (e.key === 'Enter' || e.key === ',') {
+    //         e.preventDefault();
+    //         const val = optionForm.inputValue.trim();
+    //         if (val && !optionForm.values.includes(val)) {
+    //             setOptionForm(prev => ({ ...prev, values: [...prev.values, val], inputValue: '' }));
+    //         }
+    //     }
+    // };
+    // 1. Add a new empty input field
+    const addNewOptionValueInput = () => {
+        setOptionForm(prev => ({ ...prev, values: [...prev.values, ''] }));
     };
-
-    const removeOptionValue = (val) => {
-        setOptionForm(prev => ({ ...prev, values: prev.values.filter(v => v !== val) }));
+    // 2. Handle typing in a specific input field
+    const handleOptionValueChange = (index, newValue) => {
+        const newValues = [...optionForm.values];
+        newValues[index] = newValue;
+        setOptionForm(prev => ({ ...prev, values: newValues }));
     };
-
+    // 3. Updated remove by index
+    const removeOptionValue = (indexToRemove) => {
+        setOptionForm(prev => ({ 
+            ...prev, 
+            values: prev.values.filter((_, index) => index !== indexToRemove) 
+        }));
+    };
     const generateVariants = (currentOptions) => {
         if (currentOptions.length === 0) {
             setVariants([]); return;
@@ -243,6 +262,40 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         setMediaItems(newItems);
     };
 
+    // --- CATEGORY HANDLERS ---
+    const toggleCategory = (category) => {
+        setFormData(prev => {
+            const exists = prev.categories.includes(category);
+            return {
+                ...prev,
+                categories: exists 
+                    ? prev.categories.filter(c => c !== category)
+                    : [...prev.categories, category]
+            };
+        });
+    };
+
+    const addNewCategory = () => {
+        const trimmed = categorySearch.trim();
+        if (!trimmed) return;
+        
+        // Add to available list if not present
+        if (!availableCategories.includes(trimmed)) {
+            setAvailableCategories(prev => [...prev, trimmed]);
+        }
+        
+        // Select it
+        toggleCategory(trimmed);
+        setCategorySearch('');
+    };
+
+    const removeCategoryTag = (catToRemove) => {
+        setFormData(prev => ({
+            ...prev,
+            categories: prev.categories.filter(c => c !== catToRemove)
+        }));
+    };
+
     // --- SUBMIT ---
     const handleSubmit = async () => {
         if (!formData.title) return toast.error("Title required");
@@ -273,7 +326,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
 
             payload.append('additional_info', JSON.stringify(additionalInfo));
             payload.append('options', JSON.stringify(options));
-            
+            payload.append('categories', JSON.stringify(formData.categories));
             // FIX: Only send variants if options exist.
             // Also ensure 1/0 or true/false consistency for variants if needed.
             // Assuming variants use 1/0 in backend loop:
@@ -518,6 +571,81 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                 </div>
                                 <button onClick={() => openInfoModal()} className="flex items-center gap-2 text-primary font-bold text-sm hover:underline"><Plus size={16} /> Add info section</button>
                             </div>
+
+                            {/* --- CATEGORIES SECTION --- */}
+                            <div className="md:col-span-2 space-y-3">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700">Categories</label>
+                                    <p className="text-xs text-gray-500">Use categories to organize products.</p>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {/* Selected Tags Display */}
+                                    <div className="flex flex-wrap gap-2">
+                                        {formData.categories.map((cat, i) => (
+                                            <span key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800 border border-gray-200">
+                                                {cat}
+                                                <button onClick={() => removeCategoryTag(cat)} className="hover:text-red-500"><X size={14} /></button>
+                                            </span>
+                                        ))}
+                                    </div>
+
+                                    {/* Dropdown Container */}
+                                    <div className="relative">
+                                        {!isCategoryOpen ? (
+                                            <button 
+                                                onClick={() => setIsCategoryOpen(true)}
+                                                className="flex items-center gap-2 text-primary font-bold text-sm hover:underline py-2"
+                                            >
+                                                <Plus size={16} /> Assign to category or add new
+                                            </button>
+                                        ) : (
+                                            <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-2 w-full md:w-2/3 lg:w-1/2 absolute z-20 animate-in fade-in zoom-in-95">
+                                                <div className="flex gap-2 border-b border-gray-100 pb-2 mb-2">
+                                                    <input 
+                                                        value={categorySearch}
+                                                        onChange={(e) => setCategorySearch(e.target.value)}
+                                                        placeholder="Search or create..." 
+                                                        className="flex-1 p-2 outline-none text-sm"
+                                                        autoFocus
+                                                    />
+                                                    <button onClick={() => setIsCategoryOpen(false)} className="p-2 text-gray-400 hover:text-gray-600"><X size={16}/></button>
+                                                </div>
+                                                
+                                                <div className="max-h-48 overflow-y-auto space-y-1">
+                                                    {availableCategories
+                                                        .filter(c => c.toLowerCase().includes(categorySearch.toLowerCase()))
+                                                        .map(cat => (
+                                                            <button 
+                                                                key={cat} 
+                                                                onClick={() => toggleCategory(cat)}
+                                                                className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-gray-50 flex items-center justify-between group"
+                                                            >
+                                                                <span className="text-gray-700">{cat}</span>
+                                                                {formData.categories.includes(cat) && <Check size={16} className="text-primary"/>}
+                                                            </button>
+                                                        ))
+                                                    }
+                                                    {/* Show Add New option if search has value */}
+                                                    {categorySearch && !availableCategories.includes(categorySearch) && (
+                                                        <button 
+                                                            onClick={addNewCategory}
+                                                            className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-primary/5 text-primary font-bold flex items-center gap-2"
+                                                        >
+                                                            <Plus size={14} /> Add "{categorySearch}"
+                                                        </button>
+                                                    )}
+                                                    {availableCategories.length === 0 && !categorySearch && (
+                                                        <p className="text-xs text-gray-400 p-3 text-center">Start typing to add a category...</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {/* Overlay to close dropdown when clicking outside */}
+                                        {isCategoryOpen && <div className="fixed inset-0 z-10" onClick={() => setIsCategoryOpen(false)}></div>}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -576,7 +704,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                 <label className="block text-sm font-bold text-gray-700">Option Name</label>
                                 <input value={optionForm.name} onChange={e => setOptionForm({...optionForm, name: e.target.value})} placeholder="e.g. Size, Color" className="w-full p-3 border border-gray-200 rounded-xl focus:border-accent outline-none"/>
                             </div>
-                            <div className="space-y-2">
+                            {/* <div className="space-y-2">
                                 <label className="block text-sm font-bold text-gray-700">Selections</label>
                                 <p className="text-xs text-gray-500">Type and press Enter. Drag to reorder.</p>
                                 <div className="w-full p-2 border border-gray-200 rounded-xl focus-within:border-accent bg-white flex flex-wrap gap-2 items-center min-h-[50px]">
@@ -588,6 +716,50 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                     ))}
                                     <input value={optionForm.inputValue} onChange={e => setOptionForm({...optionForm, inputValue: e.target.value})} onKeyDown={handleAddOptionValue} placeholder="Type selection..." className="flex-1 p-1 outline-none bg-transparent min-w-[100px]"/>
                                 </div>
+                            </div> */}
+                            <div className="space-y-3">
+                                <div>
+                                     <label className="block text-sm font-bold text-gray-700">Selections</label>
+                                     <p className="text-xs text-gray-500">Add values and drag to reorder.</p>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                    {optionForm.values.map((val, i) => (
+                                        <div 
+                                            key={i} 
+                                            draggable 
+                                            onDragStart={() => handleOptionValueDragStart(i)} 
+                                            onDragOver={(e) => handleOptionValueDragOver(e, i)} 
+                                            onDragEnd={handleOptionValueDragEnd} 
+                                            className="flex items-center gap-2 group"
+                                        >
+                                            <div className="text-gray-400 cursor-grab hover:text-primary p-1">
+                                                <GripVertical size={18} />
+                                            </div>
+                                            <input 
+                                                value={val} 
+                                                onChange={(e) => handleOptionValueChange(i, e.target.value)}
+                                                placeholder={`Value ${i + 1} (e.g. Small)`}
+                                                className="flex-1 p-3 border border-gray-200 rounded-xl focus:border-accent outline-none bg-white"
+                                                autoFocus={i === optionForm.values.length - 1 && !val} // Autofocus newly added empty inputs
+                                            />
+                                            <button 
+                                                onClick={() => removeOptionValue(i)} 
+                                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                tabIndex={-1} // Skip tab stop for faster keyboard nav between inputs
+                                            >
+                                                <Trash2 size={18}/>
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <button 
+                                    onClick={addNewOptionValueInput} 
+                                    className="flex items-center gap-1 text-sm font-bold text-primary hover:underline pt-1"
+                                >
+                                    <Plus size={16} /> Add New Value
+                                </button>
                             </div>
                             <div className="flex justify-end gap-3 pt-3">
                                 <button onClick={() => setIsOptionModalOpen(false)} className="px-4 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-50">Cancel</button>
