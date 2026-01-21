@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { protect, admin, staff } = require('../middleware/authMiddleware');
-const { getProducts, createProduct, deleteProduct, updateProduct } = require('../controllers/productController');
+const { getProducts, createProduct, deleteProduct, updateProduct, getCategories } = require('../controllers/productController');
 
 // --- MULTER CONFIGURATION (Image Uploads) ---
 const storage = multer.diskStorage({
@@ -42,5 +42,7 @@ router.delete('/:id', protect, admin, deleteProduct);
 
 //4. Update Product (Admin Only) - Can be added similarly
 router.put('/:id', protect, admin, upload.array('images', 10), updateProduct);
+
+router.get('/categories', protect, getCategories);
 
 module.exports = router;

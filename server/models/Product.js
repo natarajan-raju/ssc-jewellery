@@ -8,7 +8,13 @@ class Product {
         
         // We use a subquery to fetch variants as a JSON array for each product
         let query = `
-            SELECT p.*, 
+            SELECT p.*,
+            (
+                SELECT JSON_ARRAYAGG(c.name)
+                FROM product_categories pc
+                JOIN categories c ON pc.category_id = c.id
+                WHERE pc.product_id = p.id
+            ) as categories_list, 
             (
                 SELECT JSON_ARRAYAGG(
                     JSON_OBJECT(
@@ -30,13 +36,13 @@ class Product {
             ) as variants
             FROM products p
         `;
-        let countQuery = 'SELECT COUNT(*) as total FROM products';
+        let countQuery = 'SELECT COUNT(*) as total FROM products p';
 
         // Filters
         const conditions = [];
         if (category && category !== 'all') {
-            conditions.push('JSON_CONTAINS(categories, ?)');
-            params.push(JSON.stringify(category));
+            conditions.push('EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)');
+            params.push(category);
         }
         if (status && status !== 'all') {
             conditions.push('status = ?');
@@ -57,7 +63,7 @@ class Product {
         const products = rows.map(p => ({
             ...p,
             media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || []),
-            categories: typeof p.categories === 'string' ? JSON.parse(p.categories) : (p.categories || []),
+            categories: typeof p.categories_list === 'string' ? JSON.parse(p.categories_list) : (p.categories_list || []),
             additional_info: typeof p.additional_info === 'string' ? JSON.parse(p.additional_info) : (p.additional_info || []),
             options: typeof p.options === 'string' ? JSON.parse(p.options) : (p.options || []),
             variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || [])
@@ -98,6 +104,8 @@ class Product {
                 data.track_quantity ? 1 : 0, data.quantity || 0, data.track_low_stock ? 1 : 0, data.low_stock_threshold || 0,
                 data.status || 'active'
             ]);
+            // [NEW] Sync Relational Categories
+            await Product.syncCategories(connection, uniqueId, data.categories);
 
             // 2. Insert Variants (if any)
             if (data.variants && data.variants.length > 0) {
@@ -151,6 +159,7 @@ class Product {
             const values = [];
             Object.keys(data).forEach(key => {
                 if(key === 'variants') return; // Handle separately
+                if(key === 'categories') return; // Handle separately
                 fields.push(`${key} = ?`);
                 if (['media','categories','additional_info','options'].includes(key)) {
                     values.push(JSON.stringify(data[key]));
@@ -160,7 +169,10 @@ class Product {
             });
             values.push(id);
             await connection.execute(`UPDATE products SET ${fields.join(', ')} WHERE id = ?`, values);
-
+            // [NEW] Sync Relational Categories
+            if (data.categories) {
+                await Product.syncCategories(connection, id, data.categories);
+            }
             // 2. Sync Variants (Delete Old -> Insert New)
             // Simplest strategy to ensure clean sync
             await connection.execute('DELETE FROM product_variants WHERE product_id = ?', [id]);
@@ -196,6 +208,44 @@ class Product {
         } finally {
             connection.release();
         }
+    }
+
+    // --- HELPER: SECURE CATEGORY SYNC ---
+    static async syncCategories(connection, productId, categoryNames) {
+        // 1. Clear existing links for this product (Clean slate approach)
+        await connection.execute('DELETE FROM product_categories WHERE product_id = ?', [productId]);
+
+        if (!categoryNames || !Array.isArray(categoryNames) || categoryNames.length === 0) return;
+
+        const categoryIds = [];
+        for (const name of categoryNames) {
+            const trimmed = name.trim();
+            if (!trimmed) continue;
+
+            // Check if category exists
+            const [rows] = await connection.execute('SELECT id FROM categories WHERE name = ?', [trimmed]);
+            
+            if (rows.length > 0) {
+                categoryIds.push(rows[0].id);
+            } else {
+                // If not exists, CREATE it dynamically (Tagging style)
+                const [result] = await connection.execute('INSERT INTO categories (name) VALUES (?)', [trimmed]);
+                categoryIds.push(result.insertId);
+            }
+        }
+
+        // 2. Insert new links
+        if (categoryIds.length > 0) {
+            const placeholders = categoryIds.map(() => '(?, ?)').join(', ');
+            const values = categoryIds.flatMap(catId => [productId, catId]);
+            await connection.execute(`INSERT INTO product_categories (product_id, category_id) VALUES ${placeholders}`, values);
+        }
+    }
+
+    // --- HELPER: GET ALL CATEGORIES ---
+    static async getAllCategories() {
+        const [rows] = await db.execute('SELECT name FROM categories ORDER BY name ASC');
+        return rows.map(r => r.name);
     }
 }
 

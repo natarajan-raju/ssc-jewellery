@@ -92,6 +92,26 @@ const initDB = async () => {
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             )
         `);
+
+        // 5. [NEW] CATEGORIES TABLE
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS categories (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // 6. [NEW] PRODUCT_CATEGORIES (Junction Table)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS product_categories (
+                product_id VARCHAR(50) NOT NULL,
+                category_id INT NOT NULL,
+                PRIMARY KEY (product_id, category_id),
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+            )
+        `);
         
 
         console.log("✅ Tables verified/created successfully!");

@@ -111,6 +111,18 @@ const updateProduct = async (req, res) => {
         console.error("Update Error:", error);
         res.status(500).json({ message: 'Update Failed', error: error.message });
     }
+
+
 };
 
-module.exports = { getProducts, createProduct, deleteProduct, updateProduct };
+    // --- 5. GET CATEGORY LIST ---
+const getCategories = async (req, res) => {
+    try {
+        const categories = await Product.getAllCategories();
+        res.json(categories);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch categories' });
+    }
+}
+
+module.exports = { getProducts, createProduct, deleteProduct, updateProduct, getCategories };

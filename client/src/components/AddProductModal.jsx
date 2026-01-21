@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChveronDown } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check} from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { productService } from '../services/productService';
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null }) {
     // --- 1. HOOKS FIRST ---
@@ -43,62 +44,98 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const [availableCategories, setAvailableCategories] = useState([]); // List of all categories from DB
     const [isCategoryOpen, setIsCategoryOpen] = useState(false);
     const [categorySearch, setCategorySearch] = useState('');
-
-    // --- 2. EFFECT: POPULATE ON EDIT ---
+    // ... inside AddProductModal component ...
+    const [isCategoriesLoading, setIsCategoriesLoading] = useState(false); // <--- Add this
+    const categoryInputRef = useRef(null);
+    // --- 2. EFFECT: POPULATE ON EDIT & FETCH CATEGORIES ---
     useEffect(() => {
-        if (isOpen && productToEdit) {
-            // Helper to safely convert DB values (1, "1", true) to boolean
-            const toBool = (val) => String(val) === '1' || String(val) === 'true' || val === true;
+        if (isOpen) {
+            // [NEW] Fetch Categories from Backend
+            // productService.getCategories()
+            //     .then(data => setAvailableCategories(data))
+            //     .catch(err => console.error("Failed to load categories", err));
 
-            setFormData({
-                title: productToEdit.title || '', 
-                subtitle: productToEdit.subtitle || '', 
-                description: productToEdit.description || '',
-                mrp: productToEdit.mrp || '', 
-                discount_price: productToEdit.discount_price || '',
-                ribbon_tag: productToEdit.ribbon_tag || '', 
-                sku: productToEdit.sku || '', 
-                weight_kg: productToEdit.weight_kg || '',
-                status: productToEdit.status || 'active', 
-                categories: productToEdit.categories || [],
-                // Fix: Correctly read boolean from DB
-                track_quantity: toBool(productToEdit.track_quantity),
-                quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
-                track_low_stock: toBool(productToEdit.track_low_stock),
-                low_stock_threshold: productToEdit.low_stock_threshold || 0
-            });
-            
-            if (productToEdit.media) {
-                setMediaItems(productToEdit.media.map(m => ({ ...m, id: Math.random().toString(36), isExisting: true })));
+            // Existing Form Population Logic
+            if (productToEdit) {
+                // Helper to safely convert DB values
+                const toBool = (val) => String(val) === '1' || String(val) === 'true' || val === true;
+
+                setFormData({
+                    title: productToEdit.title || '', 
+                    subtitle: productToEdit.subtitle || '', 
+                    description: productToEdit.description || '',
+                    mrp: productToEdit.mrp || '', 
+                    discount_price: productToEdit.discount_price || '',
+                    ribbon_tag: productToEdit.ribbon_tag || '', 
+                    sku: productToEdit.sku || '', 
+                    weight_kg: productToEdit.weight_kg || '',
+                    status: productToEdit.status || 'active', 
+                    categories: productToEdit.categories || [],
+                    track_quantity: toBool(productToEdit.track_quantity),
+                    quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
+                    track_low_stock: toBool(productToEdit.track_low_stock),
+                    low_stock_threshold: productToEdit.low_stock_threshold || 0
+                });
+                
+                if (productToEdit.media) {
+                    setMediaItems(productToEdit.media.map(m => ({ ...m, id: Math.random().toString(36), isExisting: true })));
+                }
+                
+                setAdditionalInfo(productToEdit.additional_info || []);
+                setOptions(productToEdit.options || []);
+                
+                if (productToEdit.variants && productToEdit.variants.length > 0) {
+                    setVariants(productToEdit.variants.map(v => ({
+                        ...v, 
+                        title: v.variant_title,
+                        price: v.price !== null ? v.price : '', 
+                        discount_price: v.discount_price !== null ? v.discount_price : '', 
+                        sku: v.sku !== null ? v.sku : '',
+                        weight_kg: v.weight_kg !== null ? v.weight_kg : '',
+                        quantity: v.quantity !== null ? v.quantity : 0,
+                        track_quantity: toBool(v.track_quantity),
+                        track_low_stock: toBool(v.track_low_stock),
+                        low_stock_threshold: v.low_stock_threshold || 0,
+                        image_url: v.image_url || ''
+                    })));
+                }
+            } else {
+                // Reset for Add Mode
+                setFormData({
+                    title: '', subtitle: '', description: '', mrp: '', discount_price: '', ribbon_tag: '', sku: '',
+                    weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0,
+                    categories: []
+                });
+                setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
             }
-            
-            setAdditionalInfo(productToEdit.additional_info || []);
-            setOptions(productToEdit.options || []);
-            
-            if (productToEdit.variants && productToEdit.variants.length > 0) {
-                setVariants(productToEdit.variants.map(v => ({
-                    ...v, 
-                    title: v.variant_title,
-                    price: v.price !== null ? v.price : '', 
-                    discount_price: v.discount_price !== null ? v.discount_price : '', 
-                    sku: v.sku !== null ? v.sku : '',
-                    weight_kg: v.weight_kg !== null ? v.weight_kg : '',
-                    quantity: v.quantity !== null ? v.quantity : 0,
-                    track_quantity: toBool(v.track_quantity),
-                    track_low_stock: toBool(v.track_low_stock),
-                    low_stock_threshold: v.low_stock_threshold || 0,
-                    image_url: v.image_url || ''
-                })));
-            }
-        } else if (isOpen) {
-            // Reset for Add Mode
-            setFormData({
-                title: '', subtitle: '', description: '', mrp: '', discount_price: '', ribbon_tag: '', sku: '',
-                weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0
-            });
-            setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
         }
     }, [productToEdit, isOpen]);
+
+    // --- FIX: Lock Body Scroll when Modal is Open ---
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden'; // Freeze background
+        } else {
+            document.body.style.overflow = 'unset';  // Unfreeze
+        }
+        return () => { document.body.style.overflow = 'unset'; }; // Cleanup
+    }, [isOpen]);
+
+     // --- OPTIMIZATION: Cache & Limit Results ---
+    // 1. useMemo: Only re-filter when 'categorySearch' or 'availableCategories' changes.
+    // 2. slice(0, 50): Only render the top 50 results to prevent browser freezing.
+    const filteredCategories = useMemo(() => {
+        // Handle empty/undefined case safely
+        if (!availableCategories) return [];
+
+        // If search is empty, just give the first 50
+        if (!categorySearch) return availableCategories.slice(0, 50);
+
+        // Otherwise, filter and THEN limit
+        return availableCategories
+            .filter(c => c.toLowerCase().includes(categorySearch.toLowerCase()))
+            .slice(0, 50);
+    }, [availableCategories, categorySearch]);
 
     // --- 3. RETURN NULL IF CLOSED ---
     if (!isOpen) return null;
@@ -278,15 +315,24 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const addNewCategory = () => {
         const trimmed = categorySearch.trim();
         if (!trimmed) return;
+
+        setAvailableCategories(prev => {
+            // Case-insensitive check to prevent duplicates like "Summer" vs "summer"
+            const exists = prev.some(c => c.toLowerCase() === trimmed.toLowerCase());
+            if (!exists) {
+                return [...prev, trimmed]; // Add and keep sorted
+            }
+            return prev;
+        });
         
-        // Add to available list if not present
-        if (!availableCategories.includes(trimmed)) {
-            setAvailableCategories(prev => [...prev, trimmed]);
-        }
         
         // Select it
         toggleCategory(trimmed);
         setCategorySearch('');
+
+        setTimeout(() => {
+            categoryInputRef.current?.focus();
+        }, 0);
     };
 
     const removeCategoryTag = (catToRemove) => {
@@ -294,6 +340,23 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             ...prev,
             categories: prev.categories.filter(c => c !== catToRemove)
         }));
+    };
+
+    const handleOpenDropdown = async () => {
+        setIsCategoryOpen(true);
+
+        // Only fetch if we haven't loaded them yet
+        if (availableCategories.length === 0) {
+            setIsCategoriesLoading(true);
+            try {
+                const data = await productService.getCategories();
+                setAvailableCategories(data);
+            } catch (error) {
+                console.error("Failed to load categories");
+            } finally {
+                setIsCategoriesLoading(false);
+            }
+        }
     };
 
     // --- SUBMIT ---
@@ -304,10 +367,9 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         setIsLoading(true);
         try {
             const payload = new FormData();
-            
-            // FIX: Convert booleans to 'true'/'false' strings
-            // This ensures backend check (val === 'true') works correctly.
+            const complexFields = ['categories', 'options', 'additional_info', 'media']; // variants is not in formData, so we don't need to skip it
             Object.keys(formData).forEach(key => {
+                if (complexFields.includes(key)) return;
                 const value = formData[key];
                 if (typeof value === 'boolean') {
                     payload.append(key, value ? 'true' : 'false'); 
@@ -351,6 +413,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             setIsLoading(false);
         }
     };
+
+   
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
@@ -542,36 +606,6 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                 </>
                             )}
 
-                            {/* --- RIBBON TAG --- */}
-                            <div className="space-y-4 md:col-span-2">
-                                <label className="block text-sm font-bold text-gray-700">Ribbon Tag</label>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-3 text-xs bg-primary text-accent px-2 py-0.5 rounded font-bold shadow-sm select-none">PREVIEW</span>
-                                    <input name="ribbon_tag" value={formData.ribbon_tag} onChange={handleChange} className="w-full pl-28 p-3 rounded-xl border border-gray-200 focus:border-accent outline-none transition-all" placeholder="New Arrival, Sale, etc." />
-                                </div>
-                            </div>
-
-                            {/* --- ADDITIONAL INFO --- */}
-                            <div className="md:col-span-2 p-5 bg-white rounded-xl border border-gray-100 shadow-sm space-y-4">
-                                <h3 className="font-bold text-gray-800">Additional info sections</h3>
-                                <div className="space-y-2">
-                                    {additionalInfo.map((item, index) => (
-                                        <div key={item.id} draggable onDragStart={() => handleInfoDragStart(index)} onDragOver={(e) => handleInfoDragOver(e, index)} onDragEnd={() => setDraggedInfoIndex(null)} className={`flex items-start gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 group ${draggedInfoIndex === index ? 'opacity-50' : ''}`}>
-                                            <div className="mt-1 text-gray-400 cursor-grab"><GripVertical size={16} /></div>
-                                            <div className="flex-1">
-                                                <h4 className="text-sm font-bold text-gray-800">{item.title}</h4>
-                                                <p className="text-xs text-gray-500 line-clamp-1">{item.description}</p>
-                                            </div>
-                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={() => openInfoModal(item)} className="p-1.5 hover:bg-white rounded-lg text-gray-500 hover:text-primary"><Pencil size={14} /></button>
-                                                <button onClick={() => deleteInfoSection(item.id)} className="p-1.5 hover:bg-white rounded-lg text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <button onClick={() => openInfoModal()} className="flex items-center gap-2 text-primary font-bold text-sm hover:underline"><Plus size={16} /> Add info section</button>
-                            </div>
-
                             {/* --- CATEGORIES SECTION --- */}
                             <div className="md:col-span-2 space-y-3">
                                 <div>
@@ -594,58 +628,105 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                     <div className="relative">
                                         {!isCategoryOpen ? (
                                             <button 
-                                                onClick={() => setIsCategoryOpen(true)}
+                                                onClick={handleOpenDropdown}
                                                 className="flex items-center gap-2 text-primary font-bold text-sm hover:underline py-2"
                                             >
                                                 <Plus size={16} /> Assign to category or add new
                                             </button>
                                         ) : (
-                                            <div className="bg-white rounded-xl border border-gray-200 shadow-lg p-2 w-full md:w-2/3 lg:w-1/2 absolute z-20 animate-in fade-in zoom-in-95">
-                                                <div className="flex gap-2 border-b border-gray-100 pb-2 mb-2">
+                                            /* FIX: Removed 'absolute', 'shadow-xl', 'z-20'. Added 'w-full', 'bg-gray-50' */
+                                            <div className="bg-gray-50 rounded-xl border border-gray-200 p-3 w-full animate-in fade-in zoom-in-95">
+                                                
+                                                {/* Input Area */}
+                                                <div className="flex gap-2 border-b border-gray-200 pb-2 mb-2">
                                                     <input 
+                                                        ref={categoryInputRef}
                                                         value={categorySearch}
                                                         onChange={(e) => setCategorySearch(e.target.value)}
                                                         placeholder="Search or create..." 
-                                                        className="flex-1 p-2 outline-none text-sm"
+                                                        className="flex-1 p-2 bg-transparent outline-none text-sm font-medium text-gray-800 placeholder:text-gray-400"
                                                         autoFocus
                                                     />
-                                                    <button onClick={() => setIsCategoryOpen(false)} className="p-2 text-gray-400 hover:text-gray-600"><X size={16}/></button>
+                                                    <button onClick={() => setIsCategoryOpen(false)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-lg transition-colors">
+                                                        <X size={16}/>
+                                                    </button>
                                                 </div>
                                                 
-                                                <div className="max-h-48 overflow-y-auto space-y-1">
-                                                    {availableCategories
-                                                        .filter(c => c.toLowerCase().includes(categorySearch.toLowerCase()))
-                                                        .map(cat => (
-                                                            <button 
-                                                                key={cat} 
-                                                                onClick={() => toggleCategory(cat)}
-                                                                className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-gray-50 flex items-center justify-between group"
-                                                            >
-                                                                <span className="text-gray-700">{cat}</span>
-                                                                {formData.categories.includes(cat) && <Check size={16} className="text-primary"/>}
-                                                            </button>
-                                                        ))
-                                                    }
-                                                    {/* Show Add New option if search has value */}
-                                                    {categorySearch && !availableCategories.includes(categorySearch) && (
+                                                {/* List Area */}
+                                                <div className="max-h-48 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                                                    {/* 1. Loading State */}
+                                                    {isCategoriesLoading && (
+                                                        <div className="p-4 text-center text-gray-400 text-xs italic">
+                                                            Loading categories...
+                                                        </div>
+                                                    )}
+
+                                                    {/* 2. Mapped Categories */}
+                                                    {!isCategoriesLoading && filteredCategories.map(cat => (
+                                                        <button 
+                                                            key={cat} 
+                                                            onClick={() => toggleCategory(cat)}
+                                                            className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-white hover:shadow-sm flex items-center justify-between group transition-all"
+                                                        >
+                                                            <span className="text-gray-700">{cat}</span>
+                                                            {formData.categories.includes(cat) && <Check size={16} className="text-primary"/>}
+                                                        </button>
+                                                    ))}
+
+                                                    {/* 3. Empty / Add New State */}
+                                                    {!isCategoriesLoading && categorySearch && !availableCategories.some(c => c.toLowerCase() === categorySearch.toLowerCase().trim()) && (
                                                         <button 
                                                             onClick={addNewCategory}
-                                                            className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-primary/5 text-primary font-bold flex items-center gap-2"
+                                                            className="w-full text-left px-3 py-2 text-sm rounded-lg bg-primary/5 text-primary font-bold flex items-center gap-2 hover:bg-primary/10 transition-colors"
                                                         >
-                                                            <Plus size={14} /> Add "{categorySearch}"
+                                                            <Plus size={14} /> Create "{categorySearch}"
                                                         </button>
                                                     )}
-                                                    {availableCategories.length === 0 && !categorySearch && (
+
+                                                    {!isCategoriesLoading && availableCategories.length === 0 && !categorySearch && (
                                                         <p className="text-xs text-gray-400 p-3 text-center">Start typing to add a category...</p>
                                                     )}
                                                 </div>
                                             </div>
                                         )}
                                         {/* Overlay to close dropdown when clicking outside */}
-                                        {isCategoryOpen && <div className="fixed inset-0 z-10" onClick={() => setIsCategoryOpen(false)}></div>}
+                                        {/* {isCategoryOpen && <div className="fixed inset-0 z-10" onClick={() => setIsCategoryOpen(false)}></div>} */}
                                     </div>
                                 </div>
                             </div>
+
+                            {/* --- RIBBON TAG --- */}
+                            <div className="space-y-4 md:col-span-2">
+                                <label className="block text-sm font-bold text-gray-700">Ribbon Tag</label>
+                                <div className="relative">
+                                    <span className="absolute left-3 top-3 text-xs bg-primary text-accent px-2 py-0.5 rounded font-bold shadow-sm select-none">PREVIEW</span>
+                                    <input name="ribbon_tag" value={formData.ribbon_tag} onChange={handleChange} className="w-full pl-28 p-3 rounded-xl border border-gray-200 focus:border-accent outline-none transition-all" placeholder="New Arrival, Sale, etc." />
+                                </div>
+                            </div>
+
+
+                            {/* --- ADDITIONAL INFO --- */}
+                            <div className="md:col-span-2 p-5 bg-white rounded-xl border border-gray-100 shadow-sm space-y-4">
+                                <h3 className="font-bold text-gray-800">Additional info sections</h3>
+                                <div className="space-y-2">
+                                    {additionalInfo.map((item, index) => (
+                                        <div key={item.id} draggable onDragStart={() => handleInfoDragStart(index)} onDragOver={(e) => handleInfoDragOver(e, index)} onDragEnd={() => setDraggedInfoIndex(null)} className={`flex items-start gap-3 p-3 bg-gray-50 rounded-xl border border-gray-200 group ${draggedInfoIndex === index ? 'opacity-50' : ''}`}>
+                                            <div className="mt-1 text-gray-400 cursor-grab"><GripVertical size={16} /></div>
+                                            <div className="flex-1">
+                                                <h4 className="text-sm font-bold text-gray-800">{item.title}</h4>
+                                                <p className="text-xs text-gray-500 line-clamp-1">{item.description}</p>
+                                            </div>
+                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => openInfoModal(item)} className="p-1.5 hover:bg-white rounded-lg text-gray-500 hover:text-primary"><Pencil size={14} /></button>
+                                                <button onClick={() => deleteInfoSection(item.id)} className="p-1.5 hover:bg-white rounded-lg text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => openInfoModal()} className="flex items-center gap-2 text-primary font-bold text-sm hover:underline"><Plus size={16} /> Add info section</button>
+                            </div>
+
+                            
                         </div>
                     )}
 

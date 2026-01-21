@@ -18,12 +18,20 @@ export default function Products() {
     const [filterCategory, setFilterCategory] = useState('all');
     const [filterStatus, setFilterStatus] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
+    const [categories, setCategories] = useState([]); // <--- New State
 
     // Modals State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
     const [productToDelete, setProductToDelete] = useState(null); // For Delete Confirmation
     const toast = useToast();
+
+    // --- FETCH CATEGORIES FOR FILTER ---
+    useEffect(() => {
+        productService.getCategories()
+            .then(data => setCategories(data))
+            .catch(err => console.error("Failed to load categories", err));
+    }, []);
 
     // --- DATA LOADING ---
     useEffect(() => {
@@ -147,6 +155,20 @@ export default function Products() {
                             <option value="all">All Status</option>
                             <option value="active">Active</option>
                             <option value="inactive">Hidden</option>
+                        </select>
+                    </div>
+                    {/* --- CATEGORY FILTER --- */}
+                    <div className="relative flex-1 md:w-64">
+                        <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                        <select 
+                            value={filterCategory}
+                            onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
+                            className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer md:max-w-[200px]"
+                        >
+                            <option value="all">All Categories</option>
+                            {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
                         </select>
                     </div>
                     <div className="relative flex-1 md:w-64">

@@ -52,6 +52,25 @@ export const productService = {
         return data;
     },
 
+    // --- GET CATEGORIES (With Caching) ---
+    getCategories: async () => {
+        // 1. Check Cache
+        if (productCache['all_categories']) {
+            console.log("Returning categories from cache");
+            return productCache['all_categories'];
+        }
+
+        // 2. Fetch if missing
+        const res = await fetch(`${API_URL}/categories`, { 
+            headers: getAuthHeader() 
+        });
+        const data = await handleResponse(res);
+
+        // 3. Store in Cache
+        productCache['all_categories'] = data;
+        return data;
+    },
+
     // --- CREATE PRODUCT (Multipart Form Data) ---
     createProduct: async (formData) => {
         const res = await fetch(API_URL, {
