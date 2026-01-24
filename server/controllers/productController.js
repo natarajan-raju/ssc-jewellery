@@ -46,6 +46,7 @@ const createProduct = async (req, res) => {
             low_stock_threshold: req.body.low_stock_threshold || 0,
             media: media,
             categories: safeParse(req.body.categories),
+            related_products: safeParse(req.body.related_products),
             additional_info: safeParse(req.body.additional_info),
             options: safeParse(req.body.options), // [NEW]
             variants: safeParse(req.body.variants) // [NEW]
@@ -100,6 +101,7 @@ const updateProduct = async (req, res) => {
 
             media: finalMedia,
             categories: safeParse(req.body.categories),
+            related_products: safeParse(req.body.related_products),
             additional_info: safeParse(req.body.additional_info),
             options: safeParse(req.body.options), // [NEW]
             variants: safeParse(req.body.variants) // [NEW]
@@ -125,4 +127,79 @@ const getCategories = async (req, res) => {
     }
 }
 
-module.exports = { getProducts, createProduct, deleteProduct, updateProduct, getCategories };
+// --- 6. CATEGORY MANAGEMENT ENDPOINTS ---
+
+const getCategoryStats = async (req, res) => {
+    try {
+        const stats = await Product.getCategoriesWithStats();
+        res.json(stats);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching category stats' });
+    }
+};
+
+const getCategoryDetails = async (req, res) => {
+    try {
+        const data = await Product.getCategoryDetails(req.params.id);
+        if (!data) return res.status(404).json({ message: 'Category not found' });
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ message: 'Error fetching category details' });
+    }
+};
+
+const updateCategory = async (req, res) => {
+    try {
+        const { name } = req.body;
+        await Product.updateCategory(req.params.id, name);
+        res.json({ message: 'Category updated' });
+    } catch (error) {
+        res.status(500).json({ message: 'Update failed' });
+    }
+};
+
+const reorderCategory = async (req, res) => {
+    try {
+        const { productIds } = req.body; // Array of IDs in new order
+        await Product.reorderCategoryProducts(req.params.id, productIds);
+        res.json({ message: 'Order updated' });
+    } catch (error) {
+        res.status(500).json({ message: 'Reorder failed' });
+    }
+};
+
+const manageCategoryProduct = async (req, res) => {
+    try {
+        const { productId, action } = req.body; // action: 'add' or 'remove'
+        await Product.manageCategoryProduct(req.params.id, productId, action);
+        res.json({ message: 'Success' });
+    } catch (error) {
+        res.status(500).json({ message: 'Action failed' });
+    }
+};
+
+const createCategory = async (req, res) => {
+    try {
+        const { name } = req.body;
+        if (!name) return res.status(400).json({ message: 'Name is required' });
+        
+        await Product.createCategory(name);
+        res.status(201).json({ message: 'Category created' });
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Create failed' });
+    }
+};
+
+const deleteCategory = async (req, res) => {
+    try {
+        await Product.deleteCategory(req.params.id);
+        res.json({ message: 'Category deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Delete failed' });
+    }
+};
+
+module.exports = { getProducts, createProduct, deleteProduct, updateProduct, getCategories,
+    getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct,
+    createCategory, deleteCategory
+ };

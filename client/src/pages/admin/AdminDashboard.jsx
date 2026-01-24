@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import Customers from './Customers';
 import Products from './Products';
+import Categories from './Categories';
 import { Users, ShoppingBag, LayoutDashboard, LogOut, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo_light.webp'; 
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
+    const [expandedMenu, setExpandedMenu] = useState('products'); // Default open for demo
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -35,6 +37,19 @@ export default function AdminDashboard() {
         </button>
     );
 
+    const SubNavItem = ({ label, id }) => (
+        <button 
+            onClick={() => setActiveTab(id)}
+            className={`w-full flex items-center gap-3 px-4 py-2 pl-12 rounded-lg transition-all duration-200 text-sm font-medium
+            ${activeTab === id 
+                ? 'text-white bg-white/10' 
+                : 'text-gray-400 hover:text-white'}`}
+        >
+            <div className={`w-1.5 h-1.5 rounded-full ${activeTab === id ? 'bg-accent' : 'bg-gray-600'}`}></div>
+            <span>{label}</span>
+        </button>
+    );
+
     return (
         <div className="bg-gray-50 min-h-screen flex">
             
@@ -47,7 +62,33 @@ export default function AdminDashboard() {
                 
                 <nav className="flex-1 p-4 space-y-2">
                     <NavItem icon={LayoutDashboard} label="Dashboard" id="dashboard" />
-                    <NavItem icon={Package} label="Products" id="products" />
+                    <div className="space-y-1">
+                        <button 
+                            onClick={() => setExpandedMenu(expandedMenu === 'products' ? '' : 'products')}
+                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 
+                            ${activeTab.includes('products') || expandedMenu === 'products' ? 'text-white' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <Package size={20} />
+                                <span>Products</span>
+                            </div>
+                            {/* Chevron Rotation Logic */}
+                            <svg 
+                                className={`w-4 h-4 transition-transform ${expandedMenu === 'products' ? 'rotate-180' : ''}`} 
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        
+                        {/* Submenu */}
+                        {expandedMenu === 'products' && (
+                            <div className="animate-in slide-in-from-top-2 space-y-1 mb-2">
+                                <SubNavItem label="Product list" id="products" />
+                                <SubNavItem label="Categories" id="categories" />
+                            </div>
+                        )}
+                    </div>
                     <NavItem icon={Users} label="Customers" id="customers" />
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
                 </nav>
@@ -81,6 +122,7 @@ export default function AdminDashboard() {
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
                     {activeTab === 'products' && <Products />}
+                    {activeTab === 'categories' && <Categories />}
                     {activeTab === 'customers' && <Customers />}
                     {activeTab === 'dashboard' && <div className="p-10 text-center text-gray-400">Dashboard Stats Coming Soon</div>}
                     {activeTab === 'orders' && <div className="p-10 text-center text-gray-400">Order Management Coming Soon</div>}

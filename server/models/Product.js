@@ -64,6 +64,7 @@ class Product {
             ...p,
             media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || []),
             categories: typeof p.categories_list === 'string' ? JSON.parse(p.categories_list) : (p.categories_list || []),
+            related_products: typeof p.related_products === 'string' ? JSON.parse(p.related_products) : (p.related_products || {}),
             additional_info: typeof p.additional_info === 'string' ? JSON.parse(p.additional_info) : (p.additional_info || []),
             options: typeof p.options === 'string' ? JSON.parse(p.options) : (p.options || []),
             variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || [])
@@ -90,14 +91,15 @@ class Product {
             // 1. Insert Main Product
             const query = `
                 INSERT INTO products 
-                (id, title, subtitle, description, ribbon_tag, media, categories, additional_info, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, title, subtitle, description, ribbon_tag, media, categories,related_products, additional_info, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             await connection.execute(query, [
                 uniqueId, data.title, data.subtitle || null, data.description || null, data.ribbon_tag || null,
                 JSON.stringify(data.media || []), 
                 JSON.stringify(data.categories || []), 
+                JSON.stringify(data.related_products || {}),
                 JSON.stringify(data.additional_info || []),
                 JSON.stringify(data.options || []), // [NEW]
                 data.mrp, data.discount_price || null, data.sku || null, data.weight_kg || null,
@@ -161,7 +163,7 @@ class Product {
                 if(key === 'variants') return; // Handle separately
                 if(key === 'categories') return; // Handle separately
                 fields.push(`${key} = ?`);
-                if (['media','categories','additional_info','options'].includes(key)) {
+                if (['media','categories','related_products','additional_info','options'].includes(key)) {
                     values.push(JSON.stringify(data[key]));
                 } else {
                     values.push(data[key]);
@@ -246,6 +248,147 @@ class Product {
     static async getAllCategories() {
         const [rows] = await db.execute('SELECT name FROM categories ORDER BY name ASC');
         return rows.map(r => r.name);
+    }
+
+    // --- 5. CATEGORY MANAGEMENT ---
+    
+    // A. Get All Categories with Product Counts
+    static async getCategoriesWithStats() {
+        const query = `
+            SELECT c.id, c.name, COUNT(pc.product_id) as product_count 
+            FROM categories c 
+            LEFT JOIN product_categories pc ON c.id = pc.category_id 
+            GROUP BY c.id 
+            ORDER BY c.name ASC
+        `;
+        const [rows] = await db.execute(query);
+        return rows;
+    }
+
+    // B. Get Single Category with Ordered Products
+    static async getCategoryDetails(categoryId) {
+        // 1. Get Category Info
+        const [catRows] = await db.execute('SELECT * FROM categories WHERE id = ?', [categoryId]);
+        if (catRows.length === 0) return null;
+
+        // 2. Get Products in this Category (Ordered by display_order)
+        const productQuery = `
+            SELECT p.id, p.title, p.sku, p.status, p.media, p.quantity, pc.display_order
+            FROM products p
+            JOIN product_categories pc ON p.id = pc.product_id
+            WHERE pc.category_id = ?
+            ORDER BY pc.display_order ASC, p.created_at DESC
+        `;
+        const [productRows] = await db.execute(productQuery, [categoryId]);
+
+        // Parse media for the frontend
+        const products = productRows.map(p => ({
+            ...p,
+            media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || [])
+        }));
+
+        return { ...catRows[0], products };
+    }
+
+    // C. Update Category Name
+    static async updateCategory(id, name) {
+        await db.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+        return true;
+    }
+
+    // D. Reorder Products in Category
+    static async reorderCategoryProducts(categoryId, orderedProductIds) {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            
+            // Update display_order for each product in the list
+            for (let i = 0; i < orderedProductIds.length; i++) {
+                await connection.execute(
+                    'UPDATE product_categories SET display_order = ? WHERE category_id = ? AND product_id = ?',
+                    [i, categoryId, orderedProductIds[i]]
+                );
+            }
+            
+            await connection.commit();
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
+   // E. Add/Remove Product from Category (With Sync)
+    static async manageCategoryProduct(categoryId, productId, action) {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // 1. Perform the Action on Link Table
+            if (action === 'add') {
+                const [exists] = await connection.execute(
+                    'SELECT 1 FROM product_categories WHERE category_id = ? AND product_id = ?', 
+                    [categoryId, productId]
+                );
+                if (exists.length === 0) {
+                    await connection.execute(
+                        'INSERT INTO product_categories (category_id, product_id) VALUES (?, ?)', 
+                        [categoryId, productId]
+                    );
+                }
+            } else if (action === 'remove') {
+                await connection.execute(
+                    'DELETE FROM product_categories WHERE category_id = ? AND product_id = ?', 
+                    [categoryId, productId]
+                );
+            }
+
+            // 2. [NEW] SYNC: Fetch all current categories for this product
+            const [rows] = await connection.execute(`
+                SELECT c.name 
+                FROM categories c
+                JOIN product_categories pc ON c.id = pc.category_id
+                WHERE pc.product_id = ?
+            `, [productId]);
+
+            const categoryNames = rows.map(r => r.name);
+
+            // 3. [NEW] SYNC: Update the main product table's JSON column
+            await connection.execute(
+                'UPDATE products SET categories = ? WHERE id = ?',
+                [JSON.stringify(categoryNames), productId]
+            );
+
+            await connection.commit();
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
+    // F. Create New Category
+    static async createCategory(name) {
+        // Handle Duplicate Name Error at DB level
+        try {
+            const [result] = await db.execute('INSERT INTO categories (name) VALUES (?)', [name]);
+            return result.insertId;
+        } catch (error) {
+            if (error.code === 'ER_DUP_ENTRY') {
+                throw new Error('Category already exists');
+            }
+            throw error;
+        }
+    }
+
+    // G. Delete Category
+    static async deleteCategory(id) {
+        // ON DELETE CASCADE in 'product_categories' will automatically untag products.
+        // The products themselves will NOT be deleted, which is safe.
+        await db.execute('DELETE FROM categories WHERE id = ?', [id]);
+        return true;
     }
 }
 

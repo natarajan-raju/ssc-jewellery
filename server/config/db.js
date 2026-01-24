@@ -57,6 +57,7 @@ const initDB = async () => {
                 ribbon_tag VARCHAR(50), 
                 media JSON,
                 categories JSON,
+                related_products JSON,
                 additional_info JSON,
                 options JSON,          -- [NEW] Stores definitions e.g. [{name: 'Size', values: ['S', 'M']}]
                 mrp DECIMAL(10, 2) NOT NULL,

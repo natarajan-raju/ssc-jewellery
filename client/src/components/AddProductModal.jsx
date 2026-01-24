@@ -21,6 +21,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     
     // Additional Info State
     const [additionalInfo, setAdditionalInfo] = useState([]); 
+    const [relatedProducts, setRelatedProducts] = useState({ show: false, title: '', category: '' });
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
     const [infoForm, setInfoForm] = useState({ id: null, title: '', description: '' });
     const [draggedInfoIndex, setDraggedInfoIndex] = useState(null);
@@ -70,7 +71,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     sku: productToEdit.sku || '', 
                     weight_kg: productToEdit.weight_kg || '',
                     status: productToEdit.status || 'active', 
-                    categories: productToEdit.categories || [],
+                    categories: productToEdit.categories || [],                    
                     track_quantity: toBool(productToEdit.track_quantity),
                     quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
                     track_low_stock: toBool(productToEdit.track_low_stock),
@@ -83,7 +84,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 
                 setAdditionalInfo(productToEdit.additional_info || []);
                 setOptions(productToEdit.options || []);
-                
+                setRelatedProducts(productToEdit.related_products || { show: false, title: '', category: '' });
                 if (productToEdit.variants && productToEdit.variants.length > 0) {
                     setVariants(productToEdit.variants.map(v => ({
                         ...v, 
@@ -107,6 +108,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     categories: []
                 });
                 setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
+                setRelatedProducts({ show: false, title: '', category: '' });
             }
         }
     }, [productToEdit, isOpen]);
@@ -389,6 +391,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             payload.append('additional_info', JSON.stringify(additionalInfo));
             payload.append('options', JSON.stringify(options));
             payload.append('categories', JSON.stringify(formData.categories));
+            payload.append('related_products', JSON.stringify(relatedProducts));
             // FIX: Only send variants if options exist.
             // Also ensure 1/0 or true/false consistency for variants if needed.
             // Assuming variants use 1/0 in backend loop:
@@ -724,6 +727,56 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                     ))}
                                 </div>
                                 <button onClick={() => openInfoModal()} className="flex items-center gap-2 text-primary font-bold text-sm hover:underline"><Plus size={16} /> Add info section</button>
+                            </div>
+
+                            {/* --- RELATED PRODUCTS CONFIGURATION --- */}
+                            <div className="md:col-span-2 p-5 bg-white rounded-xl border border-gray-100 shadow-sm space-y-4">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h3 className="font-bold text-gray-800">Related Products</h3>
+                                        <p className="text-xs text-gray-500">Select a category to display as recommendations on the product page.</p>
+                                    </div>
+                                    <Checkbox 
+                                        name="show_related" 
+                                        checked={relatedProducts.show} 
+                                        onChange={(e) => setRelatedProducts(prev => ({ ...prev, show: e.target.checked }))} 
+                                        label="Show Section" 
+                                    />
+                                </div>
+
+                                {relatedProducts.show && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 animate-in slide-in-from-top-2 border-t border-gray-100 mt-2">
+                                        <div className="space-y-2">
+                                            <label className="block text-sm font-bold text-gray-700">Section Title</label>
+                                            <input 
+                                                value={relatedProducts.title} 
+                                                onChange={(e) => setRelatedProducts(prev => ({ ...prev, title: e.target.value }))}
+                                                className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none" 
+                                                placeholder="e.g., You May Also Like" 
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="block text-sm font-bold text-gray-700">Source Category</label>
+                                            <div className="relative">
+                                                <select 
+                                                    value={relatedProducts.category} 
+                                                    onClick={handleOpenDropdown} // Reuse fetch logic to ensure list is loaded
+                                                    onChange={(e) => setRelatedProducts(prev => ({ ...prev, category: e.target.value }))}
+                                                    className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white appearance-none cursor-pointer"
+                                                >
+                                                    <option value="">Select a category...</option>
+                                                    {availableCategories.map(cat => (
+                                                        <option key={cat} value={cat}>{cat}</option>
+                                                    ))}
+                                                </select>
+                                                {/* Dropdown Arrow */}
+                                                <div className="absolute right-3 top-3.5 pointer-events-none text-gray-400">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             

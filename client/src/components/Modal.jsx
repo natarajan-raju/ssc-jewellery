@@ -1,12 +1,41 @@
-import { X, AlertTriangle, Key, Eye, EyeOff } from 'lucide-react';
+import { X, AlertTriangle, Key, Eye, EyeOff, Check, FolderPlus } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
-export default function Modal({ isOpen, onClose, title, message, type = 'default', onConfirm, isLoading }) {
+export default function Modal({ isOpen, onClose, title, message, type = 'default', onConfirm, isLoading, confirmText }) {
   if (!isOpen) return null;
   
   // --- STATE FIX ---
   const [showPass, setShowPass] = useState(false);
   const [inputValue, setInputValue] = useState(''); 
+
+  // --- CONFIGURATION LOGIC ---
+    let Icon = Check;
+    let iconBg = 'bg-green-100';
+    let iconColor = 'text-green-600';
+    let btnClass = 'bg-primary text-accent hover:bg-primary-light';
+    // Use confirmText if provided, otherwise default based on type
+    let btnLabel = confirmText || 'Confirm';
+
+    if (type === 'delete') {
+        Icon = AlertTriangle;
+        iconBg = 'bg-red-100';
+        iconColor = 'text-red-600';
+        btnClass = 'bg-red-600 text-white hover:bg-red-700';
+        btnLabel = confirmText || 'Delete'; // Fallback to old default
+    } 
+    else if (type === 'password' || type === 'input') {
+        Icon = Key;
+        iconBg = 'bg-amber-100';
+        iconColor = 'text-amber-600';
+        btnLabel = confirmText || 'Update Password'; // Fallback to old default
+    }
+    // [NEW] Add this block for Categories
+    else if (type === 'create') {
+        Icon = FolderPlus;
+        iconBg = 'bg-primary/10';
+        iconColor = 'text-primary';
+        btnLabel = confirmText || 'Create';
+    }
 
   // Reset input when modal opens
   useEffect(() => {
@@ -28,15 +57,15 @@ export default function Modal({ isOpen, onClose, title, message, type = 'default
 
         <div className="p-6">
           <div className="flex items-start gap-4">
-            <div className={`p-3 rounded-full shrink-0 ${type === 'delete' ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-accent-deep'}`}>
-              {type === 'delete' ? <AlertTriangle size={24} /> : <Key size={24} />}
+            <div className={`p-3 rounded-full shrink-0 ${iconBg} ${iconColor}`}>
+              <Icon size={24} />
             </div>
 
             <div className="flex-1">
               <h3 className="text-lg font-bold text-gray-900">{title}</h3>
               <p className="text-sm text-gray-500 mt-1">{message}</p>
               
-              {(type === 'input' || type === 'password') && (
+              {(type === 'input' || type === 'password' || type === 'create') && (
                   <div className="relative mt-4">
                       <input 
                           type={type === 'password' && !showPass ? "password" : "text"}
@@ -76,7 +105,7 @@ export default function Modal({ isOpen, onClose, title, message, type = 'default
                   : 'bg-primary hover:bg-primary-light'}`
               }
             >
-              {isLoading ? 'Processing...' : (type === 'delete' ? 'Delete User' : 'Update Password')}
+              {isLoading ? 'Processing...' : btnLabel}
             </button>
           </div>
         </div>

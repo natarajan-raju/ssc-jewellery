@@ -111,5 +111,61 @@ export const productService = {
     // --- CLEAR CACHE MANUALLY ---
     clearCache: () => {
         productCache = {};
-    }
+    },
+
+    // --- CATEGORY MANAGEMENT ---
+    getCategoryStats: async () => {
+        const res = await fetch(`${API_URL}/categories/stats`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+
+    getCategoryDetails: async (id) => {
+        const res = await fetch(`${API_URL}/categories/${id}`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+
+    updateCategory: async (id, name) => {
+        const res = await fetch(`${API_URL}/categories/${id}`, {
+            method: 'PUT',
+            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        return handleResponse(res);
+    },
+
+    reorderCategory: async (id, productIds) => {
+        const res = await fetch(`${API_URL}/categories/${id}/reorder`, {
+            method: 'PUT',
+            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productIds })
+        });
+        return handleResponse(res);
+    },
+
+    manageCategoryProduct: async (categoryId, productId, action) => {
+        // action = 'add' or 'remove'
+        const res = await fetch(`${API_URL}/categories/${categoryId}/products`, {
+            method: 'POST',
+            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productId, action })
+        });
+        return handleResponse(res);
+    },
+
+    createCategory: async (name) => {
+        const res = await fetch(`${API_URL}/categories`, {
+            method: 'POST',
+            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        return handleResponse(res);
+    },
+
+    deleteCategory: async (id) => {
+        const res = await fetch(`${API_URL}/categories/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
 };
