@@ -148,7 +148,7 @@ export default function Login() {
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md border-t-4 border-accent relative z-10 animate-fade-in">
         
         <div className="text-center mb-8">
-            <img src="/logo_light.webp" alt="SSC Impon" className="w-24 h-auto mx-auto mb-4" />
+            <img src="/logo.webp" alt="SSC Impon" className="w-24 h-auto mx-auto mb-4" />
             <h2 className="text-3xl font-serif font-bold text-primary">Welcome Back</h2>
         </div>
 

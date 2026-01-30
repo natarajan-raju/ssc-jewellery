@@ -49,17 +49,17 @@ const uploadCategoryImage = multer({
 // --- ROUTES ---
 
 // 1. Get Products (Public/Protected depending on need - usually Protected)
-router.get('/', protect, getProducts);
+router.get('/', getProducts);
 
 // 2. Create Product (Admin Only, supports max 10 images at once)
 router.post('/', protect, admin, upload.array('images', 10), createProduct);
 
 // --- CATEGORY MANAGEMENT ROUTES (NEW) ---
 // 1. Get Stats (List with counts)
-router.get('/categories/stats', protect, getCategoryStats);
+router.get('/categories/stats', getCategoryStats);
 
 // 2. Get Single Category Details (with ordered products)
-router.get('/categories/:id', protect, getCategoryDetails);
+router.get('/categories/:id', getCategoryDetails);
 
 // 3. Update Category Name
 router.put('/categories/:id', protect, admin, uploadCategoryImage.single('image'), updateCategory);
@@ -76,7 +76,7 @@ router.delete('/:id', protect, admin, deleteProduct);
 //4. Update Product (Admin Only) - Can be added similarly
 router.put('/:id', protect, admin, upload.array('images', 10), updateProduct);
 
-router.get('/categories', protect, getCategories);
+router.get('/categories', getCategories);
 // 6. Create Category
 router.post('/categories', protect, admin, uploadCategoryImage.single('image'), createCategory);
 

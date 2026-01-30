@@ -11,7 +11,10 @@ const getAuthHeader = () => {
     const userObj = JSON.parse(localStorage.getItem('user') || '{}');
     const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
     token = userObj.token || userInfo.token || localStorage.getItem('token');
-
+    // 1. Check if token exists and is not a "garbage" string
+    if (!token || token === 'undefined' || token === 'null') {
+        return {}; // Return empty object so no Authorization header is sent
+    }
     return { 
         'Authorization': `Bearer ${token}`
         // Note: Content-Type is NOT set here because FormData sets it automatically
@@ -61,9 +64,7 @@ export const productService = {
         }
 
         // 2. Fetch if missing
-        const res = await fetch(`${API_URL}/categories`, { 
-            headers: getAuthHeader() 
-        });
+        const res = await fetch(`${API_URL}/categories`);
         const data = await handleResponse(res);
 
         // 3. Store in Cache
@@ -115,12 +116,12 @@ export const productService = {
 
     // --- CATEGORY MANAGEMENT ---
     getCategoryStats: async () => {
-        const res = await fetch(`${API_URL}/categories/stats`, { headers: getAuthHeader() });
+        const res = await fetch(`${API_URL}/categories/stats`);
         return handleResponse(res);
     },
 
     getCategoryDetails: async (id) => {
-        const res = await fetch(`${API_URL}/categories/${id}`, { headers: getAuthHeader() });
+        const res = await fetch(`${API_URL}/categories/${id}`);
         return handleResponse(res);
     },
 
