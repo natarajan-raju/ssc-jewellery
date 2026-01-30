@@ -44,7 +44,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cms', cmsRoutes);
-
+app.use('/uploads', express.static(path.join(__dirname, '../client/public/uploads')));
 // Serve Frontend
 app.use(express.static(path.join(__dirname, '../client/dist')));
 app.get('*', (req, res) => {
