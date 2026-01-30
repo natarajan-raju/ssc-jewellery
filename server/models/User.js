@@ -132,6 +132,26 @@ class User {
         await db.execute('UPDATE users SET password = ? WHERE mobile = ?', [hashedPassword, mobile]);
         return true;
     }
+
+    static async updateProfile(id, data) {
+        const updates = [];
+        const values = [];
+
+        if (data.mobile) {
+            updates.push('mobile = ?');
+            values.push(data.mobile);
+        }
+        if (data.password) {
+            updates.push('password = ?');
+            values.push(data.password);
+        }
+
+        if (updates.length === 0) return;
+
+        values.push(id);
+        const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+        await db.execute(query, values);
+    }
 }
 
 module.exports = User;

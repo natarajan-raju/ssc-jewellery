@@ -8,21 +8,37 @@ const protect = async (req, res, next) => {
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
             token = req.headers.authorization.split(' ')[1];
+
+            // 1. Strict Token Check
+            if (!token || token === 'undefined' || token === 'null') {
+                throw new Error('Invalid token format');
+            }
+
             const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
 
-            // Fetch fresh user from DB
+            // 2. Fetch User (MySQL Style)
+            // Assuming User.findById returns the user object directly
             const user = await User.findById(decoded.id);
 
             if (!user) {
                 return res.status(401).json({ message: 'Not authorized, user not found' });
             }
 
+            // 3. Remove password from the object manually if needed
+            delete user.password; 
+
             req.user = user;
             next();
 
         } catch (error) {
             console.error("Auth Middleware Error:", error.message);
-            res.status(401).json({ message: 'Not authorized, token failed' });
+            if (error.name === 'JsonWebTokenError' || error.message === 'Invalid token format') {
+                return res.status(401).json({ message: 'Not authorized, invalid token' }); 
+            }
+            if (error.name === 'TokenExpiredError') {
+                return res.status(401).json({ message: 'Session expired, please login again' });
+            }
+            res.status(500).json({ message: 'Server error during authentication' });
         }
     } else {
         res.status(401).json({ message: 'Not authorized, no token' });

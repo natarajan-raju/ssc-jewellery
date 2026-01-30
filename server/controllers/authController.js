@@ -1,3 +1,5 @@
+const admin = require('../config/firebase'); // Import the admin SDK
+const crypto = require('crypto'); // Built-in Node module for random passwords
 const User = require('../models/User');
 const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
@@ -145,6 +147,88 @@ exports.login = async (req, res) => {
 
         const token = generateToken(user);
         res.json({ message: 'Login successful', token, user });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+exports.googleLogin = async (req, res) => {
+    try {
+        const { idToken } = req.body;
+        
+        // 1. Verify Token
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const { email, name, picture } = decodedToken;
+
+        // 2. Find or Create User
+        let user = await User.findByEmail(email);
+        let isNewUser = false;
+
+        if (!user) {
+            isNewUser = true;
+            const randomPassword = crypto.randomBytes(16).toString('hex');
+            const hashedPassword = await bcrypt.hash(randomPassword, 10);
+            const dummyMobile = null; // Or use a dummy number if your DB requires it
+
+            // Create returns insertId usually, so we must construct the object manually
+            const result = await User.create({
+                name: name || 'Google User',
+                email: email,
+                mobile: dummyMobile,
+                password: hashedPassword,
+                address: null,
+                role: 'customer'
+            });
+
+            // MANUALLY CONSTRUCT THE USER OBJECT FOR NEW USERS
+            user = {
+                id: result.insertId || result, // Handle various return types
+                name: name || 'Google User',
+                email: email,
+                role: 'customer',
+                picture: picture
+            };
+        }
+
+        // 3. Generate Token
+        const token = generateToken(user);
+        
+        // 4. Send Response
+        res.json({ 
+            message: 'Google Login successful', 
+            token, 
+            user: { ...user, picture } // Ensure 'role' is present in this object
+        });
+
+    } catch (error) {
+        console.error("Google Auth Error:", error);
+        res.status(401).json({ message: 'Invalid Google Token' });
+    }
+};
+
+exports.updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.id; // From the JWT token
+        const { mobile, password } = req.body;
+
+        // 1. Check if mobile is already taken by ANOTHER user
+        if (mobile) {
+            const existingUser = await User.findByMobile(mobile);
+            if (existingUser && existingUser.id !== userId) {
+                return res.status(400).json({ message: 'Mobile number already in use' });
+            }
+        }
+
+        // 2. Hash Password if provided
+        let hashedPassword = null;
+        if (password) {
+            hashedPassword = await bcrypt.hash(password, 10);
+        }
+
+        // 3. Update Database (You need to add this method to your User model)
+        await User.updateProfile(userId, { mobile, password: hashedPassword });
+
+        res.json({ message: 'Profile updated successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

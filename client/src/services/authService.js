@@ -37,6 +37,14 @@ export const authService = {
     });
     return res.json();
   },
+  googleLogin: async (idToken) => {
+    const res = await fetch(`${API_URL}/google-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken })
+    });
+    return res.json();
+  },
 
   resetPassword: async (payload) => {
     const res = await fetch(`${API_URL}/reset-password`, {
@@ -45,5 +53,17 @@ export const authService = {
         body: JSON.stringify(payload)
     });
     return res.json();
+  },
+  isTokenExpired: (token) => {
+    if (!token) return true;
+    try {
+        // Decode the payload (2nd part of JWT)
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        
+        // Check if current time is past expiration (exp is in seconds, Date.now is ms)
+        return payload.exp * 1000 < Date.now();
+    } catch (e) {
+        return true; // If invalid format, treat as expired
+    }
   }
 };

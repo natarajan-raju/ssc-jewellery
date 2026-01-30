@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { productService } from '../../services/productService';
-import { ArrowLeft, Save, GripVertical, Trash2, Plus, X, Search, Check, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, GripVertical, Trash2, Plus, X, Search, Check, Loader2, Edit3 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 // Add Modal to imports
 import Modal from '../../components/Modal';
+import CategoryModal from '../../components/CategoryModal';
 export default function CategoryDetail({ categoryId, onBack }) {
     const [category, setCategory] = useState(null);
     const [products, setProducts] = useState([]);
@@ -19,6 +20,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [modalConfig, setModalConfig] = useState({ 
         isOpen: false, type: 'delete', title: '', message: '', confirmText: '', targetId: null 
     });
+    const [showEditModal, setShowEditModal] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
@@ -38,6 +40,33 @@ export default function CategoryDetail({ categoryId, onBack }) {
             toast.error("Failed to load category details");
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // [NEW] Handle Category Update (Name + Image)
+    const handleUpdateCategory = async (name, imageFile) => {
+        setIsActionLoading(true);
+        try {
+            const formData = new FormData();
+            formData.append('name', name);
+            if (imageFile) formData.append('image', imageFile);
+
+            await productService.updateCategory(categoryId, formData);
+            
+            // Refresh local data
+            setCategory(prev => ({ 
+                ...prev, 
+                name: name,
+                image_url: imageFile ? URL.createObjectURL(imageFile) : prev.image_url 
+            }));
+            
+            toast.success("Category updated");
+            setShowEditModal(false);
+            productService.clearCache();
+        } catch (error) {
+            toast.error("Update failed");
+        } finally {
+            setIsActionLoading(false);
         }
     };
 
@@ -153,6 +182,14 @@ export default function CategoryDetail({ categoryId, onBack }) {
     return (
         <div className="animate-fade-in space-y-6">
             {/* 1. Render Custom Modal */}
+            {/* [NEW] Edit Modal */}
+            <CategoryModal 
+                isOpen={showEditModal}
+                onClose={() => setShowEditModal(false)}
+                onConfirm={handleUpdateCategory}
+                isLoading={isActionLoading}
+                initialData={category} // Pre-fill data
+            />
             <Modal 
                 isOpen={modalConfig.isOpen}
                 onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
@@ -169,24 +206,24 @@ export default function CategoryDetail({ categoryId, onBack }) {
                     <ArrowLeft size={24} />
                 </button>
                 
-                <div className="flex-1">
-                    <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Edit Category</p>
-                    {isEditingName ? (
-                        <div className="flex items-center gap-2 mt-1">
-                            <input 
-                                value={newName} 
-                                onChange={(e) => setNewName(e.target.value)} 
-                                className="text-2xl font-serif font-bold text-gray-800 bg-white border border-accent rounded px-2 py-1 outline-none"
-                                autoFocus
-                            />
-                            <button onClick={handleRename} className="p-2 bg-primary text-accent rounded hover:bg-primary-light"><Check size={20} /></button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setIsEditingName(true)}>
+                <div className="flex-1 flex items-center gap-4">
+                    {/* [NEW] Header Image */}
+                    <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden shrink-0">
+                        {category?.image_url && <img src={category.image_url} className="w-full h-full object-cover" />}
+                    </div>
+                    
+                    <div>
+                        <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Category</p>
+                        <div className="flex items-center gap-3 group">
                             <h1 className="text-3xl font-serif font-bold text-gray-800">{category?.name}</h1>
-                            <PencilIcon className="opacity-0 group-hover:opacity-50 w-4 h-4 text-gray-400" />
+                            <button 
+                                onClick={() => setShowEditModal(true)}
+                                className="p-1.5 rounded-lg bg-gray-50 text-gray-400 hover:text-primary hover:bg-white border border-transparent hover:border-gray-200 transition-all"
+                            >
+                                <Edit3 size={16} />
+                            </button>
                         </div>
-                    )}
+                    </div>
                 </div>
                 
                 <button onClick={openAssignModal} className="bg-white border border-gray-200 text-primary font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:border-primary transition-colors">

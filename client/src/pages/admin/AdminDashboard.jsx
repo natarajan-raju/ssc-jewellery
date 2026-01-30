@@ -1,28 +1,26 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
 import { Users, ShoppingBag, LayoutDashboard, LogOut, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo_light.webp'; 
+import { Images } from 'lucide-react'; // Add 'Images' icon
+import HeroCMS from './HeroCMS'; // Import the new component
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
     const [expandedMenu, setExpandedMenu] = useState('products'); // Default open for demo
     const navigate = useNavigate();
-
-    useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            navigate('/admin/login');
-        }
-    }, [navigate]);
-
-    const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('userInfo');
+    const { logout } = useAuth();
+    
+    
+    const handleLogout = async () => {
+        await logout(); // [FIX] Uses AuthContext to clear session & Firebase
         navigate('/admin/login');
     };
+   
 
     const NavItem = ({ icon: Icon, label, id }) => (
         <button 
@@ -91,6 +89,9 @@ export default function AdminDashboard() {
                     </div>
                     <NavItem icon={Users} label="Customers" id="customers" />
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
+                    <div className="pt-2 mt-2 border-t border-white/10">
+                        <NavItem icon={Images} label="Hero CMS" id="cms" />
+                    </div>
                 </nav>
 
                 <div className="p-4 border-t border-white/10 space-y-4">
@@ -121,9 +122,10 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-                    {activeTab === 'products' && <Products />}
+                    {activeTab === 'products' && <Products onNavigate={setActiveTab} />}
                     {activeTab === 'categories' && <Categories />}
                     {activeTab === 'customers' && <Customers />}
+                    {activeTab === 'cms' && <HeroCMS />}
                     {activeTab === 'dashboard' && <div className="p-10 text-center text-gray-400">Dashboard Stats Coming Soon</div>}
                     {activeTab === 'orders' && <div className="p-10 text-center text-gray-400">Order Management Coming Soon</div>}
                 </div>

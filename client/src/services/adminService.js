@@ -4,10 +4,12 @@ const API_URL = import.meta.env.PROD
 
 // 1. Get Token Securely
 const getAuthHeader = () => {
-    let token = null;
-    const userObj = JSON.parse(localStorage.getItem('user') || '{}');
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    token = userObj.token || userInfo.token || localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+
+    // [FIX] Safety check: Return JSON header only if no token (prevents "Bearer null" error)
+    if (!token || token === 'undefined' || token === 'null') {
+        return { 'Content-Type': 'application/json' };
+    }
 
     return { 
         'Authorization': `Bearer ${token}`, 

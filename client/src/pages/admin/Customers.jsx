@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { adminService } from '../../services/adminService';
+import { useAuth } from '../../context/AuthContext';
 import { 
     Loader2, Trash2, Search, Mail, Phone, Key, 
     ShieldCheck, Plus, UserCog, Filter, ChevronLeft, ChevronRight
@@ -18,8 +19,10 @@ export default function Customers() {
     const [roleFilter, setRoleFilter] = useState('all');
     
     // --- ROLE & ID TRACKING ---
-    const [currentUserRole, setCurrentUserRole] = useState(null);
-    const [currentUserId, setCurrentUserId] = useState(null); 
+    // const [currentUserRole, setCurrentUserRole] = useState(null);
+    // const [currentUserId, setCurrentUserId] = useState(null); 
+    // [NEW] Get Current User from Context
+    const { user: currentUser } = useAuth();
     
     const toast = useToast();
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'default', title: '', message: '', targetUser: null });
@@ -28,9 +31,6 @@ export default function Customers() {
 
     useEffect(() => { 
         loadUsers(); 
-        const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-        setCurrentUserRole(storedUser.role || 'customer');
-        setCurrentUserId(storedUser.id);
     }, [page, roleFilter]);
 
     const loadUsers = async () => {
@@ -117,19 +117,21 @@ export default function Customers() {
 
     // --- HELPER FOR PERMISSIONS ---
     const canResetPassword = (targetUser) => {
+        if(!currentUser) return false;
         // 1. Admin can reset ANYONE except Customers
-        if (currentUserRole === 'admin' && targetUser.role !== 'customer') return true;
+        if (currentUser.role === 'admin' && targetUser.role !== 'customer') return true;
         // 2. Staff can reset THEMSELVES only
-        if (currentUserRole === 'staff' && targetUser.id === currentUserId) return true;
+        if (currentUser.role === 'staff' && targetUser.id === currentUser.id) return true;
         
         return false;
     };
 
     const canDeleteUser = (targetUser) => {
+        if(!currentUser) return false;
         // 1. Admin can delete Staff & Customers (NOT other Admins)
-        if (currentUserRole === 'admin' && targetUser.role !== 'admin') return true;
+        if (currentUser.role === 'admin' && targetUser.role !== 'admin') return true;
         // 2. Staff can delete Customers ONLY
-        if (currentUserRole === 'staff' && targetUser.role === 'customer') return true;
+        if (currentUser.role === 'staff' && targetUser.role === 'customer') return true;
         
         return false;
     };
@@ -188,7 +190,7 @@ export default function Customers() {
                     </div>
                     
                     <div className="flex gap-2">
-                        {currentUserRole === 'admin' && (
+                        {currentUser?.role === 'admin' && (
                             <button 
                                 onClick={() => setAddModalRole('staff')}
                                 className="bg-gray-800 hover:bg-gray-700 text-white font-bold px-4 py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 flex-1 md:flex-none"

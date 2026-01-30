@@ -124,13 +124,17 @@ export const productService = {
         return handleResponse(res);
     },
 
-    updateCategory: async (id, name) => {
+    // [UPDATED] Update Category (Supports Image)
+    updateCategory: async (id, formData) => {
+        const token = localStorage.getItem('token');
         const res = await fetch(`${API_URL}/categories/${id}`, {
             method: 'PUT',
-            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
         });
-        return handleResponse(res);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to update category');
+        return data;
     },
 
     reorderCategory: async (id, productIds) => {
@@ -152,13 +156,18 @@ export const productService = {
         return handleResponse(res);
     },
 
-    createCategory: async (name) => {
+    // [UPDATED] Create Category (Supports Image)
+    createCategory: async (formData) => {
+        const token = localStorage.getItem('token');
+        // Note: Do NOT set Content-Type header for FormData; browser sets boundary automatically
         const res = await fetch(`${API_URL}/categories`, {
             method: 'POST',
-            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
         });
-        return handleResponse(res);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Failed to create category');
+        return data;
     },
 
     deleteCategory: async (id) => {

@@ -1,35 +1,31 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { ToastProvider } from './context/ToastContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/AuthContext';
 
-// Import Components
+// Components & Pages
 import Navbar from './components/Navbar';
-
-// Import Public Pages
-import Home from './pages/Home'; // <--- We will create this next
+import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
-
-// Import Admin Pages
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
 
-// Import Toast Provider
-import { ToastProvider } from './context/ToastContext';
-
-// --- PROTECTED ROUTES ---
+// Admin Protection
 const AdminRoute = ({ children }) => {
-  const token = localStorage.getItem('token');
-  return token ? children : <Navigate to="/admin/login" />;
+  const { user } = useAuth();
+  return (user && (user.role === 'admin' || user.role === 'staff')) ? children : <Navigate to="/admin/login" />;
 };
 
-// --- LAYOUTS ---
-// Layout for public pages (Home, Shop, About, etc.)
-// Includes the Navbar and padding for the fixed header
+// [UPDATED] Public Layout
+// Changed 'pt-20 md:pt-24' to 'pt-[74px]'
+// This perfectly matches the initial height of the Navbar (72px + border)
 const PublicLayout = () => {
   return (
     <>
       <Navbar />
-      <main className="pt-20 min-h-screen bg-secondary"> 
+      <main className="min-h-screen bg-secondary pt-[74px]"> 
         <Outlet />
       </main>
     </>
@@ -39,34 +35,35 @@ const PublicLayout = () => {
 function App() {
   return (
     <ToastProvider>
-      <BrowserRouter>
-        <Routes>
-          
-          {/* --- PUBLIC ROUTES (With Navbar) --- */}
-          <Route element={<PublicLayout />}>
-            <Route path="/" element={<Home />} /> {/* Landing Page */}
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            
+            {/* Public Routes */}
+            <Route element={<PublicLayout />}>
+              <Route path="/" element={<Home />} />
+            </Route>
+
+            {/* Auth Pages (No Navbar) */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            {/* Future pages like /shop, /about go here */}
-          </Route>
 
-          {/* --- ADMIN ROUTES (No Public Navbar) --- */}
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route 
-            path="/admin/dashboard" 
-            element={
-              <AdminRoute>
-                <AdminDashboard />
-              </AdminRoute>
-            } 
-          />
+            {/* Admin Routes */}
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route 
+              path="/admin/dashboard" 
+              element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              } 
+            />
 
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" />} />
-          
-        </Routes>
-      </BrowserRouter>
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </ToastProvider>
   );
 }

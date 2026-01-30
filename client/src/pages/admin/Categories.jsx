@@ -4,6 +4,7 @@ import { Plus, Search, Folder, ChevronRight, Loader2, Trash2 } from 'lucide-reac
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal'; 
 import CategoryDetail from './CategoryDetail'; // We will create this next
+import CategoryModal from '../../components/CategoryModal';
 
 export default function Categories() {
     const [view, setView] = useState('list'); // 'list' or 'detail'
@@ -18,7 +19,7 @@ export default function Categories() {
     });
     const [isActionLoading, setIsActionLoading] = useState(false);
     const toast = useToast();
-
+    const [showCreateModal, setShowCreateModal] = useState(false);
     // Load Stats
     useEffect(() => {
         if (view === 'list') loadCategories();
@@ -37,18 +38,27 @@ export default function Categories() {
     };
 
     // --- HANDLERS ---
-    
-    // A. Open Create Modal
-    const openCreateModal = () => {
-        setModalConfig({
-            isOpen: true,
-            type: 'create', // Changed from 'input' to 'create'
-            title: 'Create Category',
-            message: 'Enter the name for the new category:',
-            confirmText: 'Create Category', // [NEW] Custom Button Text
-            targetId: null
-        });
+
+    // [NEW] Handle Create
+    const handleCreateCategory = async (name, imageFile) => {
+        setIsActionLoading(true);
+        try {
+            const formData = new FormData();
+            formData.append('name', name);
+            if (imageFile) formData.append('image', imageFile);
+
+            await productService.createCategory(formData);
+            toast.success("Category created successfully");
+            setShowCreateModal(false);
+            loadCategories();
+        } catch (error) {
+            toast.error(error.message || "Failed to create category");
+        } finally {
+            setIsActionLoading(false);
+        }
     };
+    
+    
 
    // B. Open Delete Modal
     const openDeleteModal = (e, category) => {
@@ -64,26 +74,17 @@ export default function Categories() {
     };
 
     // C. Confirm Action (Called by Modal)
-    const handleModalConfirm = async (inputValue) => {
+    const handleModalConfirm = async () => {
         setIsActionLoading(true);
         try {
-            if (modalConfig.type === 'input' || modalConfig.type === 'create') {
-                if (!inputValue || !inputValue.trim()) {
-                    toast.error("Category name required");
-                    setIsActionLoading(false); return;
-                }
-                await productService.createCategory(inputValue);
-                toast.success("Category created");
-                loadCategories(); // Refresh list
-            } 
-            else if (modalConfig.type === 'delete') {
+            if (modalConfig.type === 'delete') {
                 await productService.deleteCategory(modalConfig.targetId);
                 toast.success("Category deleted");
-                loadCategories(); // Refresh list
+                loadCategories();
             }
             setModalConfig({ ...modalConfig, isOpen: false });
         } catch (error) {
-            toast.error(error.message || "Action failed");
+            toast.error("Action failed");
         } finally {
             setIsActionLoading(false);
         }
@@ -105,6 +106,12 @@ export default function Categories() {
     return (
         <div className="animate-fade-in space-y-6">
             {/* 1. Render Custom Modal */}
+            <CategoryModal 
+                isOpen={showCreateModal}
+                onClose={() => setShowCreateModal(false)}
+                onConfirm={handleCreateCategory}
+                isLoading={isActionLoading}
+            />
             <Modal 
                 isOpen={modalConfig.isOpen}
                 onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
@@ -130,7 +137,7 @@ export default function Categories() {
                         />
                     </div>
                     <button 
-                        onClick={openCreateModal} 
+                        onClick={() => setShowCreateModal(true)} 
                         className="bg-primary hover:bg-primary-light text-accent px-4 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-primary/20 active:scale-95 transition-all"
                     >
                         <Plus size={20} strokeWidth={3} /> 
@@ -139,6 +146,7 @@ export default function Categories() {
                 </div>
             </div>
 
+            {/* [UPDATED] UI GRID */}
             {isLoading ? (
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
             ) : (
@@ -150,21 +158,26 @@ export default function Categories() {
                             className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-accent transition-all cursor-pointer group"
                         >
                             <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-3 bg-gray-50 rounded-lg text-primary group-hover:bg-accent group-hover:text-primary transition-colors">
-                                        <Folder size={24} />
+                                <div className="flex items-center gap-4">
+                                    {/* [NEW] Image Display */}
+                                    <div className="w-14 h-14 rounded-xl bg-gray-50 border border-gray-100 overflow-hidden shrink-0">
+                                        {cat.image_url ? (
+                                            <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-primary/40">
+                                                <Folder size={24} />
+                                            </div>
+                                        )}
                                     </div>
                                     <div>
                                         <h3 className="font-bold text-gray-800 text-lg">{cat.name}</h3>
                                         <p className="text-sm text-gray-500">{cat.product_count} products</p>
                                     </div>
                                 </div>
-                                {/* 3. Delete Button (Stops propagation to avoid opening detail) */}
                                 <div className="flex items-center gap-2">
                                     <button 
                                         onClick={(e) => openDeleteModal(e, cat)}
                                         className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                        title="Delete Category"
                                     >
                                         <Trash2 size={18} />
                                     </button>
@@ -173,11 +186,6 @@ export default function Categories() {
                             </div>
                         </div>
                     ))}
-                    {filtered.length === 0 && (
-                        <div className="col-span-full text-center py-10 text-gray-400">
-                            No categories found. Add tags to products to create them.
-                        </div>
-                    )}
                 </div>
             )}
         </div>

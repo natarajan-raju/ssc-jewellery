@@ -254,8 +254,9 @@ class Product {
     
     // A. Get All Categories with Product Counts
     static async getCategoriesWithStats() {
+        // [FIX] Added c.image_url to the SELECT list
         const query = `
-            SELECT c.id, c.name, COUNT(pc.product_id) as product_count 
+            SELECT c.id, c.name, c.image_url, COUNT(pc.product_id) as product_count 
             FROM categories c 
             LEFT JOIN product_categories pc ON c.id = pc.category_id 
             GROUP BY c.id 
@@ -291,8 +292,12 @@ class Product {
     }
 
     // C. Update Category Name
-    static async updateCategory(id, name) {
-        await db.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+    static async updateCategory(id, name, imageUrl) {
+        if(imageUrl) {
+            await db.execute('UPDATE categories SET name = ?, image_url = ? WHERE id = ?', [name, imageUrl, id]);
+          } else {
+              await db.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+          }
         return true;
     }
 
@@ -370,10 +375,10 @@ class Product {
     }
 
     // F. Create New Category
-    static async createCategory(name) {
+    static async createCategory(name, imageUrl) {
         // Handle Duplicate Name Error at DB level
         try {
-            const [result] = await db.execute('INSERT INTO categories (name) VALUES (?)', [name]);
+            const [result] = await db.execute('INSERT INTO categories (name, image_url) VALUES (?, ?)', [name, imageUrl]);
             return result.insertId;
         } catch (error) {
             if (error.code === 'ER_DUP_ENTRY') {

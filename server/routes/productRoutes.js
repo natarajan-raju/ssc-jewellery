@@ -24,9 +24,26 @@ const storage = multer.diskStorage({
     }
 });
 
+const categoryStorage = multer.diskStorage({
+    destination(req, file, cb) {
+        // Save to a specific categories folder
+        const uploadPath = path.join(__dirname, '../../client/public/uploads/categories');
+        if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
+        cb(null, uploadPath);
+    },
+    filename(req, file, cb) {
+        cb(null, `cat-${Date.now()}${path.extname(file.originalname)}`);
+    }
+});
+
 const upload = multer({ 
     storage,
-    limits: { fileSize: 5 * 1024 * 1024 } // 5MB Limit per file
+    limits: { fileSize: 8 * 1024 * 1024 } // 5MB Limit per file
+});
+
+const uploadCategoryImage = multer({ 
+    storage: categoryStorage,
+    limits: { fileSize: 8 * 1024 * 1024 } // 5MB Limit per file
 });
 
 // --- ROUTES ---
@@ -45,7 +62,7 @@ router.get('/categories/stats', protect, getCategoryStats);
 router.get('/categories/:id', protect, getCategoryDetails);
 
 // 3. Update Category Name
-router.put('/categories/:id', protect, admin, updateCategory);
+router.put('/categories/:id', protect, admin, uploadCategoryImage.single('image'), updateCategory);
 
 // 4. Reorder Products in Category
 router.put('/categories/:id/reorder', protect, admin, reorderCategory);
@@ -61,7 +78,7 @@ router.put('/:id', protect, admin, upload.array('images', 10), updateProduct);
 
 router.get('/categories', protect, getCategories);
 // 6. Create Category
-router.post('/categories', protect, admin, createCategory);
+router.post('/categories', protect, admin, uploadCategoryImage.single('image'), createCategory);
 
 // 7. Delete Category
 router.delete('/categories/:id', protect, admin, deleteCategory);

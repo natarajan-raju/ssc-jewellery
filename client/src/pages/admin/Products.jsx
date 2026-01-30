@@ -8,7 +8,7 @@ import {
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
 
-export default function Products() {
+export default function Products({ onNavigate }) {
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     
@@ -144,6 +144,7 @@ export default function Products() {
                     <h1 className="text-2xl md:text-3xl font-serif font-bold text-gray-800">Products</h1>
                     <p className="text-gray-500 text-sm mt-1">Manage your catalogue</p>
                 </div>
+                
                 <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
                     <div className="relative hidden md:block">
                         <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
@@ -156,6 +157,15 @@ export default function Products() {
                             <option value="active">Active</option>
                             <option value="inactive">Hidden</option>
                         </select>
+                    </div>
+                    {/* [NEW] Mobile-Only Category Link */}
+                    <div className="relative flex-1 md:hidden">
+                        <button 
+                            onClick={() => onNavigate('categories')}
+                            className="md:hidden text-xs w-full font-bold text-accent-deep bg-accent/10 pl-10 pr-8 py-3 rounded-lg border border-accent/20 active:scale-95 transition-transform"
+                        >
+                            Manage Categories →
+                        </button>
                     </div>
                     {/* --- CATEGORY FILTER --- */}
                     <div className="relative flex-1 md:w-64">
@@ -171,6 +181,7 @@ export default function Products() {
                             ))}
                         </select>
                     </div>
+
                     <div className="relative flex-1 md:w-64">
                         <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <input 
