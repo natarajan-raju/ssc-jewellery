@@ -202,6 +202,7 @@ exports.googleLogin = async (req, res) => {
 
     } catch (error) {
         console.error("Google Auth Error:", error);
+        error: error.message,
         res.status(401).json({ message: 'Invalid Google Token' });
     }
 };
