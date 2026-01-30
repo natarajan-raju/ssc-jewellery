@@ -1,7 +1,9 @@
 import { useAuth } from '../context/AuthContext';
 import { useCallback } from 'react';
 
-const API_URL = 'http://localhost:5000/api/cms';
+const API_URL = import.meta.env.PROD 
+  ? '/api/cms' 
+  : 'http://localhost:5000/api/cms';
 
 export const useCms = () => {
     const { logout } = useAuth(); // [NEW] We can now access Context!
