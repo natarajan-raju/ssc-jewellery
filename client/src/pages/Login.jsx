@@ -10,7 +10,7 @@ import { useToast } from '../context/ToastContext';
 
 export default function Login() {
   const toast = useToast();
-  const [useSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   // State for UI
   const [method, setMethod] = useState('password');
   const [formData, setFormData] = useState({ identifier: '', password: '', mobile: '', otp: '' });

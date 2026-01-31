@@ -29,7 +29,7 @@ export default defineConfig({
             purpose: 'any maskable'
           },
           {
-            src: '/logo.webp',
+            src: '/logo_light.webp',
             sizes: '512x512',
             type: 'image/webp',
             purpose: 'any maskable'

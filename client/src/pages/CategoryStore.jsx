@@ -245,9 +245,9 @@ export default function CategoryStore() {
                             className="flex overflow-x-auto snap-x snap-mandatory scroll-smooth w-full [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']"
                         >
                             {otherCategories.map((cat) => (
-                                <div 
+                                <Link
                                     key={cat.id} 
-                                    onClick={() => navigate(`/shop/${cat.name}`)}
+                                    to={`/shop/${encodeURIComponent(cat.name)}`}
                                     // [FIX] w-1/3 (33%) for Mobile, md:w-1/5 (20%) for Desktop
                                     className="w-1/3 md:w-1/5 min-w-[33.33%] md:min-w-[20%] snap-start cursor-pointer group flex-shrink-0 p-2 box-border"
                                 >
@@ -271,7 +271,7 @@ export default function CategoryStore() {
                                     <h4 className="text-center text-xs md:text-sm font-bold text-gray-700 group-hover:text-primary line-clamp-1">
                                         {cat.name}
                                     </h4>
-                                </div>
+                                </Link>
                             ))}
                         </div>
 

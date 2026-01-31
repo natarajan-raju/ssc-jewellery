@@ -206,9 +206,9 @@ export default function Home() {
                     // [UPDATED] Responsive Grid for 15+ items
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
                         {categories.map((cat) => (
-                            <div 
+                            <Link 
                                 key={cat.id} 
-                                onClick={() => navigate(`/shop/${encodeURIComponent(cat.name)}`)}
+                                to={`/shop/${encodeURIComponent(cat.name)}`}
                                 className="group cursor-pointer relative flex flex-col items-center text-center gap-3 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-xl hover:border-accent/30 transition-all duration-300 hover:-translate-y-1"
                             >
                                 {/* Image Container */}
@@ -238,7 +238,7 @@ export default function Home() {
                                         {cat.product_count} items
                                     </p>
                                 </div>
-                            </div>
+                            </Link>
                         ))}
                         
                         {/* Fallback if no categories */}
