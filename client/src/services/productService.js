@@ -34,6 +34,9 @@ const handleResponse = async (res) => {
 };
 
 export const productService = {
+    clearCache: () => {
+        productCache = {};
+    },
     // --- GET PRODUCTS (With Caching) ---
     getProducts: async (page = 1, category = 'all', status = 'all') => {
         const cacheKey = `page${page}_cat${category}_stat${status}`;

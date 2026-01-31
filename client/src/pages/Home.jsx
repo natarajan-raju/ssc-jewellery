@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
 import { productService } from '../services/productService';
 import { ChevronLeft, ChevronRight, Folder } from 'lucide-react';
-import { io } from 'socket.io-client';
+import { useSocket } from '../context/SocketContext';
+// import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
     <section className="relative h-[80vh] flex items-center justify-center bg-primary overflow-hidden">
@@ -120,6 +121,8 @@ const CarouselHero = ({ slides }) => {
 
 // --- 3. MAIN PAGE COMPONENT ---
 export default function Home() {
+    const { socket } = useSocket();
+    const navigate = useNavigate();
     const [slides, setSlides] = useState([]);
     const [categories, setCategories] = useState([]);
     const [isLoadingHero, setIsLoadingHero] = useState(true);
@@ -157,21 +160,23 @@ export default function Home() {
         // A. Load initially
         fetchCategories();
 
-        // B. Connect Socket
-        // Use your backend URL. If in dev, hardcode localhost. In prod, standard slash works if served together.
-        const socketUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : '/';
-        const socket = io(socketUrl);
+        if (!socket) return;
 
-        // C. Listen for Event
-        socket.on('refresh:categories', () => {
+        // B. Define Handler
+        const handleCategoryRefresh = () => {
             console.log("⚡ Syncing categories from Admin update...");
-            productService.clearCache(); // IMPORTANT: Clear cache to force fresh fetch
+            productService.clearCache(); 
             fetchCategories();
-        });
+        };
 
-        // D. Cleanup
-        return () => socket.disconnect();
-    }, []);
+        // C. Listen
+        socket.on('refresh:categories', handleCategoryRefresh);
+
+        // D. Cleanup (Remove Listener ONLY)
+        return () => {
+            socket.off('refresh:categories', handleCategoryRefresh);
+        };
+    }, [socket]); // Depend on socket
 
     return (
         <div className="space-y-16 pb-16">
@@ -203,7 +208,7 @@ export default function Home() {
                         {categories.map((cat) => (
                             <div 
                                 key={cat.id} 
-                                onClick={() => navigate(`/shop?category=${cat.name}`)}
+                                onClick={() => navigate(`/shop/${encodeURIComponent(cat.name)}`)}
                                 className="group cursor-pointer relative flex flex-col items-center text-center gap-3 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-xl hover:border-accent/30 transition-all duration-300 hover:-translate-y-1"
                             >
                                 {/* Image Container */}

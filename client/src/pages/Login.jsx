@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { useAuth } from '../context/AuthContext'; // [NEW]
-import { Link, useNavigate } from 'react-router-dom'; // Removed useNavigate since we use window.location
+import { Link, useNavigate,useSearchParams } from 'react-router-dom'; // Removed useNavigate since we use window.location
 import { auth, googleProvider } from '../firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { Loader2, Check, X as XIcon, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
-// import logo from '../assets/logo.webp';
+
 
 export default function Login() {
   const toast = useToast();
-  
+  const [useSearchParams] = useSearchParams();
   // State for UI
   const [method, setMethod] = useState('password');
   const [formData, setFormData] = useState({ identifier: '', password: '', mobile: '', otp: '' });
@@ -24,10 +24,18 @@ export default function Login() {
   // Auto-Redirect if already logged in (using Context state)
   useEffect(() => {
       if (user) {
-          if (user.role === 'admin') navigate('/admin/dashboard', { replace: true });
-          else navigate('/', { replace: true });
+          const redirectUrl = searchParams.get('redirect'); // Get URL from query string
+
+          if (user.role === 'admin') {
+              navigate('/admin/dashboard', { replace: true });
+          } else if (redirectUrl) {
+              // [FIX] Redirect back to where the user clicked "Heart"
+              navigate(decodeURIComponent(redirectUrl), { replace: true });
+          } else {
+              navigate('/', { replace: true });
+          }
       }
-  }, [user, navigate]);
+  }, [user, navigate, searchParams]);
 
   
 

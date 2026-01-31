@@ -11,19 +11,10 @@ export default function Navbar() {
     
     // UI States
     const [isOpen, setIsOpen] = useState(false);
-    const [scrolled, setScrolled] = useState(false); // [NEW] Track scroll
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef(null);
 
-    // [NEW] 1. Scroll Detection Effect
-    useEffect(() => {
-        const handleScroll = () => {
-            // Check if user has scrolled more than 20px
-            setScrolled(window.scrollY > 20);
-        };
-        window.addEventListener('scroll', handleScroll);
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, []);
+   
 
     // Close User Menu on Click Outside
     useEffect(() => {
@@ -55,24 +46,19 @@ export default function Navbar() {
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`fixed top-0 w-full z-50 bg-white transition-all duration-300 ease-in-out ${
-            scrolled ? 'py-2 shadow-md' : 'py-4 shadow-sm border-b border-gray-100'
-        }`}>
+        <nav className={`fixed top-0 w-full z-50 bg-white transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-gray-100
+        `}>
             <div className="container mx-auto px-4 md:px-8">
                 <div className="flex justify-between items-center">
                     
-                    {/* Logo - Scales slightly on scroll */}
+                    
                     <Link to="/" className="flex items-center gap-2 group">
                         <img 
                             src={logo} 
                             alt="Logo" 
-                            className={`w-auto object-contain transition-all duration-300 ${
-                                scrolled ? 'h-8' : 'h-10'
-                            }`} 
+                            className={`w-auto object-contain transition-all duration-300 h-10`} 
                         />
-                        <span className={`font-serif font-bold tracking-wide text-primary transition-all duration-300 ${
-                            scrolled ? 'text-lg' : 'text-xl'
-                        }`}>
+                        <span className={`font-serif font-bold tracking-wide text-primary transition-all duration-300 text-xl`}>
                             SSC Jewellery
                         </span>
                     </Link>
