@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
-import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp } from 'lucide-react';
 // import { io } from 'socket.io-client';
 
 export default function CategoryStore() {
@@ -23,6 +23,33 @@ export default function CategoryStore() {
     const [sortBy, setSortBy] = useState('newest');
     const [isHovered, setIsHovered] = useState(false);
     const pageRef = useRef(page);
+    const [showTopBtn, setShowTopBtn] = useState(false);
+
+    // --- FILTER STATE ---
+    const [showFilters, setShowFilters] = useState(false);
+    const [inStockOnly, setInStockOnly] = useState(false);
+    const [priceRange, setPriceRange] = useState({ min: '', max: '' });
+
+    // Scroll Listener for "Back to Top" Button
+    useEffect(() => {
+        const toggleVisibility = () => {
+            if (window.scrollY > 300) {
+                setShowTopBtn(true);
+            } else {
+                setShowTopBtn(false);
+            }
+        };
+        window.addEventListener('scroll', toggleVisibility);
+        return () => window.removeEventListener('scroll', toggleVisibility);
+    }, []);
+
+    // Add Scroll Function
+    const scrollToTop = () => {
+        window.scrollTo({
+            top: 0,
+            behavior: 'smooth',
+        });
+    };
 
     useEffect(() => {
         pageRef.current = page;
@@ -42,14 +69,13 @@ export default function CategoryStore() {
     };
 
     // --- 2. Fetch Products ---
-    const fetchProducts = async (currentPage, shouldAppend = false) => {
-        setIsLoading(true);
+    // [FIX] Added 'skipLoading' param to prevent premature spinner dismissal during Promise.all
+    const fetchProducts = async (currentPage, shouldAppend = false, skipLoading = false) => {
+        if (!skipLoading) setIsLoading(true);
         try {
-            const data = await productService.getProducts(currentPage, category);
-            let newItems = data.products || [];
-
-            if (sortBy === 'low') newItems.sort((a,b) => a.price - b.price);
-            if (sortBy === 'high') newItems.sort((a,b) => b.price - a.price);
+            // [FIX] Pass 'sortBy' to the server (3rd arg is 'active' for clients)
+            const data = await productService.getProducts(currentPage, category, 'active', 'newest');
+            let newItems = data.products || [];            
 
             if (shouldAppend) {
                 setProducts(prev => [...prev, ...newItems]);
@@ -61,51 +87,137 @@ export default function CategoryStore() {
         } catch (error) {
             console.error("Store load error", error);
         } finally {
-            setIsLoading(false);
+            if (!skipLoading) setIsLoading(false);
         }
     };
-
-    // Initial Load
+    
+    // Initial Load (Optimized with Promise.all)
     useEffect(() => {
-        setPage(1);
-        setHasMore(true);
-        fetchCategoryMetadata();
-        fetchProducts(1, false);
-    }, [category, sortBy]);
+        const loadInitialData = async () => {
+            setIsLoading(true);
+            setPage(1);
+            setHasMore(true);
 
-    // --- 3. Socket.io Sync ---
-    useEffect(() => {
-        if (!socket) return; // Wait for connection
+            // Execute both requests in parallel and wait for both to finish
+            await Promise.all([
+                fetchCategoryMetadata(),
+                fetchProducts(1, false, true) // Pass true to skip internal loading toggle
+            ]);
 
-        // Define handlers (so we can remove them specifically)
-        const handleProductRefresh = () => {
-            console.log("⚡ Live Update: Refreshing products...");
-            productService.clearCache();
-            const currentPage = pageRef.current || 1;
-            //setPage(1);
-            fetchProducts(currentPage, false);
+            setIsLoading(false);
         };
 
-        const handleCategoryRefresh = () => {
-            console.log("⚡ Live Update: Refreshing categories...");
-            productService.clearCache();
-            fetchCategoryMetadata();
-            const currentPage = pageRef.current || 1;
-            //setPage(1);
-            fetchProducts(currentPage, false);
+        loadInitialData();
+    }, [category]);
+
+    // --- 3. Socket.io Sync (Optimized: Local Append/Patch) ---
+    useEffect(() => {
+        if (!socket) return; 
+
+        // [HELPER] Check if an item belongs in this current view
+        const shouldItemBeVisible = (item) => {
+            // 1. Must be active
+            if (item.status && item.status !== 'active') return false;
+
+            // 2. Must match the current URL category
+            // We decode the URL param (e.g., "Gold%20Rings" -> "gold rings")
+            const cleanCatParam = decodeURIComponent(category).toLowerCase();
+            const belongsToCategory = item.categories && item.categories.some(c => c.toLowerCase() === cleanCatParam);
+            
+            return belongsToCategory;
+        };
+
+        // A. Handle Item Creation (APPEND/PREPEND LOCALLY)
+        const handleProductCreate = (newProduct) => {
+            console.log("⚡ New Product Created:", newProduct.title);
+            
+            // Only add if it belongs to this category and is active
+            if (shouldItemBeVisible(newProduct)) {
+                setProducts(prev => {
+                    // Prevent duplicates
+                    if (prev.find(p => p.id === newProduct.id)) return prev;
+
+                    // Logic: If sorting by 'newest', add to TOP. Else add to BOTTOM.
+                    if (sortBy === 'newest') {
+                        return [newProduct, ...prev];
+                    }
+                    return [...prev, newProduct];
+                });
+            }
+        };
+
+        // B. Handle Item Updates (PATCH LOCALLY + REAPPEARANCE)
+        const handleProductUpdate = (updatedItem) => {
+            console.log("⚡ Item Update Received:", updatedItem.id);
+            
+            setProducts(prevProducts => {
+                const exists = prevProducts.find(p => p.id === updatedItem.id);
+                const isVisible = shouldItemBeVisible(updatedItem);
+
+                if (exists) {
+                    if (!isVisible) {
+                        // Case 1: Was visible -> Now Hidden/Removed (Remove locally)
+                        return prevProducts.filter(p => p.id !== updatedItem.id);
+                    } else {
+                        // Case 2: Was visible -> Still visible (Update details in place)
+                        return prevProducts.map(p => p.id === updatedItem.id ? { ...p, ...updatedItem } : p);
+                    }
+                } else {
+                    if (isVisible) {
+                        // Case 3: Was HIDDEN -> Now Active (Reappearance)
+                        // Inject it into the list without fetching
+                        if (sortBy === 'newest') return [updatedItem, ...prevProducts];
+                        return [...prevProducts, updatedItem];
+                    }
+                    return prevProducts; // Item irrelevant to this page
+                }
+            });
+        };
+
+        // C. Handle Deletes (REMOVE LOCALLY)
+        const handleProductDelete = ({ id }) => {
+            console.log("⚡ Item Deleted:", id);
+            setProducts(prev => prev.filter(p => p.id !== id));
+        };
+
+        // D. Handle Category Add/Remove (Admin Action)
+        const handleCategoryChange = ({ id, categoryId, action }) => {
+            // Check if event relates to THIS category page
+            if (categoryInfo && String(categoryInfo.id) === String(categoryId)) {
+                if (action === 'remove') {
+                    // Locally remove
+                    setProducts(prev => prev.filter(p => p.id !== id));
+                } else {
+                    // 'Add' via Admin usually only sends IDs, not full data.
+                    // We MUST fetch here to get the image/price/etc.
+                    // However, we only fetch if necessary.
+                    console.log("⚡ Product added to category. Refreshing...");
+                    productService.clearCache();
+                    fetchProducts(pageRef.current, false, true); // Fetch current page without loading spinner
+                }
+            }
+        };
+
+        // E. Handle Metadata (Jumbotron/Counts)
+        const handleMetadataRefresh = () => {
+             fetchCategoryMetadata();
         };
 
         // Attach Listeners
-        socket.on('refresh:products', handleProductRefresh);
-        socket.on('refresh:categories', handleCategoryRefresh);
+        socket.on('product:create', handleProductCreate);
+        socket.on('product:update', handleProductUpdate);
+        socket.on('product:delete', handleProductDelete);
+        socket.on('product:category_change', handleCategoryChange);
+        socket.on('refresh:categories', handleMetadataRefresh); 
 
-        // [CRITICAL] Cleanup: Remove listeners, DO NOT disconnect socket
         return () => {
-            socket.off('refresh:products', handleProductRefresh);
-            socket.off('refresh:categories', handleCategoryRefresh);
+            socket.off('product:create', handleProductCreate);
+            socket.off('product:update', handleProductUpdate);
+            socket.off('product:delete', handleProductDelete);
+            socket.off('product:category_change', handleCategoryChange);
+            socket.off('refresh:categories', handleMetadataRefresh);
         };
-    }, [socket, category, sortBy]); // Depend on 'socket'
-
+    }, [socket, category, categoryInfo, sortBy]); // Removed 'products' dependency to prevent loop
     // --- 4. Carousel Auto-Slide Logic ---
     useEffect(() => {
         if (otherCategories.length === 0 || isHovered) return;
@@ -139,11 +251,44 @@ export default function CategoryStore() {
     const handleLoadMore = () => {
         const nextPage = page + 1;
         setPage(nextPage);
-        fetchProducts(nextPage, true);
+        fetchProducts(nextPage, true, false);
     };
 
+    // --- CLIENT-SIDE FILTER & SORT LOGIC ---
+    const filteredAndSortedProducts = useMemo(() => {
+        let result = [...products];
+
+        // 1. Filter: Availability
+        if (inStockOnly) {
+            result = result.filter(p => {
+                const isTracked = String(p.track_quantity) === '1' || String(p.track_quantity) === 'true' || p.track_quantity === true;
+                return !isTracked || (p.quantity && p.quantity > 0);
+            });
+        }
+
+        // 2. Filter: Price Range
+        if (priceRange.min !== '') {
+            result = result.filter(p => (p.discount_price || p.mrp) >= Number(priceRange.min));
+        }
+        if (priceRange.max !== '') {
+            result = result.filter(p => (p.discount_price || p.mrp) <= Number(priceRange.max));
+        }
+
+        // 3. Sort
+        if (sortBy === 'low') {
+            result.sort((a, b) => (a.discount_price || a.mrp) - (b.discount_price || b.mrp));
+        } else if (sortBy === 'high') {
+            result.sort((a, b) => (b.discount_price || b.mrp) - (a.discount_price || a.mrp));
+        } else if (sortBy === 'newest') {
+            // Assuming IDs or created_at can be used, or reliance on initial server order (which is newest)
+            // If strictly needed: new Date(b.created_at) - new Date(a.created_at)
+        }
+
+        return result;
+    }, [products, sortBy, inStockOnly, priceRange]);
+
     return (
-        <div className="min-h-screen bg-gray-50 pb-20 overflow-x-hidden w-full">
+        <div className="min-h-screen bg-gray-50 pb-20 w-full">
             
             {/* Jumbotron (Unchanged) */}
             <div className="relative h-64 md:h-80 bg-gray-900 w-full overflow-hidden">
@@ -165,37 +310,123 @@ export default function CategoryStore() {
                 </div>
             </div>
 
-            {/* Toolbar (Unchanged) */}
-            <div className="sticky top-[74px] z-30 bg-white border-b border-gray-200 shadow-sm w-full">
-                <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-                    <button className="flex items-center gap-2 text-gray-600 hover:text-primary font-medium text-sm">
-                        <Filter size={18} /> <span>Filters</span>
-                    </button>
-                    <div className="relative group">
-                        <select 
-                            className="appearance-none bg-transparent pl-2 pr-8 py-1 text-sm font-bold text-gray-700 focus:outline-none cursor-pointer hover:text-primary"
-                            value={sortBy}
-                            onChange={(e) => setSortBy(e.target.value)}
+            {/* Toolbar - Fixed below Navbar */}
+            <div className="sticky top-[64px] z-40 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-sm w-full transition-all duration-300">
+                <div className="container mx-auto px-4 py-3">
+                    <div className="flex justify-between items-center">
+                        {/* Filter Toggle */}
+                        <button 
+                            onClick={() => setShowFilters(!showFilters)}
+                            className={`flex items-center gap-2 font-medium text-sm transition-colors ${showFilters ? 'text-primary' : 'text-gray-600 hover:text-primary'}`}
                         >
-                            <option value="newest">Newest First</option>
-                            <option value="low">Price: Low to High</option>
-                            <option value="high">Price: High to Low</option>
-                        </select>
-                        <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                            <Filter size={18} className={showFilters ? "fill-current" : ""} /> 
+                            <span>Filters</span>
+                            {inStockOnly || priceRange.min || priceRange.max ? (
+                                <span className="bg-accent text-primary text-[10px] px-1.5 rounded-full font-bold">!</span>
+                            ) : null}
+                        </button>
+
+                        {/* Sort Dropdown */}
+                        <div className="relative group">
+                            <select 
+                                className="appearance-none bg-transparent pl-2 pr-8 py-1 text-sm font-bold text-gray-700 focus:outline-none cursor-pointer hover:text-primary"
+                                value={sortBy}
+                                onChange={(e) => setSortBy(e.target.value)}
+                            >
+                                <option value="newest">Newest First</option>
+                                <option value="low">Price: Low to High</option>
+                                <option value="high">Price: High to Low</option>
+                            </select>
+                            <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                        </div>
+                    </div>
+
+                    {/* Expandable Filter Panel */}
+                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-40 opacity-100 mt-3 pb-2' : 'max-h-0 opacity-0'}`}>
+                        <div className="flex flex-wrap items-center gap-4 md:gap-8 pt-3 border-t border-gray-100">
+                            
+                            {/* Availability Toggle */}
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <div className="relative">
+                                    <input 
+                                        type="checkbox" 
+                                        className="sr-only peer" 
+                                        checked={inStockOnly}
+                                        onChange={() => setInStockOnly(!inStockOnly)}
+                                    />
+                                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                </div>
+                                <span className="text-sm text-gray-600 font-medium">In Stock Only</span>
+                            </label>
+
+                            {/* Price Range */}
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-gray-600 font-medium">Price:</span>
+                                <input 
+                                    type="number" 
+                                    placeholder="Min" 
+                                    value={priceRange.min}
+                                    onChange={(e) => setPriceRange(prev => ({ ...prev, min: e.target.value }))}
+                                    className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
+                                />
+                                <span className="text-gray-400">-</span>
+                                <input 
+                                    type="number" 
+                                    placeholder="Max" 
+                                    value={priceRange.max}
+                                    onChange={(e) => setPriceRange(prev => ({ ...prev, max: e.target.value }))}
+                                    className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
+                                />
+                            </div>
+
+                            {/* Clear Button */}
+                            {(inStockOnly || priceRange.min || priceRange.max) && (
+                                <button 
+                                    onClick={() => { setInStockOnly(false); setPriceRange({ min: '', max: '' }); }}
+                                    className="text-xs text-red-500 hover:text-red-700 font-bold ml-auto md:ml-0"
+                                >
+                                    Clear All
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
 
             {/* Product Grid */}
             <main className="container mx-auto px-4 py-8">
-                {products.length > 0 ? (
+                {/* [FIX 1] Check filtered list length instead of raw products */}
+                {filteredAndSortedProducts.length > 0 ? (
                     <>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8">
-                            {products.map((product) => (
-                                <ProductCard key={product.id} product={product} />
-                            ))}
+                            {/* [FIX 2] Map over filteredAndSortedProducts */}
+                            {filteredAndSortedProducts.map((product) => {
+                                // 1. Calculate Out of Stock Logic
+                                const isTracked = String(product.track_quantity) === '1' || String(product.track_quantity) === 'true' || product.track_quantity === true;
+                                const isOutOfStock = isTracked && (product.quantity || 0) <= 0;
+
+                                return (
+                                    <div key={product.id} className="relative group">
+                                        {/* 2. Apply Grayscale if OOS */}
+                                        <div className={isOutOfStock ? "grayscale opacity-75 transition-all" : ""}>
+                                            <ProductCard product={product} />
+                                        </div>
+
+                                        {/* 3. Out of Stock Badge Overlay */}
+                                        {isOutOfStock && (
+                                            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                                                <span className="bg-black/80 text-white text-xs md:text-sm font-bold px-3 py-1.5 rounded-lg uppercase tracking-wider backdrop-blur-sm shadow-md">
+                                                    Out of Stock
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
-                        {hasMore && (
+                        
+                        {/* Load More Button (Only show if we haven't filtered everything out locally) */}
+                        {hasMore && filteredAndSortedProducts.length >= 10 && (
                             <div className="mt-12 text-center">
                                 <button 
                                     onClick={handleLoadMore}
@@ -212,11 +443,19 @@ export default function CategoryStore() {
                         <div className="text-center py-24">
                             <SlidersHorizontal size={32} className="mx-auto text-gray-400 mb-4" />
                             <h3 className="text-xl font-bold text-gray-800 mb-2">No products found</h3>
-                            <Link to="/" className="text-primary font-bold hover:underline">Return Home</Link>
+                            <p className="text-gray-500 mb-4">Try adjusting your filters</p>
+                            <button 
+                                onClick={() => { setInStockOnly(false); setPriceRange({ min: '', max: '' }); }}
+                                className="text-primary font-bold hover:underline"
+                            >
+                                Clear Filters
+                            </button>
                         </div>
                     )
                 )}
-                {isLoading && products.length === 0 && (
+                
+                {/* [FIX 3] Update Skeleton Loader Check */}
+                {isLoading && filteredAndSortedProducts.length === 0 && (
                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-pulse">
                         {[...Array(4)].map((_,i) => <div key={i} className="bg-gray-200 h-64 rounded-xl"></div>)}
                      </div>
@@ -285,6 +524,16 @@ export default function CategoryStore() {
                     </div>
                 </section>
             )}
+            {/* Go Up Button */}
+            <button
+                onClick={scrollToTop}
+                className={`fixed bottom-8 right-8 z-50 p-3 rounded-full bg-primary text-white shadow-lg transition-all duration-300 transform hover:scale-110 hover:bg-primary-dark ${
+                    showTopBtn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
+                }`}
+                aria-label="Scroll to top"
+            >
+                <ArrowUp size={24} />
+            </button>
         </div>
     );
 }

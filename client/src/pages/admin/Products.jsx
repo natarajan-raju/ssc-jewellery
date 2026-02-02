@@ -41,7 +41,7 @@ export default function Products({ onNavigate }) {
     const loadProducts = async () => {
         setIsLoading(true);
         try {
-            const data = await productService.getProducts(page, filterCategory, filterStatus);
+            const data = await productService.getProducts(page, filterCategory, filterStatus, 'newest');
             setProducts(data.products || []);
             setTotalPages(data.totalPages || 1);
         } catch (error) {

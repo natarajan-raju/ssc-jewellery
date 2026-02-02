@@ -23,7 +23,7 @@ export default defineConfig({
         orientation: 'portrait',
         icons: [
           {
-            src: '/logo.webp', 
+            src: '/logo_light.webp', 
             sizes: '192x192',
             type: 'image/webp',
             purpose: 'any maskable'

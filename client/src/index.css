@@ -93,3 +93,29 @@ div[role="dialog"] {
 .fixed.bottom-0.z-50 {
     z-index: 40 !important; /* Lower than the Modal's 9999 */
 }
+
+/* --- ANIMATED GRADIENT BACKGROUND --- */
+@layer utilities {
+  .bg-size-200 {
+    background-size: 200% 200%;
+  }
+  
+  @keyframes gradient-xy {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .animate-gradient-xy {
+    animation: gradient-xy 6s ease infinite;
+  }
+  
+  /* Feature Card Hover Glow */
+  .hover-glow {
+    transition: all 0.3s ease;
+  }
+  .hover-glow:hover {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.3); /* Gold Glow */
+    transform: translateY(-5px);
+  }
+}

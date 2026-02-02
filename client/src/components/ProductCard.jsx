@@ -62,7 +62,7 @@ export default function ProductCard({ product }) {
     // --- 3. Image Logic (Based on your JSON 'media' array) ---
     const mainImage = product.media && product.media.length > 0 
         ? product.media[0].url 
-        : '/placeholder.jpg';
+        : '../assets/placeholder.jpg';
 
     const handleWishlist = (e) => {
         e.stopPropagation();
@@ -77,14 +77,13 @@ export default function ProductCard({ product }) {
     };
 
     return (
-        <div 
-            className="group relative bg-white rounded-2xl border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
+        <div className="group relative bg-white rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate"            
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
             onClick={() => console.log("Navigate to product", product.id)}
         >
             {/* --- RIBBONS --- */}
-            <div className="absolute top-0 left-0 z-20 flex flex-col items-start gap-1">
+            <div className="absolute top-0 left-0 z-20 flex flex-col items-start gap-1 rounded-tl-2xl overflow-hidden">
                 {/* Priority 1: Calculated Discount */}
                 {discountPercentage > 0 && (
                     <div className="bg-red-500 text-white text-[10px] md:text-xs font-bold px-3 py-1 rounded-br-lg shadow-sm">
@@ -109,12 +108,12 @@ export default function ProductCard({ product }) {
             </button>
 
             {/* --- IMAGE AREA --- */}
-            <div className="relative aspect-[4/5] bg-gray-50 overflow-hidden">
+            <div className="relative aspect-[4/5] bg-gray-50 overflow-hidden rounded-t-2xl">
                 <img 
                     src={mainImage} 
                     alt={product.title}
                     className={`w-full h-full object-cover transition-transform duration-700 ${isHovered ? 'scale-110' : 'scale-100'}`}
-                    onError={(e) => e.target.src = '/placeholder.jpg'}
+                    onError={(e) => e.target.src = '../assets/placeholder.jpg'}
                 />
                 
                 {/* Quick Add Overlay */}
@@ -133,7 +132,7 @@ export default function ProductCard({ product }) {
                 </p>
                 
                 {/* Title */}
-                <h3 className="font-bold text-gray-800 text-base line-clamp-1 mb-1 group-hover:text-primary transition-colors">
+                <h3 className="font-bold text-gray-800 text-base line-clamp-2 min-h-[3rem] mb-1 group-hover:text-primary transition-colors">
                     {product.title}
                 </h3>
                 

@@ -38,14 +38,16 @@ export const productService = {
         productCache = {};
     },
     // --- GET PRODUCTS (With Caching) ---
-    getProducts: async (page = 1, category = 'all', status = 'all') => {
-        const cacheKey = `page${page}_cat${category}_stat${status}`;
+    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest') => {
+        // [NEW] Include sort in cache key
+        const cacheKey = `page${page}_cat${category}_stat${status}_sort${sort}`;
 
         if (productCache[cacheKey]) {
             return productCache[cacheKey];
         }
 
-        const query = `?page=${page}&limit=10&category=${category}&status=${status}`;
+        // [NEW] Add sort to query string (and timestamp for cache busting)
+        const query = `?page=${page}&limit=10&category=${category}&status=${status}&sort=${sort}&_t=${Date.now()}`;
         const res = await fetch(`${API_URL}${query}`, { 
             headers: { 
                 ...getAuthHeader(),

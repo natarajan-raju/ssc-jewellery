@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check} from 'lucide-react';
+import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { productService } from '../services/productService';
 
@@ -51,10 +51,11 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     // --- 2. EFFECT: POPULATE ON EDIT & FETCH CATEGORIES ---
     useEffect(() => {
         if (isOpen) {
+            setIsCategoryOpen(false);
             // [NEW] Fetch Categories from Backend
-            // productService.getCategories()
-            //     .then(data => setAvailableCategories(data))
-            //     .catch(err => console.error("Failed to load categories", err));
+            productService.getCategories()
+                .then(data => setAvailableCategories(data))
+                .catch(err => console.error("Failed to load categories", err));
 
             // Existing Form Population Logic
             if (productToEdit) {
@@ -301,6 +302,17 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         setMediaItems(newItems);
     };
 
+    const moveMedia = (index, direction, e) => {
+        e.stopPropagation(); // Prevent drag start
+        const newIndex = index + direction;
+        if (newIndex < 0 || newIndex >= mediaItems.length) return;
+        
+        const newItems = [...mediaItems];
+        const [movedItem] = newItems.splice(index, 1);
+        newItems.splice(newIndex, 0, movedItem);
+        setMediaItems(newItems);
+    };
+
     // --- CATEGORY HANDLERS ---
     const toggleCategory = (category) => {
         setFormData(prev => {
@@ -335,6 +347,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         setTimeout(() => {
             categoryInputRef.current?.focus();
         }, 0);
+        setIsCategoryOpen(false);
     };
 
     const removeCategoryTag = (catToRemove) => {
@@ -668,7 +681,10 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                                     {!isCategoriesLoading && filteredCategories.map(cat => (
                                                         <button 
                                                             key={cat} 
-                                                            onClick={() => toggleCategory(cat)}
+                                                            onClick={() => { 
+                                                                toggleCategory(cat); 
+                                                                setIsCategoryOpen(false); 
+                                                            }}
                                                             className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-white hover:shadow-sm flex items-center justify-between group transition-all"
                                                         >
                                                             <span className="text-gray-700">{cat}</span>
@@ -760,7 +776,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                             <div className="relative">
                                                 <select 
                                                     value={relatedProducts.category} 
-                                                    onClick={handleOpenDropdown} // Reuse fetch logic to ensure list is loaded
+                                                    // onClick={handleOpenDropdown} // Reuse fetch logic to ensure list is loaded
                                                     onChange={(e) => setRelatedProducts(prev => ({ ...prev, category: e.target.value }))}
                                                     className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white appearance-none cursor-pointer"
                                                 >
@@ -808,8 +824,25 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
 
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 {mediaItems.map((item, index) => (
-                                    <div key={item.id} draggable onDragStart={() => setDraggedItemIndex(index)} onDragOver={(e) => handleDragOver(e, index)} onDragEnd={() => setDraggedItemIndex(null)} className={`relative aspect-square rounded-xl overflow-hidden border ${draggedItemIndex === index ? 'opacity-50' : 'bg-white'}`}>
-                                        <button onClick={() => setMediaItems(i => i.filter(x => x.id !== item.id))} className="absolute top-1 right-1 bg-white/90 p-1 rounded-full text-red-500 z-10 hover:bg-white"><Trash2 size={14}/></button>
+                                    <div key={item.id} draggable onDragStart={() => setDraggedItemIndex(index)} onDragOver={(e) => handleDragOver(e, index)} onDragEnd={() => setDraggedItemIndex(null)} className={`relative aspect-square rounded-xl overflow-hidden border group ${draggedItemIndex === index ? 'opacity-50' : 'bg-white'}`}>
+                                        
+                                        {/* Delete Button */}
+                                        <button onClick={() => setMediaItems(i => i.filter(x => x.id !== item.id))} className="absolute top-1 right-1 bg-white/90 p-1 rounded-full text-red-500 z-10 hover:bg-white shadow-sm"><Trash2 size={14}/></button>
+                                        
+                                        {/* [FIX] Mobile Reorder Controls */}
+                                        <div className="absolute bottom-1 right-1 z-10 flex gap-1">
+                                            {index > 0 && (
+                                                <button onClick={(e) => moveMedia(index, -1, e)} className="bg-white/90 p-1 rounded-full text-gray-700 hover:text-primary shadow-sm" title="Move Left">
+                                                    <ChevronLeft size={14}/>
+                                                </button>
+                                            )}
+                                            {index < mediaItems.length - 1 && (
+                                                <button onClick={(e) => moveMedia(index, 1, e)} className="bg-white/90 p-1 rounded-full text-gray-700 hover:text-primary shadow-sm" title="Move Right">
+                                                    <ChevronRight size={14}/>
+                                                </button>
+                                            )}
+                                        </div>
+
                                         {item.type === 'image' ? <img src={item.url} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-black flex items-center justify-center"><Youtube className="text-white"/></div>}
                                     </div>
                                 ))}
