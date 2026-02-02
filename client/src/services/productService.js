@@ -1,3 +1,4 @@
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const API_URL = import.meta.env.PROD 
   ? '/api/products' 
   : 'http://localhost:5000/api/products';
@@ -60,6 +61,32 @@ export const productService = {
         return data;
     },
 
+    
+    // [NEW] Get Single Product by ID (with variants)
+    getProduct: async (id) => {
+        try {
+            // [FIX] Use object bracket notation instead of .get()
+            const cached = productCache[`product_${id}`];
+            
+            if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+                return cached.data;
+            }
+            const res = await fetch(`${API_URL}/${id}`);
+            const data = await handleResponse(res);
+            
+            
+            // [FIX] Use object assignment instead of .set()
+            productCache[`product_${id}`] = {
+                data: data,
+                timestamp: Date.now()
+            };
+
+            return data;
+        } catch (error) {
+            console.error("Error fetching product details:", error);
+            throw error;
+        }
+    },
     // --- GET CATEGORIES (With Caching) ---
     getCategories: async () => {
         // 1. Check Cache

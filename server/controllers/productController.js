@@ -35,6 +35,39 @@ const getProducts = async (req, res) => {
     }
 };
 
+// --- [NEW] GET SINGLE PRODUCT ---
+const getSingleProduct = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const product = await Product.findById(id);
+
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        // Safely parse JSON fields (Handles cases where DB returns stringified JSON)
+        product.media = safeParse(product.media, []);
+        product.categories = safeParse(product.categories, []);
+        product.related_products = safeParse(product.related_products, {});
+        product.additional_info = safeParse(product.additional_info, []);
+        product.options = safeParse(product.options, []);
+        product.variant_options = safeParse(product.variant_options, {});
+        
+        // Ensure variants are attached (Assuming Model joins them, otherwise they might need parsing)
+        if (product.variants) {
+             product.variants = product.variants.map(v => ({
+                 ...v,
+                 variant_options: safeParse(v.variant_options, {})
+             }));
+        }
+
+        res.json(product);
+    } catch (error) {
+        console.error("Get Single Product Error:", error);
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 // --- 2. CREATE PRODUCT ---
 const createProduct = async (req, res) => {
     try {
@@ -226,7 +259,7 @@ const deleteCategory = async (req, res) => {
     }
 };
 
-module.exports = { getProducts, createProduct, deleteProduct, updateProduct, getCategories,
+module.exports = { getProducts,getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories,
     getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct,
     createCategory, deleteCategory
  };

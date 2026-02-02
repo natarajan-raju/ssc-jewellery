@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { protect, admin, staff } = require('../middleware/authMiddleware');
-const { getProducts, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, createCategory, deleteCategory } = require('../controllers/productController');
+const { getProducts,getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, createCategory, deleteCategory } = require('../controllers/productController');
 
 // --- MULTER CONFIGURATION (Image Uploads) ---
 const storage = multer.diskStorage({
@@ -76,11 +76,17 @@ router.delete('/:id', protect, admin, deleteProduct);
 //4. Update Product (Admin Only) - Can be added similarly
 router.put('/:id', protect, admin, upload.array('images', 10), updateProduct);
 
+
+
 router.get('/categories', getCategories);
 // 6. Create Category
 router.post('/categories', protect, admin, uploadCategoryImage.single('image'), createCategory);
 
 // 7. Delete Category
 router.delete('/categories/:id', protect, admin, deleteCategory);
+
+// 8. Get Single Product (Public)
+// [IMPORTANT] Place this AFTER all '/categories' routes to avoid id collisions
+router.get('/:id', getSingleProduct);
 
 module.exports = router;

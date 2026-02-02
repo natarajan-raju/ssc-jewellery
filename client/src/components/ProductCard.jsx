@@ -80,7 +80,7 @@ export default function ProductCard({ product }) {
         <div className="group relative bg-white rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate"            
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            onClick={() => console.log("Navigate to product", product.id)}
+            onClick={() => navigate(`/product/${product.id}`)}
         >
             {/* --- RIBBONS --- */}
             <div className="absolute top-0 left-0 z-20 flex flex-col items-start gap-1 rounded-tl-2xl overflow-hidden">

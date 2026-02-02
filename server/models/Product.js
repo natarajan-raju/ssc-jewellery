@@ -103,6 +103,33 @@ class Product {
         };
     }
 
+    // --- [NEW] Find Single Product by ID (with Variants) ---
+    static async findById(id) {
+        // 1. Fetch the Product
+        const [productRows] = await db.execute(
+            'SELECT * FROM products WHERE id = ?', 
+            [id]
+        );
+
+        if (productRows.length === 0) {
+            return null; // Product not found
+        }
+
+        const product = productRows[0];
+
+        // 2. Fetch Variants (if any)
+        // [FIX] Changed table to 'product_variants'. 
+        // Removed 'ORDER BY created_at' to be safe since it wasn't in your schema snippet.
+        const [variantRows] = await db.execute(
+            'SELECT * FROM product_variants WHERE product_id = ?', 
+            [id]
+        );
+
+        // 3. Attach variants to the product object
+        product.variants = variantRows;
+
+        return product;
+    }
     // --- 2. CREATE PRODUCT (With Variants) ---
     static async create(data) {
         const uniqueId = `prod_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;

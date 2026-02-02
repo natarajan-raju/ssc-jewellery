@@ -13,6 +13,7 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import ProductPage from './pages/ProductPage';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -46,6 +47,8 @@ function App() {
               <Route element={<PublicLayout />}>
                 <Route path="/" element={<Home />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
+                {/* Product Details Route */}
+                <Route path="/product/:id" element={<ProductPage />} />
               </Route>
 
               {/* Auth Pages (No Navbar) */}
