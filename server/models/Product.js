@@ -2,7 +2,7 @@ const db = require('../config/db');
 
 class Product {
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
-    static async getPaginated(page = 1, limit = 10, category = null, status = null) {
+    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest') {
         const offset = (page - 1) * limit;
         const params = [];
         
@@ -54,7 +54,30 @@ class Product {
             countQuery += whereClause;
         }
 
-        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        // --- DYNAMIC SORTING LOGIC ---
+        let orderByClause = 'ORDER BY p.created_at DESC'; // Default (Newest)
+
+        if (sort === 'low' || sort === 'high') {
+            // "Effective Price" Logic:
+            // 1. Check if variants exist. If so, find the CHEAPEST variant price (discounted or regular).
+            // 2. If no variants, use the Main Product's discount_price (if set) or MRP.
+            // 3. NULLIF(..., 0) ensures we don't accidentally treat a 0.00 placeholder as "Free".
+            const effectivePrice = `
+                COALESCE(
+                    (
+                        SELECT MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) 
+                        FROM product_variants pv 
+                        WHERE pv.product_id = p.id
+                    ),
+                    NULLIF(p.discount_price, 0),
+                    p.mrp
+                )
+            `;
+            
+            orderByClause = `ORDER BY ${effectivePrice} ${sort === 'low' ? 'ASC' : 'DESC'}`;
+        }
+
+        query += ` ${orderByClause} LIMIT ? OFFSET ?`;
         params.push(parseInt(limit), parseInt(offset));
 
         const [rows] = await db.execute(query, params);
