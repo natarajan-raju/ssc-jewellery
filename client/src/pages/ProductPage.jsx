@@ -21,14 +21,44 @@ export default function ProductPage() {
     // --- State ---
     const [product, setProduct] = useState(null);
     const [relatedProducts, setRelatedProducts] = useState([]);
-    const [activeVariant, setActiveVariant] = useState(null);
+    // const [activeVariant, setActiveVariant] = useState(null);
+    const [activeVariantId, setActiveVariantId] = useState(null);
     const [selectedImage, setSelectedImage] = useState(null);
     const [loading, setLoading] = useState(true);
     const [zoomStyle, setZoomStyle] = useState({ display: 'none' });
     const [activeAccordion, setActiveAccordion] = useState(null);
 
+    // [FIX] Helper to normalize socket data (Strings -> Arrays)
+    const normalizeSocketData = (data) => {
+        if (!data) return data;
+        const parsed = { ...data };
+
+        // List of JSON fields to check
+        const jsonFields = ['media', 'categories', 'options', 'additional_info', 'related_products'];
+
+        jsonFields.forEach(field => {
+            if (typeof parsed[field] === 'string') {
+                try {
+                    parsed[field] = JSON.parse(parsed[field]);
+                } catch (e) {
+                    console.error(`Failed to parse ${field} from socket:`, e);
+                    parsed[field] = []; // Fallback to empty array to prevent crash
+                }
+            }
+        });
+
+        // Ensure variants are also clean (if they exist)
+        if (parsed.variants && Array.isArray(parsed.variants)) {
+             // Variants usually come as objects from your DB query, 
+             // but safe to leave them if they are already arrays.
+        }
+
+        return parsed;
+    };
+
     // --- Refs ---
     const mainImageRef = useRef(null);
+    const productRef = useRef(null); // Tracks latest product state for socket
 
       // --- Safe Data Parsing ---
     
@@ -75,6 +105,43 @@ export default function ProductPage() {
         }
     }, [product]);
 
+    // [ENGINEERING FIX] 1. Enforce Client-Side Stability
+    // Irrespective of backend order, we strictly sort variants by ID.
+    // This ensures the dropdown options NEVER jump around during updates.
+    // [ENGINEERING FIX] 1. Stable Client-Side Sorting
+    // Sort by Title. This ensures that even if IDs change (backend regeneration),
+    // the visual order of items in the dropdown remains constant for the user.
+    const sortedVariants = useMemo(() => {
+        if (!product?.variants) return [];
+        return [...product.variants].sort((a, b) => {
+            return (a.variant_title || '').localeCompare(b.variant_title || '');
+        });
+    }, [product]);
+
+    // [ENGINEERING FIX] 2. Derive Active Variant from the Stable List
+    const activeVariant = useMemo(() => {
+        if (!sortedVariants.length || !activeVariantId) return null;
+        return sortedVariants.find(v => String(v.id) === String(activeVariantId)) || null;
+    }, [sortedVariants, activeVariantId]);
+
+    // Keep IDs in sync for the socket listener
+    const activeVariantIdRef = useRef(null);
+    const relatedCategoryRef = useRef(null);
+    const relatedProductsRef = useRef([]);
+
+    useEffect(() => { activeVariantIdRef.current = activeVariantId; }, [activeVariantId]);
+
+    // [FIX] Keep related products ref in sync
+    useEffect(() => {
+        relatedProductsRef.current = relatedProducts;
+    }, [relatedProducts]);
+    // [FIX] Keep ref in sync with state for socket listeners
+    useEffect(() => {
+        productRef.current = product;
+    }, [product]);
+
+    
+
    // [FIX] Helper to handle image paths and fallbacks
     const getImgUrl = (path) => {
         // Ensure path is a valid string
@@ -89,6 +156,51 @@ export default function ProductPage() {
             return placeholderImg;
         }
         return path;
+    };
+
+    // [NEW] Helper to refresh Related Products
+    const loadRelatedProducts = async (data) => {
+        let searchCategory = null;
+        
+        // 1. Default to product's main category
+        if (data.categories) {
+            const cats = typeof data.categories === 'string' ? JSON.parse(data.categories) : data.categories;
+            if (Array.isArray(cats) && cats.length > 0) searchCategory = cats[0];
+            else if (typeof cats === 'string') searchCategory = cats;
+        }
+
+        // 2. Check for Override
+        try {
+            const rpConfig = typeof data.related_products === 'string' ? JSON.parse(data.related_products) : data.related_products;
+            if (rpConfig && rpConfig.show === true && rpConfig.category) {
+                searchCategory = rpConfig.category;
+            }
+        } catch (e) {}
+
+        // [CRITICAL] Save the category we are searching for into Ref
+        relatedCategoryRef.current = searchCategory; 
+
+        if (searchCategory) {
+            try {
+                // Fetch 'active' products manually sorted
+                const related = await productService.getProducts(1, searchCategory, 'active', 'manual');
+                
+                // [FIX] Strict Filtering:
+                // 1. Exclude current product
+                // 2. Exclude Inactive (backend 'active' filter usually handles this, but double check)
+                // 3. Exclude Out of Stock (if tracking is enabled)
+                const validProducts = related.products.filter(p => {
+                    const isCurrent = String(p.id) === String(data.id);
+                    const isActive = p.status === 'active';
+                    const isStocked = !p.track_quantity || p.quantity > 0;
+                    return !isCurrent && isActive && isStocked;
+                });
+
+                setRelatedProducts(validProducts.slice(0, 5));
+            } catch (err) {
+                console.error("Failed to load related products", err);
+            }
+        }
     };
 
     // --- 1. Initial Fetch ---
@@ -110,13 +222,25 @@ export default function ProductPage() {
                 
                 // Initialize Variant (Newest first strategy)
                 if (data.variants && data.variants.length > 0) {
-                    setActiveVariant(data.variants[0]);
-                    // Use variant image, otherwise fallback to first product image
-                    setSelectedImage(data.variants[0].image_url || (images.length > 0 ? images[0] : null));
+                    
+                    const sorted = [...data.variants].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+                    const firstVar = sorted[0];
+
+                    setActiveVariantId(firstVar.id);
+                    let extractedImages = [];
+                    try {
+                        const raw = typeof data.media === 'string' ? JSON.parse(data.media) : data.media;
+                        if (Array.isArray(raw)) extractedImages = raw.map(m => (typeof m === 'object' && m?.url) ? m.url : m).filter(Boolean);
+                    } catch(e) {}
+                    
+                    // Set initial image
+                    const vImg = data.variants[0].image_url;
+                    setSelectedImage(vImg || (extractedImages.length > 0 ? extractedImages[0] : null));
                 } else {
-                    // Standard Product Image
                     setSelectedImage(images.length > 0 ? images[0] : null);
                 }
+                // [FIX] Load Related Products using the helper
+                await loadRelatedProducts(data);
 
             } catch (err) {
                 console.error(err);
@@ -132,19 +256,127 @@ export default function ProductPage() {
     // --- 2. Real-Time Sync ---
     useEffect(() => {
         if (!socket) return;
-        const handleUpdate = (updatedProduct) => {
-            if (updatedProduct.id === id) {
-                toast.info("Product information updated");
+        
+        const handleUpdate = (rawPayload) => {
+            // [FIX] Normalize the payload immediately
+            const updatedProduct = normalizeSocketData(rawPayload);
+
+            const msgId = String(updatedProduct.id);
+            const currentId = String(id);
+
+            // [SCENARIO 1] Update Main Product
+            if (msgId === currentId) {
+                // ... (Keep your existing SMART RECOVERY LOGIC here) ...
+                // ... (The logic I gave you previously for index matching) ...
+                
+                const oldData = productRef.current;
+                const currentVarId = activeVariantIdRef.current;
+                
+                let newSelectedId = null;
+                let shouldNotify = false;
+                let oldPrice = 0, newPrice = 0, priceLabel = updatedProduct.title;
+
+                // --- SMART RECOVERY LOGIC ---
+                if (oldData && oldData.variants && updatedProduct.variants && currentVarId) {
+                    // 1. Find what the user WAS looking at (Old Object)
+                    const oldVar = oldData.variants.find(v => String(v.id) === String(currentVarId));
+                    
+                    if (oldVar) {
+                        // 2. Find the SAME item in the New Data (Match by Title)
+                        const newVar = updatedProduct.variants.find(v => v.variant_title === oldVar.variant_title);
+
+                        if (newVar) {
+                            newSelectedId = newVar.id; 
+                            priceLabel = newVar.variant_title;
+
+                            // Compare Prices
+                            oldPrice = Number(oldVar.discount_price || oldVar.price);
+                            newPrice = Number(newVar.discount_price || newVar.price);
+                            shouldNotify = true;
+                        }
+                    }
+                } 
+                else if (!currentVarId && oldData) {
+                    oldPrice = Number(oldData.discount_price || oldData.mrp);
+                    newPrice = Number(updatedProduct.discount_price || updatedProduct.mrp);
+                    shouldNotify = true;
+                }
+
+                if (shouldNotify) {
+                    const diff = newPrice - oldPrice;
+                    if (diff < 0) toast.success(`Price drop on ${priceLabel}! Saved ₹${Math.abs(diff).toLocaleString()}`);
+                    else if (diff > 0) toast.error(`Price increased on ${priceLabel} by ₹${Math.abs(diff).toLocaleString()}`);
+                    else toast.success("Product information updated");
+                }
+                
+                if (newSelectedId) {
+                    setActiveVariantId(newSelectedId);
+                }
+
+                // [FIX] Use the NORMALIZED updatedProduct here
                 setProduct(prev => ({ ...prev, ...updatedProduct }));
+
+                const completeData = { ...(productRef.current || {}), ...updatedProduct };
+                loadRelatedProducts(completeData);
+            } 
+            
+            // [SCENARIO 2] Update Related Cards
+            const existsInRelated = relatedProductsRef.current.find(p => String(p.id) === msgId);
+            if (existsInRelated) {
+                // Check if the update makes it INVALID (Inactive or OOS)
+                const isInactive = updatedProduct.status !== 'active';
+                const isOOS = updatedProduct.track_quantity && updatedProduct.quantity <= 0;
+
+                if (isInactive || isOOS) {
+                    console.log("🚫 Related product became invalid (OOS/Inactive). Refreshing list...");
+                    // Clear cache to ensure we fetch a fresh list without this item
+                    productService.clearCache();
+                    // Reload to fill the gap with a new product
+                    if (productRef.current) {
+                        loadRelatedProducts(productRef.current);
+                    }
+                } else {
+                    // Valid Update: Just update price/image in place
+                    console.log("✅ Updating Related Product Card:", updatedProduct.title);
+                    setRelatedProducts(prevRelated => 
+                        prevRelated.map(p => String(p.id) === msgId ? { ...p, ...updatedProduct } : p)
+                    );
+                }
+            }
+            
+        };
+
+        // B. [NEW] Handler for Category Changes (Reorder / Add / Remove)
+        const handleCategoryChange = (payload) => {
+            const currentRelatedCat = relatedCategoryRef.current;
+            
+            // Check if the event affects the category we are displaying
+            if (currentRelatedCat && payload.categoryName === currentRelatedCat) {
+                console.log("🔄 Related Category Updated:", payload.action);
+                productService.clearCache(); // Clear cache to ensure fresh data
+                
+                // Reload using the current product data
+                if (productRef.current) {
+                    loadRelatedProducts(productRef.current);
+                }
             }
         };
-        socket.on('product:update', handleUpdate);
-        return () => socket.off('product:update', handleUpdate);
-    }, [socket, id]);
 
+        // Listeners
+        socket.on('product:update', handleUpdate);
+        socket.on('refresh:categories', handleCategoryChange);      // Handles Reorder
+        socket.on('product:category_change', handleCategoryChange); // Handles Add/Remove
+        return () => {
+            socket.off('product:update', handleUpdate);
+            socket.off('refresh:categories', handleCategoryChange);
+            socket.off('product:category_change', handleCategoryChange);
+        };
+    }, [socket, id, toast]);
+    
     // --- 3. Handlers ---
     const handleVariantChange = (variant) => {
-        setActiveVariant(variant);
+        if(!variant) return;
+        setActiveVariantId(variant.id);
         // If variant has an image, use it. Otherwise try first product image.
         if (variant.image_url) {
             setSelectedImage(variant.image_url);
@@ -190,15 +422,28 @@ export default function ProductPage() {
 
   
 
-    // Determine current display values (Variant vs Base)
-    const currentPrice = activeVariant ? activeVariant.price : product.mrp;
-    const currentDiscount = activeVariant ? activeVariant.discount_price : product.discount_price;
-    const currentQty = activeVariant ? activeVariant.quantity : product.quantity;
-    const currentSKU = activeVariant ? activeVariant.sku : product.sku;
-    const isOutOfStock = product.status !== 'active' || (product.track_quantity && currentQty <= 0);
-    const isLowStock = !isOutOfStock && product.track_low_stock && currentQty <= product.low_stock_threshold;
+    // [FIX] Consolidate Logic: Prioritize Active Variant -> Fallback to Product
+    const isVariant = !!activeVariant;
 
+    // 1. Pricing
+    const rawPrice = isVariant ? activeVariant.price : product.mrp;
+    const rawDiscount = isVariant ? activeVariant.discount_price : product.discount_price;
+    const currentPrice = Number(rawPrice || 0);
+    const currentDiscount = Number(rawDiscount || 0);
+
+    // 2. Stock & SKU
+    const currentSKU = isVariant ? activeVariant.sku : product.sku;
+    const currentQty = isVariant ? activeVariant.quantity : product.quantity;
     
+    // 3. Stock Status Logic
+    // Use variant's tracking setting if available, otherwise default to product's setting
+    const shouldTrackQty = isVariant ? (activeVariant.track_quantity ?? product.track_quantity) : product.track_quantity;
+    const stockThreshold = isVariant ? (activeVariant.low_stock_threshold ?? product.low_stock_threshold) : product.low_stock_threshold;
+    const shouldTrackLowStock = isVariant ? (activeVariant.track_low_stock ?? product.track_low_stock) : product.track_low_stock;
+
+    // Status Check: Product must be active. If tracking is on, qty must be > 0.
+    const isOutOfStock = product.status !== 'active' || (!!shouldTrackQty && currentQty <= 0);
+    const isLowStock = !isOutOfStock && !!shouldTrackLowStock && currentQty <= stockThreshold;
 
     return (
         <div className="bg-secondary min-h-screen pb-20">
@@ -220,7 +465,8 @@ export default function ProductPage() {
                     <div className="space-y-4">
                         {/* Main Image with Zoom */}
                         <div 
-                            className="relative aspect-square bg-white rounded-2xl overflow-hidden border shadow-sm group cursor-crosshair"
+                            className={`relative aspect-square bg-white rounded-2xl overflow-hidden border shadow-sm group 
+                            ${isOutOfStock ? 'grayscale opacity-75 cursor-not-allowed' : 'cursor-crosshair'}`}
                             onMouseMove={handleMouseMove}
                             onMouseLeave={() => setZoomStyle({ display: 'none' })}
                         >
@@ -252,7 +498,9 @@ export default function ProductPage() {
                                 <button 
                                     key={idx} 
                                     onClick={() => setSelectedImage(img)}
-                                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-all ${selectedImage === img ? 'border-primary' : 'border-transparent hover:border-gray-300'}`}
+                                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-all 
+                                    ${isOutOfStock ? 'grayscale opacity-60' : ''} 
+                                    ${selectedImage === img ? 'border-primary' : 'border-transparent hover:border-gray-300'}`}
                                 >
                                     <img src={getImgUrl(img)} className="w-full h-full object-cover" alt={`thumb-${idx}`} />
                                 </button>
@@ -274,12 +522,17 @@ export default function ProductPage() {
 
                         {/* Pricing */}
                         <div className="flex items-end gap-3 mb-6">
+                            {/* If discount exists and is lower than MRP, show Discount. Else show MRP */}
                             <span className="text-3xl font-bold text-primary">
-                                ₹{currentDiscount > 0 ? currentDiscount.toLocaleString() : currentPrice.toLocaleString()}
+                                ₹{(currentDiscount > 0 && currentDiscount < currentPrice) 
+                                    ? currentDiscount.toLocaleString() 
+                                    : currentPrice.toLocaleString()}
                             </span>
-                            {currentDiscount > 0 && (
+                            
+                            {/* Strike-through MRP only if there is a valid discount */}
+                            {(currentDiscount > 0 && currentDiscount < currentPrice) && (
                                 <span className="text-lg text-gray-400 line-through mb-1">
-                                    ₹{Number(currentPrice).toLocaleString()}
+                                    ₹{currentPrice.toLocaleString()}
                                 </span>
                             )}
                         </div>
@@ -307,39 +560,47 @@ export default function ProductPage() {
                             {product.description}
                         </p>
 
-                        {/* Variants Selection */}
+                        {/* Variants Selection (Dropdown) */}
                         {product.variants && product.variants.length > 0 && (
                             <div className="mb-8">
                                 <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-3">
                                     Select Variant
                                 </h3>
-                                <div className="flex flex-wrap gap-3">
-                                    {product.variants.map(variant => (
-                                        <button
-                                            key={variant.id}
-                                            onClick={() => handleVariantChange(variant)}
-                                            className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                                                activeVariant?.id === variant.id 
-                                                ? 'border-primary bg-primary text-white shadow-md' 
-                                                : 'border-gray-200 hover:border-primary text-gray-700'
-                                            }`}
-                                        >
-                                            {variant.variant_title}
-                                        </button>
-                                    ))}
+                                <div className="relative max-w-sm">
+                                    <select
+                                        value={activeVariantId || ''}
+                                        onChange={(e) => {
+                                            // Look up directly in our stable list
+                                            const selected = sortedVariants.find(v => String(v.id) === e.target.value);
+                                            handleVariantChange(selected);
+                                        }}
+                                        className="w-full appearance-none bg-white border border-gray-300 hover:border-primary text-gray-700 font-medium py-3 px-4 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all cursor-pointer"
+                                    >
+                                        {/* [FIX] Map over sortedVariants for stable order */}
+                                        {sortedVariants.map((variant) => (
+                                            <option key={variant.id} value={variant.id}>
+                                                {variant.variant_title}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    
+                                    {/* Custom Dropdown Arrow */}
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
+                                        <ChevronDown size={20} />
+                                    </div>
                                 </div>
                             </div>
                         )}
-
                         {/* Action Buttons */}
                         <div className="flex gap-4 mb-10">
                             <button 
                                 disabled={isOutOfStock}
-                                className={`flex-1 btn-primary py-4 text-lg ${isOutOfStock ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                onClick={() => toast.success("Added to Cart")} // Placeholder for Cart Context
+                                className={`flex-1 btn-primary py-4 text-lg flex items-center justify-center transition-all
+                                ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : 'hover:shadow-lg'}`}
+                                onClick={() => !isOutOfStock && toast.success("Added to Cart")} 
                             >
                                 <ShoppingCart size={20} className="mr-2" />
-                                {isOutOfStock ? 'Sold Out' : 'Add to Cart'}
+                                {isOutOfStock ? 'Sold out' : 'Add to Cart'}
                             </button>
                             <button 
                                 className="px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-colors"
@@ -390,7 +651,12 @@ export default function ProductPage() {
                 {relatedProducts.length > 0 && (
                     <div className="mt-20">
                         <h2 className="text-2xl font-serif font-bold text-primary mb-8 flex items-center gap-3">
-                            {product.related_products?.title || "Explore Similar Products"}
+                            {(() => {
+                                try {
+                                    const rp = typeof product.related_products === 'string' ? JSON.parse(product.related_products) : product.related_products;
+                                    return (rp && rp.show && rp.title) ? rp.title : "Explore Similar Products";
+                                } catch { return "Explore Similar Products"; }
+                            })()}
                             <ArrowRight size={24} className="text-accent" />
                         </h2>
                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">

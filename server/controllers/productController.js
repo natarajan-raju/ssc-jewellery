@@ -151,7 +151,9 @@ const updateProduct = async (req, res) => {
         };
 
         await Product.update(id, productData);
-        notifyClients(req, 'product:update', {id, ...productData}); // [NEW] Notify Sync
+        // 2. [FIX] Fetch the FRESH updated product from DB (ensures we get new Variant IDs)
+        const updatedProduct = await Product.findById(id);
+        notifyClients(req, 'product:update', updatedProduct); // [NEW] Notify Sync
         res.json({ message: 'Product updated successfully' });
     } catch (error) {
         console.error("Update Error:", error);
@@ -208,7 +210,9 @@ const reorderCategory = async (req, res) => {
     try {
         const { productIds } = req.body; // Array of IDs in new order
         await Product.reorderCategoryProducts(req.params.id, productIds);
-        notifyClients(req, 'refresh:categories', { action: 'reorder', categoryId: req.params.id });
+        // [FIX] Fetch Name to notify clients precisely
+        const catName = await Product.getCategoryName(req.params.id);
+        notifyClients(req, 'refresh:categories', { action: 'reorder', categoryId: req.params.id, categoryName: catName }); // [NEW] Notify Sync
         res.json({ message: 'Order updated' });
     } catch (error) {
         res.status(500).json({ message: 'Reorder failed' });
@@ -219,9 +223,12 @@ const manageCategoryProduct = async (req, res) => {
     try {
         const { productId, action } = req.body; // action: 'add' or 'remove'
         await Product.manageCategoryProduct(req.params.id, productId, action);
+        // [FIX] Fetch Name
+        const catName = await Product.getCategoryName(req.params.id);
         notifyClients(req, 'product:category_change', {
             id: productId,
             categoryId: req.params.id,
+            categoryName: catName,
             action,
         }); // [NEW] Notify Sync
         // 2. To update category stats (Jumbotron counts)

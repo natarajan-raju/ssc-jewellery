@@ -2,12 +2,14 @@ const db = require('../config/db');
 
 class Product {
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
+    // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest') {
         const offset = (page - 1) * limit;
         const params = [];
-        
-        // We use a subquery to fetch variants as a JSON array for each product
-        let query = `
+        const conditions = [];
+
+        // 1. Define Select Clauses
+        const selectClause = `
             SELECT p.*,
             (
                 SELECT JSON_ARRAYAGG(c.name)
@@ -34,55 +36,68 @@ class Product {
                 FROM product_variants pv 
                 WHERE pv.product_id = p.id
             ) as variants
-            FROM products p
         `;
-        let countQuery = 'SELECT COUNT(*) as total FROM products p';
+        const countSelectClause = 'SELECT COUNT(*) as total';
 
-        // Filters
-        const conditions = [];
-        if (category && category !== 'all') {
-            conditions.push('EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)');
+        // 2. Build FROM Clause & Category Logic
+        let fromClause = ' FROM products p';
+        
+        // [FIX] If Sorting Manually, we MUST use JOIN to access 'display_order'
+        // This also handles the category filtering more efficiently for this case.
+        if (sort === 'manual' && category && category !== 'all') {
+            fromClause += ' JOIN product_categories pc_sort ON p.id = pc_sort.product_id JOIN categories c_sort ON pc_sort.category_id = c_sort.id';
+            
+            // Filter by the joined category
+            conditions.push('c_sort.name = ?');
             params.push(category);
+        } else {
+            // Standard Category Filter (Using Subquery to avoid duplicate rows)
+            if (category && category !== 'all') {
+                conditions.push('EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)');
+                params.push(category);
+            }
         }
+
+        // 3. Status Filter
         if (status && status !== 'all') {
-            conditions.push('status = ?');
+            conditions.push('p.status = ?');
             params.push(status);
         }
+
+        // 4. Construct WHERE Clause
+        let whereClause = '';
         if (conditions.length > 0) {
-            const whereClause = ' WHERE ' + conditions.join(' AND ');
-            query += whereClause;
-            countQuery += whereClause;
+            whereClause = ' WHERE ' + conditions.join(' AND ');
         }
 
-        // --- DYNAMIC SORTING LOGIC ---
-        let orderByClause = 'ORDER BY p.created_at DESC'; // Default (Newest)
-
-        if (sort === 'low' || sort === 'high') {
-            // "Effective Price" Logic:
-            // 1. Check if variants exist. If so, find the CHEAPEST variant price (discounted or regular).
-            // 2. If no variants, use the Main Product's discount_price (if set) or MRP.
-            // 3. NULLIF(..., 0) ensures we don't accidentally treat a 0.00 placeholder as "Free".
+        // 5. Determine ORDER BY
+        let orderByClause = 'ORDER BY p.created_at DESC'; // Default
+        
+        if (sort === 'manual' && category && category !== 'all') {
+            orderByClause = 'ORDER BY pc_sort.display_order ASC';
+        } 
+        else if (sort === 'low' || sort === 'high') {
             const effectivePrice = `
                 COALESCE(
-                    (
-                        SELECT MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) 
-                        FROM product_variants pv 
-                        WHERE pv.product_id = p.id
-                    ),
+                    (SELECT MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) FROM product_variants pv WHERE pv.product_id = p.id),
                     NULLIF(p.discount_price, 0),
                     p.mrp
                 )
             `;
-            
             orderByClause = `ORDER BY ${effectivePrice} ${sort === 'low' ? 'ASC' : 'DESC'}`;
         }
 
-        query += ` ${orderByClause} LIMIT ? OFFSET ?`;
-        params.push(parseInt(limit), parseInt(offset));
+        // 6. Execute Queries
+        // Main Query
+        const query = selectClause + fromClause + whereClause + ` ${orderByClause} LIMIT ? OFFSET ?`;
+        const finalParams = [...params, parseInt(limit), parseInt(offset)];
+        const [rows] = await db.execute(query, finalParams);
 
-        const [rows] = await db.execute(query, params);
-        
-        // Parse JSON fields
+        // Count Query (Reuses FROM + WHERE to ensure accuracy)
+        const countQuery = countSelectClause + fromClause + whereClause;
+        const [countResult] = await db.execute(countQuery, params);
+
+        // 7. Parse JSON Fields
         const products = rows.map(p => ({
             ...p,
             media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || []),
@@ -92,9 +107,6 @@ class Product {
             options: typeof p.options === 'string' ? JSON.parse(p.options) : (p.options || []),
             variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || [])
         }));
-        
-        const countParams = params.slice(0, params.length - 2);
-        const [countResult] = await db.execute(countQuery, countParams);
 
         return {
             products,
@@ -116,7 +128,13 @@ class Product {
         }
 
         const product = productRows[0];
-
+        // [FIX] Parse JSON fields (Ensure Socket receives Arrays/Objects, not Strings)
+        product.media = typeof product.media === 'string' ? JSON.parse(product.media) : (product.media || []);
+        product.categories = typeof product.categories === 'string' ? JSON.parse(product.categories) : (product.categories || []);
+        product.related_products = typeof product.related_products === 'string' ? JSON.parse(product.related_products) : (product.related_products || {});
+        product.additional_info = typeof product.additional_info === 'string' ? JSON.parse(product.additional_info) : (product.additional_info || []);
+        product.options = typeof product.options === 'string' ? JSON.parse(product.options) : (product.options || []);
+        product.variant_options = typeof product.variant_options === 'string' ? JSON.parse(product.variant_options) : (product.variant_options || {});
         // 2. Fetch Variants (if any)
         // [FIX] Changed table to 'product_variants'. 
         // Removed 'ORDER BY created_at' to be safe since it wasn't in your schema snippet.
@@ -211,7 +229,7 @@ class Product {
             const values = [];
             Object.keys(data).forEach(key => {
                 if(key === 'variants') return; // Handle separately
-                if(key === 'categories') return; // Handle separately
+                // if(key === 'categories') return; // Handle separately
                 fields.push(`${key} = ?`);
                 if (['media','categories','related_products','additional_info','options'].includes(key)) {
                     values.push(JSON.stringify(data[key]));
@@ -444,6 +462,12 @@ class Product {
         // The products themselves will NOT be deleted, which is safe.
         await db.execute('DELETE FROM categories WHERE id = ?', [id]);
         return true;
+    }
+
+    // --- H. Helper: Get Category Name (For Socket Events) ---
+    static async getCategoryName(id) {
+        const [rows] = await db.execute('SELECT name FROM categories WHERE id = ?', [id]);
+        return rows[0] ? rows[0].name : null;
     }
 }
 
