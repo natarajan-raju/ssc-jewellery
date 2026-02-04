@@ -146,7 +146,9 @@ export default function Home() {
     const fetchCategories = async () => {
         try {
             const data = await productService.getCategoryStats();
-            setCategories(data);
+            // [FIX] Filter out Best Sellers & New Arrivals from the Featured Grid
+            const filtered = data.filter(c => !['Best Sellers', 'New Arrivals'].includes(c.name) && c.product_count > 0);
+            setCategories(filtered);
         } catch (err) {
             console.error("Category load failed", err);
         } finally {

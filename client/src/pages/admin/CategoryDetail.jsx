@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { productService } from '../../services/productService';
-import { ArrowLeft, Save, GripVertical, Trash2, Plus, X, Search, Check, Loader2, Edit3 } from 'lucide-react';
+import { ArrowLeft, Save, GripVertical, Trash2, Plus, X, Search, Check, Loader2, Edit3, ChevronDown } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 // Add Modal to imports
 import Modal from '../../components/Modal';
@@ -16,6 +16,10 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const [allProducts, setAllProducts] = useState([]); // For search
     const [assignSearch, setAssignSearch] = useState('');
+    // [NEW] Pagination State for Assign Modal
+    const [assignPage, setAssignPage] = useState(1);
+    const [hasMoreAssign, setHasMoreAssign] = useState(true);
+    const [isAssignLoading, setIsAssignLoading] = useState(false);
     // Custom Modal State
     const [modalConfig, setModalConfig] = useState({ 
         isOpen: false, type: 'delete', title: '', message: '', confirmText: '', targetId: null 
@@ -48,7 +52,12 @@ export default function CategoryDetail({ categoryId, onBack }) {
         setIsActionLoading(true);
         try {
             const formData = new FormData();
-            formData.append('name', name);
+            
+            // [FIX] Enforce Name Protection
+            const isProtected = ['Best Sellers', 'New Arrivals'].includes(category.name);
+            const finalName = isProtected ? category.name : name; // Ignore new name if protected
+
+            formData.append('name', finalName);
             if (imageFile) formData.append('image', imageFile);
 
             await productService.updateCategory(categoryId, formData);
@@ -56,11 +65,11 @@ export default function CategoryDetail({ categoryId, onBack }) {
             // Refresh local data
             setCategory(prev => ({ 
                 ...prev, 
-                name: name,
+                name: finalName,
                 image_url: imageFile ? URL.createObjectURL(imageFile) : prev.image_url 
             }));
             
-            toast.success("Category updated");
+            toast.success(isProtected ? "Category updated (Name is protected)" : "Category updated");
             setShowEditModal(false);
             productService.clearCache();
         } catch (error) {
@@ -168,12 +177,47 @@ export default function CategoryDetail({ categoryId, onBack }) {
     };
 
     // --- ASSIGN PRODUCT ---
+    // --- ASSIGN PRODUCT ---
     const openAssignModal = async () => {
         setIsAssignModalOpen(true);
-        // Fetch all products to search (Simple approach for now)
-        const res = await productService.getProducts(1, 'all', 'active'); // Fetch page 1 or implement a specific search API
-        // For better UX, you might want a specific 'searchProducts' API endpoint
-        setAllProducts(res.products || []); 
+        setAssignPage(1);
+        setHasMoreAssign(true);
+        setIsAssignLoading(true);
+        
+        try {
+            // Fetch Page 1
+            const res = await productService.getProducts(1, 'all', 'active');
+            const newItems = res.products || [];
+            
+            setAllProducts(newItems);
+            // If we got fewer items than limit (10), no more pages exist
+            setHasMoreAssign(newItems.length >= 10);
+        } catch (error) {
+            console.error("Failed to load assignable products", error);
+        } finally {
+            setIsAssignLoading(false);
+        }
+    };
+
+    const handleLoadMoreAssign = async () => {
+        if (isAssignLoading || !hasMoreAssign) return;
+        
+        setIsAssignLoading(true);
+        const nextPage = assignPage + 1;
+
+        try {
+            const res = await productService.getProducts(nextPage, 'all', 'active');
+            const newItems = res.products || [];
+
+            // Append new items to the existing list
+            setAllProducts(prev => [...prev, ...newItems]);
+            setAssignPage(nextPage);
+            setHasMoreAssign(newItems.length >= 10);
+        } catch (error) {
+            console.error("Failed to load more products", error);
+        } finally {
+            setIsAssignLoading(false);
+        }
     };
    
 
@@ -299,7 +343,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                 autoFocus
                             />
                         </div>
-                        <div className="max-h-60 overflow-y-auto space-y-1">
+                        <div className="max-h-60 overflow-y-auto space-y-1 custom-scrollbar pr-1">
                             {allProducts
                                 .filter(p => !products.some(exist => exist.id === p.id)) // Exclude already assigned
                                 .filter(p => p.title.toLowerCase().includes(assignSearch.toLowerCase()))
@@ -309,17 +353,36 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                         onClick={() => handleAssign(product)}
                                         className="w-full flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors text-left"
                                     >
-                                        <div className="w-10 h-10 bg-gray-100 rounded overflow-hidden">
+                                        <div className="w-10 h-10 bg-gray-100 rounded overflow-hidden shrink-0">
                                             {product.media && product.media[0] && <img src={product.media[0].url} className="w-full h-full object-cover" />}
                                         </div>
-                                        <div className="flex-1">
+                                        <div className="flex-1 min-w-0">
                                             <p className="text-sm font-bold text-gray-800 line-clamp-1">{product.title}</p>
                                             <p className="text-xs text-gray-500">{product.sku}</p>
                                         </div>
-                                        <Plus size={16} className="text-gray-400" />
+                                        <Plus size={16} className="text-gray-400 shrink-0" />
                                     </button>
                                 ))
                             }
+
+                            {/* [NEW] Load More Button */}
+                            {hasMoreAssign && !assignSearch && (
+                                <button 
+                                    onClick={handleLoadMoreAssign}
+                                    disabled={isAssignLoading}
+                                    className="w-full py-3 text-xs font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
+                                >
+                                    {isAssignLoading ? <Loader2 size={14} className="animate-spin"/> : <ChevronDown size={14} />}
+                                    {isAssignLoading ? 'Loading...' : 'Load More Products'}
+                                </button>
+                            )}
+                            
+                            {/* Empty State Help Text */}
+                            {hasMoreAssign && assignSearch && (
+                                <p className="text-xs text-gray-400 text-center py-2">
+                                    Can't find it? Clear search to load more products.
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>

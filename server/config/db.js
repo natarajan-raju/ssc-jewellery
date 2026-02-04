@@ -128,6 +128,21 @@ const initDB = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)
+        const defaultCats = ['Best Sellers', 'New Arrivals'];
+        for (const catName of defaultCats) {
+            // Check if exists
+            const [rows] = await connection.execute('SELECT id FROM categories WHERE name = ?', [catName]);
+            
+            if (rows.length === 0) {
+                // Create if missing (using the requested placeholder path)
+                await connection.execute(
+                    'INSERT INTO categories (name, image_url) VALUES (?, ?)', 
+                    [catName, '/src/assets/placeholder.jpg']
+                );
+                console.log(`✅ Auto-created default category: ${catName}`);
+            }
+        }
         
 
         console.log("✅ Tables verified/created successfully!");

@@ -101,12 +101,7 @@ export default function AdminDashboard() {
                     </button>
                     
                     {/* Sidebar Footer */}
-                    <div className="text-center">
-                        <p className="text-[10px] text-gray-500">Powered by</p>
-                        <a href="https://creativecodz.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-accent transition-colors font-medium">
-                            Creativecodz
-                        </a>
-                    </div>
+                    
                 </div>
             </aside>
 
@@ -131,14 +126,14 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Mobile Footer Credit (Visible only on mobile at bottom of content) */}
-                <div className="md:hidden text-center py-6 pb-24 text-gray-400">
+                {/* <div className="md:hidden text-center py-6 pb-24 text-gray-400">
                     <p className="text-[10px] flex items-center justify-center gap-1">
                         Powered by 
                         <a href="https://creativecodz.com" target="_blank" rel="noopener noreferrer" className="text-accent-deep hover:underline font-bold">
                             Creativecodz
                         </a>
                     </p>
-                </div>
+                </div> */}
             </main>
 
             {/* --- MOBILE BOTTOM NAV --- */}

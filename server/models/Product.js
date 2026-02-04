@@ -243,31 +243,65 @@ class Product {
             if (data.categories) {
                 await Product.syncCategories(connection, id, data.categories);
             }
-            // 2. Sync Variants (Delete Old -> Insert New)
-            // Simplest strategy to ensure clean sync
-            await connection.execute('DELETE FROM product_variants WHERE product_id = ?', [id]);
+            // 2. [FIXED] Sync Variants (Smart Diff Strategy)
+            // Goal: Preserve IDs to maintain Order/Cart history.
+            
+            const incomingVariants = data.variants || [];
+            
+            // Step A: Separate IDs that are being kept
+            const keepIds = incomingVariants
+                .map(v => v.id)
+                .filter(id => id && !id.startsWith('temp_')); // Filter out empty or temp frontend IDs
 
-            if (data.variants && data.variants.length > 0) {
-                const variantQuery = `
-                    INSERT INTO product_variants 
-                    (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, track_low_stock, low_stock_threshold, image_url)
-                    VALUES ?
-                `;
-                const variantValues = data.variants.map(v => [
-                    `var_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 5)}_${Math.random().toString(36).substring(2, 5)}`,
-                    id,
-                    v.title,
-                    v.price,
-                    v.discount_price || null,
-                    v.sku || null,
-                    v.weight_kg || null,
-                    v.quantity || 0,
-                    v.track_quantity ? 1 : 0,
-                    v.track_low_stock ? 1 : 0,
-                    v.low_stock_threshold || 0,
-                    v.image_url || null
-                ]);
-                await connection.query(variantQuery, [variantValues]);
+            // Step B: DELETE variants that are missing from the incoming list (Pruning)
+            if (keepIds.length > 0) {
+                // Delete only those NOT in the keep list
+                // We construct a dynamic placeholder string like "?, ?, ?"
+                const placeholders = keepIds.map(() => '?').join(',');
+                await connection.execute(
+                    `DELETE FROM product_variants WHERE product_id = ? AND id NOT IN (${placeholders})`,
+                    [id, ...keepIds]
+                );
+            } else {
+                // If the user removed ALL variants, clear the table for this product
+                await connection.execute('DELETE FROM product_variants WHERE product_id = ?', [id]);
+            }
+
+            // Step C: UPSERT (Update Existing / Insert New)
+            for (const v of incomingVariants) {
+                // Check if this is an existing variant (has ID and we didn't just delete it)
+                const isExisting = v.id && keepIds.includes(v.id);
+
+                if (isExisting) {
+                    // --- UPDATE ---
+                    await connection.execute(
+                        `UPDATE product_variants SET 
+                            variant_title=?, price=?, discount_price=?, sku=?, weight_kg=?, 
+                            quantity=?, track_quantity=?, track_low_stock=?, low_stock_threshold=?, image_url=?
+                         WHERE id = ? AND product_id = ?`,
+                        [
+                            v.title, v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
+                            v.quantity || 0, v.track_quantity ? 1 : 0, v.track_low_stock ? 1 : 0, 
+                            v.low_stock_threshold || 0, v.image_url || null,
+                            v.id, id
+                        ]
+                    );
+                } else {
+                    // --- INSERT ---
+                    // Generate a consistent ID just like in Create
+                    const newVarId = `var_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 5)}_${Math.random().toString(36).substring(2, 5)}`;
+                    
+                    await connection.execute(
+                        `INSERT INTO product_variants 
+                        (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, track_low_stock, low_stock_threshold, image_url)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [
+                            newVarId, id, v.title, v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
+                            v.quantity || 0, v.track_quantity ? 1 : 0, v.track_low_stock ? 1 : 0, 
+                            v.low_stock_threshold || 0, v.image_url || null
+                        ]
+                    );
+                }
             }
 
             await connection.commit();

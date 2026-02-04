@@ -175,12 +175,15 @@ export default function Categories() {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <button 
-                                        onClick={(e) => openDeleteModal(e, cat)}
-                                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
+                                    {/* [FIX] Hide Delete for Protected Categories */}
+                                    {!['Best Sellers', 'New Arrivals'].includes(cat.name) && (
+                                        <button 
+                                            onClick={(e) => openDeleteModal(e, cat)}
+                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    )}
                                     <ChevronRight className="text-gray-300 group-hover:text-primary" />
                                 </div>
                             </div>
