@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { productService } from '../../services/productService';
 import { 
     Loader2, Search, Plus, Package, 
@@ -7,14 +7,13 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
+import { useProducts } from '../../context/ProductContext';
 
 export default function Products({ onNavigate }) {
-    const [products, setProducts] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { allProducts, isDownloading, ensureAllProducts, refreshAllProducts } = useProducts();
     
     // Pagination & Filters
     const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
     const [filterCategory, setFilterCategory] = useState('all');
     const [filterStatus, setFilterStatus] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
@@ -33,23 +32,10 @@ export default function Products({ onNavigate }) {
             .catch(err => console.error("Failed to load categories", err));
     }, []);
 
-    // --- DATA LOADING ---
+    // --- DATA LOADING (Background) ---
     useEffect(() => {
-        loadProducts();
-    }, [page, filterCategory, filterStatus]);
-
-    const loadProducts = async () => {
-        setIsLoading(true);
-        try {
-            const data = await productService.getProducts(page, filterCategory, filterStatus, 'newest');
-            setProducts(data.products || []);
-            setTotalPages(data.totalPages || 1);
-        } catch (error) {
-            toast.error("Failed to load products");
-        } finally {
-            setIsLoading(false);
-        }
-    };
+        ensureAllProducts();
+    }, [ensureAllProducts]);
 
     // --- HANDLERS ---
     const handleSaveProduct = async (formData, id) => {
@@ -62,7 +48,7 @@ export default function Products({ onNavigate }) {
                 toast.success("Product created successfully!");
             }
             productService.clearCache();
-            loadProducts();
+            refreshAllProducts();
         } catch (error) {
             throw error;
         }
@@ -80,7 +66,7 @@ export default function Products({ onNavigate }) {
             await productService.deleteProduct(productToDelete.id);
             toast.success(`"${productToDelete.title}" has been deleted.`);
             productService.clearCache();
-            loadProducts();
+            refreshAllProducts();
         } catch (error) {
             toast.error("Failed to delete product.");
         } finally {
@@ -99,10 +85,26 @@ export default function Products({ onNavigate }) {
     };
 
     // --- SEARCH FILTER ---
-    const filteredProducts = products.filter(p => 
-        p.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const PAGE_SIZE = 10;
+    const filteredProducts = useMemo(() => {
+        return allProducts
+            .filter(p => filterCategory === 'all' || (p.categories || []).includes(filterCategory))
+            .filter(p => filterStatus === 'all' || p.status === filterStatus)
+            .filter(p =>
+                p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()))
+            );
+    }, [allProducts, filterCategory, filterStatus, searchTerm]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE));
+    const paginatedProducts = useMemo(() => {
+        const start = (page - 1) * PAGE_SIZE;
+        return filteredProducts.slice(start, start + PAGE_SIZE);
+    }, [filteredProducts, page]);
+
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages);
+    }, [page, totalPages]);
 
     return (
         <div className="animate-fade-in space-y-6 relative">
@@ -202,13 +204,11 @@ export default function Products({ onNavigate }) {
             </div>
 
             {/* --- LIST VIEW --- */}
-            {isLoading ? (
-                <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
-            ) : products.length > 0 ? (
+            {filteredProducts.length > 0 ? (
                 <>
                     {/* 1. MOBILE LIST (Card View) */}
                     <div className="grid grid-cols-1 gap-4 md:hidden">
-                        {filteredProducts.map(product => {
+                        {paginatedProducts.map(product => {
                             // --- 1. CALCULATE PRICE DISPLAY (Same as Desktop) ---
                             let priceDisplay;
                             if (product.variants && product.variants.length > 1) { // FIX: Only range if >1 variant
@@ -296,7 +296,7 @@ export default function Products({ onNavigate }) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredProducts.map((product) => {
+                                {paginatedProducts.map((product) => {
                                     // --- 1. ROBUST PRICE DISPLAY ---
                                     let priceDisplay;
                                     if (product.variants && product.variants.length > 1) { // FIX: Only range if >1 variant
@@ -402,8 +402,8 @@ export default function Products({ onNavigate }) {
                         </table>
                     </div>
                     
-                     {/* --- PAGINATION --- */}
-                     {products.length > 0 && (
+                    {/* --- PAGINATION --- */}
+                     {filteredProducts.length > 0 && (
                         <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-gray-200 mt-4">
                             <p className="text-sm text-gray-500 font-medium order-2 md:order-1">
                                 Page <span className="text-primary font-bold">{page}</span> of {totalPages}
@@ -419,6 +419,24 @@ export default function Products({ onNavigate }) {
                         </div>
                     )}
                 </>
+            ) : isDownloading ? (
+                <div className="flex items-center justify-center py-16 text-gray-500 text-sm">
+                    <Loader2 className="animate-spin text-accent w-4 h-4 mr-2" />
+                    Syncing products in background...
+                </div>
+            ) : allProducts.length > 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">No matching products</h3>
+                    <p className="text-gray-500 text-center max-w-md mb-6">
+                        Try adjusting filters or search terms.
+                    </p>
+                    <button
+                        onClick={() => { setFilterCategory('all'); setFilterStatus('all'); setSearchTerm(''); setPage(1); }}
+                        className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                        Clear Filters
+                    </button>
+                </div>
             ) : (// --- EMPTY STATE ILLUSTRATION ---
                 <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
                     <img 

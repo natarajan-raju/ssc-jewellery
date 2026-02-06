@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
@@ -14,6 +15,7 @@ export default function AdminDashboard() {
     const [expandedMenu, setExpandedMenu] = useState('products'); // Default open for demo
     const navigate = useNavigate();
     const { logout } = useAuth();
+    const { isDownloading, progress } = useProducts();
     
     
     const handleLogout = async () => {
@@ -115,6 +117,20 @@ export default function AdminDashboard() {
                     </div>
                     <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
                 </div>
+
+                {isDownloading && (
+                    <div className="sticky top-[56px] md:top-0 z-30 bg-white border-b border-gray-200">
+                        <div className="h-1 bg-gray-100">
+                            <div
+                                className="h-1 bg-accent transition-all duration-300"
+                                style={{ width: `${progress}%` }}
+                            />
+                        </div>
+                        <div className="px-4 py-2 text-xs text-gray-500">
+                            Syncing products in background... {progress}%
+                        </div>
+                    </div>
+                )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
                     {activeTab === 'products' && <Products onNavigate={setActiveTab} />}

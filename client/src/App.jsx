@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
+import { ProductProvider } from './context/ProductContext';
 import { useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import CategoryStore from './pages/CategoryStore';
@@ -39,9 +40,10 @@ function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <SocketProvider>
-          <BrowserRouter>
-            <Routes>
+        <ProductProvider>
+          <SocketProvider>
+            <BrowserRouter>
+              <Routes>
               
               {/* Public Routes */}
               <Route element={<PublicLayout />}>
@@ -68,9 +70,10 @@ function App() {
               />
 
               <Route path="*" element={<Navigate to="/" />} />
-            </Routes>
-          </BrowserRouter>
-        </SocketProvider>
+              </Routes>
+            </BrowserRouter>
+          </SocketProvider>
+        </ProductProvider>
       </AuthProvider>
     </ToastProvider>
   );
