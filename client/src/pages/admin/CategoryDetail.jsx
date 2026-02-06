@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { productService } from '../../services/productService';
-import { ArrowLeft, Save, GripVertical, Trash2, Plus, X, Search, Check, Loader2, Edit3, ChevronDown } from 'lucide-react';
+import { ArrowLeft, GripVertical, Trash2, Plus, X, Search, Loader2, Edit3 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useProducts } from '../../context/ProductContext';
 // Add Modal to imports
 import Modal from '../../components/Modal';
 import CategoryModal from '../../components/CategoryModal';
@@ -14,12 +15,8 @@ export default function CategoryDetail({ categoryId, onBack }) {
     
     // Assign Modal State
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-    const [allProducts, setAllProducts] = useState([]); // For search
+    const { allProducts, isDownloading, ensureAllProducts } = useProducts();
     const [assignSearch, setAssignSearch] = useState('');
-    // [NEW] Pagination State for Assign Modal
-    const [assignPage, setAssignPage] = useState(1);
-    const [hasMoreAssign, setHasMoreAssign] = useState(true);
-    const [isAssignLoading, setIsAssignLoading] = useState(false);
     // Custom Modal State
     const [modalConfig, setModalConfig] = useState({ 
         isOpen: false, type: 'delete', title: '', message: '', confirmText: '', targetId: null 
@@ -180,45 +177,15 @@ export default function CategoryDetail({ categoryId, onBack }) {
     // --- ASSIGN PRODUCT ---
     const openAssignModal = async () => {
         setIsAssignModalOpen(true);
-        setAssignPage(1);
-        setHasMoreAssign(true);
-        setIsAssignLoading(true);
-        
-        try {
-            // Fetch Page 1
-            const res = await productService.getProducts(1, 'all', 'active');
-            const newItems = res.products || [];
-            
-            setAllProducts(newItems);
-            // If we got fewer items than limit (10), no more pages exist
-            setHasMoreAssign(newItems.length >= 10);
-        } catch (error) {
-            console.error("Failed to load assignable products", error);
-        } finally {
-            setIsAssignLoading(false);
-        }
+        ensureAllProducts();
     };
-
-    const handleLoadMoreAssign = async () => {
-        if (isAssignLoading || !hasMoreAssign) return;
-        
-        setIsAssignLoading(true);
-        const nextPage = assignPage + 1;
-
-        try {
-            const res = await productService.getProducts(nextPage, 'all', 'active');
-            const newItems = res.products || [];
-
-            // Append new items to the existing list
-            setAllProducts(prev => [...prev, ...newItems]);
-            setAssignPage(nextPage);
-            setHasMoreAssign(newItems.length >= 10);
-        } catch (error) {
-            console.error("Failed to load more products", error);
-        } finally {
-            setIsAssignLoading(false);
-        }
-    };
+   
+    const assignableProducts = useMemo(() => {
+        const search = assignSearch.trim().toLowerCase();
+        return allProducts
+            .filter(p => !products.some(exist => exist.id === p.id))
+            .filter(p => (search ? p.title.toLowerCase().includes(search) : true));
+    }, [allProducts, products, assignSearch]);
    
 
     if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>;
@@ -344,10 +311,18 @@ export default function CategoryDetail({ categoryId, onBack }) {
                             />
                         </div>
                         <div className="max-h-60 overflow-y-auto space-y-1 custom-scrollbar pr-1">
-                            {allProducts
-                                .filter(p => !products.some(exist => exist.id === p.id)) // Exclude already assigned
-                                .filter(p => p.title.toLowerCase().includes(assignSearch.toLowerCase()))
-                                .map(product => (
+                            {isDownloading && allProducts.length === 0 && (
+                                <div className="flex items-center justify-center py-6 text-xs text-gray-400">
+                                    <Loader2 className="animate-spin mr-2" size={14} />
+                                    Loading products...
+                                </div>
+                            )}
+                            {!isDownloading && assignableProducts.length === 0 && (
+                                <div className="text-center text-xs text-gray-400 py-6">
+                                    No matching products.
+                                </div>
+                            )}
+                            {assignableProducts.map(product => (
                                     <button 
                                         key={product.id} 
                                         onClick={() => handleAssign(product)}
@@ -364,25 +339,6 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                     </button>
                                 ))
                             }
-
-                            {/* [NEW] Load More Button */}
-                            {hasMoreAssign && !assignSearch && (
-                                <button 
-                                    onClick={handleLoadMoreAssign}
-                                    disabled={isAssignLoading}
-                                    className="w-full py-3 text-xs font-bold text-primary hover:bg-primary/5 rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
-                                >
-                                    {isAssignLoading ? <Loader2 size={14} className="animate-spin"/> : <ChevronDown size={14} />}
-                                    {isAssignLoading ? 'Loading...' : 'Load More Products'}
-                                </button>
-                            )}
-                            
-                            {/* Empty State Help Text */}
-                            {hasMoreAssign && assignSearch && (
-                                <p className="text-xs text-gray-400 text-center py-2">
-                                    Can't find it? Clear search to load more products.
-                                </p>
-                            )}
                         </div>
                     </div>
                 </div>

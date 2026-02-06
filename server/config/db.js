@@ -115,6 +115,20 @@ const initDB = async () => {
             )
         `);
 
+        // [MIGRATION] Ensure display_order exists for manual sorting
+        const [displayOrderCols] = await connection.execute(
+            `SELECT COUNT(*) as count
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'product_categories'
+               AND COLUMN_NAME = 'display_order'`
+        );
+        if (displayOrderCols[0].count === 0) {
+            await connection.query(
+                'ALTER TABLE product_categories ADD COLUMN display_order INT DEFAULT 0'
+            );
+        }
+
         // 7. [NEW] HERO SLIDES TABLE (CMS)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS hero_slides (

@@ -20,10 +20,12 @@ export default function CategoryStore() {
     const [isLoading, setIsLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
-    const [sortBy, setSortBy] = useState('newest');
+    const [sortBy, setSortBy] = useState('default');
     const [isHovered, setIsHovered] = useState(false);
     const pageRef = useRef(page);
     const [showTopBtn, setShowTopBtn] = useState(false);
+    const PAGE_LIMIT = 20;
+    const refreshTimerRef = useRef(null);
 
     // --- FILTER STATE ---
     const [showFilters, setShowFilters] = useState(false);
@@ -41,6 +43,12 @@ export default function CategoryStore() {
         };
         window.addEventListener('scroll', toggleVisibility);
         return () => window.removeEventListener('scroll', toggleVisibility);
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        };
     }, []);
 
     // Add Scroll Function
@@ -74,7 +82,8 @@ export default function CategoryStore() {
         if (!skipLoading) setIsLoading(true);
         try {
             // [FIX] Pass 'sortBy' to the server (3rd arg is 'active' for clients)
-            const data = await productService.getProducts(currentPage, category, 'active', 'newest');
+            const serverSort = sortBy === 'default' ? 'manual' : sortBy;
+            const data = await productService.getProducts(currentPage, category, 'active', serverSort, PAGE_LIMIT);
             let newItems = data.products || [];            
 
             if (shouldAppend) {
@@ -83,12 +92,22 @@ export default function CategoryStore() {
                 setProducts(newItems);
             }
             
-            setHasMore(newItems.length >= 10);
+            setHasMore(newItems.length >= PAGE_LIMIT);
         } catch (error) {
             console.error("Store load error", error);
         } finally {
             if (!skipLoading) setIsLoading(false);
         }
+    };
+
+    const scheduleDefaultRefresh = () => {
+        const serverSort = sortBy === 'default' ? 'manual' : sortBy;
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => {
+            setPage(1);
+            productService.clearProductsCache({ category, status: 'active', sort: serverSort });
+            fetchProducts(1, false, true);
+        }, 250);
     };
     
     // Initial Load (Optimized with Promise.all)
@@ -108,11 +127,18 @@ export default function CategoryStore() {
         };
 
         loadInitialData();
-    }, [category]);
+    }, [category, sortBy]);
 
     // --- 3. Socket.io Sync (Optimized: Local Append/Patch) ---
     useEffect(() => {
         if (!socket) return; 
+        if (!socket.connected) {
+            socket.connect();
+        }
+
+        if (import.meta.env.DEV) {
+            console.log('[Socket] connected?', socket.connected);
+        }
 
         // [HELPER] Check if an item belongs in this current view
         const shouldItemBeVisible = (item) => {
@@ -133,6 +159,10 @@ export default function CategoryStore() {
             
             // Only add if it belongs to this category and is active
             if (shouldItemBeVisible(newProduct)) {
+                if (sortBy === 'default') {
+                    scheduleDefaultRefresh();
+                    return;
+                }
                 setProducts(prev => {
                     // Prevent duplicates
                     if (prev.find(p => p.id === newProduct.id)) return prev;
@@ -149,7 +179,10 @@ export default function CategoryStore() {
         // B. Handle Item Updates (PATCH LOCALLY + REAPPEARANCE)
         const handleProductUpdate = (updatedItem) => {
             console.log("⚡ Item Update Received:", updatedItem.id);
-            
+            if (sortBy === 'default') {
+                scheduleDefaultRefresh();
+                return;
+            }
             setProducts(prevProducts => {
                 const exists = prevProducts.find(p => p.id === updatedItem.id);
                 const isVisible = shouldItemBeVisible(updatedItem);
@@ -184,6 +217,10 @@ export default function CategoryStore() {
         const handleCategoryChange = ({ id, categoryId, action }) => {
             // Check if event relates to THIS category page
             if (categoryInfo && String(categoryInfo.id) === String(categoryId)) {
+                if (sortBy === 'default') {
+                    scheduleDefaultRefresh();
+                    return;
+                }
                 if (action === 'remove') {
                     // Locally remove
                     setProducts(prev => prev.filter(p => p.id !== id));
@@ -192,15 +229,27 @@ export default function CategoryStore() {
                     // We MUST fetch here to get the image/price/etc.
                     // However, we only fetch if necessary.
                     console.log("⚡ Product added to category. Refreshing...");
-                    productService.clearCache();
+                    const serverSort = sortBy === 'default' ? 'manual' : sortBy;
+                    productService.clearProductsCache({ category, status: 'active', sort: serverSort });
                     fetchProducts(pageRef.current, false, true); // Fetch current page without loading spinner
                 }
             }
         };
 
         // E. Handle Metadata (Jumbotron/Counts)
-        const handleMetadataRefresh = () => {
-             fetchCategoryMetadata();
+        const handleMetadataRefresh = (payload = {}) => {
+            if (import.meta.env.DEV) {
+                console.log('[Socket] refresh:categories', payload);
+            }
+            fetchCategoryMetadata();
+            if (sortBy === 'default') {
+                const cleanCatParam = decodeURIComponent(category).toLowerCase();
+                const matchesByName = payload.categoryName && payload.categoryName.toLowerCase() === cleanCatParam;
+                const matchesById = categoryInfo && payload.categoryId && String(categoryInfo.id) === String(payload.categoryId);
+                if (payload.action === 'reorder' ? (matchesByName || matchesById) : true) {
+                    scheduleDefaultRefresh();
+                }
+            }
         };
 
         // Attach Listeners
@@ -209,6 +258,12 @@ export default function CategoryStore() {
         socket.on('product:delete', handleProductDelete);
         socket.on('product:category_change', handleCategoryChange);
         socket.on('refresh:categories', handleMetadataRefresh); 
+        socket.on('connect', () => {
+            if (import.meta.env.DEV) console.log('[Socket] connected');
+        });
+        socket.on('connect_error', (err) => {
+            console.error('[Socket] connect_error', err?.message || err);
+        });
 
         return () => {
             socket.off('product:create', handleProductCreate);
@@ -216,6 +271,8 @@ export default function CategoryStore() {
             socket.off('product:delete', handleProductDelete);
             socket.off('product:category_change', handleCategoryChange);
             socket.off('refresh:categories', handleMetadataRefresh);
+            socket.off('connect');
+            socket.off('connect_error');
         };
     }, [socket, category, categoryInfo, sortBy]); // Removed 'products' dependency to prevent loop
     // --- 4. Carousel Auto-Slide Logic ---
@@ -279,7 +336,7 @@ export default function CategoryStore() {
             result.sort((a, b) => (a.discount_price || a.mrp) - (b.discount_price || b.mrp));
         } else if (sortBy === 'high') {
             result.sort((a, b) => (b.discount_price || b.mrp) - (a.discount_price || a.mrp));
-        } else if (sortBy === 'newest') {
+        } else if (sortBy === 'newest' || sortBy === 'default') {
             // Assuming IDs or created_at can be used, or reliance on initial server order (which is newest)
             // If strictly needed: new Date(b.created_at) - new Date(a.created_at)
         }
@@ -333,6 +390,7 @@ export default function CategoryStore() {
                                 value={sortBy}
                                 onChange={(e) => setSortBy(e.target.value)}
                             >
+                                <option value="default">Default</option>
                                 <option value="newest">Newest First</option>
                                 <option value="low">Price: Low to High</option>
                                 <option value="high">Price: High to Low</option>
@@ -426,7 +484,7 @@ export default function CategoryStore() {
                         </div>
                         
                         {/* Load More Button (Only show if we haven't filtered everything out locally) */}
-                        {hasMore && filteredAndSortedProducts.length >= 10 && (
+                        {hasMore && filteredAndSortedProducts.length >= PAGE_LIMIT && (
                             <div className="mt-12 text-center">
                                 <button 
                                     onClick={handleLoadMore}

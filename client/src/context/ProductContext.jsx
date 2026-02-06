@@ -6,7 +6,7 @@ const ProductContext = createContext(null);
 
 const CACHE_KEY = 'admin_all_products_cache_v1';
 const CACHE_STALE_MS = 5 * 60 * 1000; // 5 minutes
-const PAGE_LIMIT = 100;
+const PAGE_LIMIT = 500;
 
 const readCache = () => {
     try {

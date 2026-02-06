@@ -6,6 +6,9 @@ const API_URL = import.meta.env.PROD
 // --- CACHE STORAGE ---
 let productCache = {};
 
+const buildProductsCacheKey = (page, category, status, sort, limit) =>
+    `page${page}_limit${limit}_cat${category}_stat${status}_sort${sort}`;
+
 // --- AUTH HEADER HELPER ---
 const getAuthHeader = () => {
     let token = null;
@@ -41,7 +44,7 @@ export const productService = {
     // --- GET PRODUCTS (With Caching) ---
     getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10) => {
         // [NEW] Include sort + limit in cache key
-        const cacheKey = `page${page}_limit${limit}_cat${category}_stat${status}_sort${sort}`;
+        const cacheKey = buildProductsCacheKey(page, category, status, sort, limit);
 
         if (productCache[cacheKey]) {
             return productCache[cacheKey];
@@ -59,6 +62,17 @@ export const productService = {
 
         productCache[cacheKey] = data;
         return data;
+    },
+    clearProductsCache: ({ category, status, sort, limit } = {}) => {
+        const keys = Object.keys(productCache);
+        keys.forEach((key) => {
+            if (!key.startsWith('page')) return;
+            if (category && !key.includes(`_cat${category}_`)) return;
+            if (status && !key.includes(`_stat${status}_`)) return;
+            if (sort && !key.includes(`_sort${sort}`)) return;
+            if (limit && !key.includes(`_limit${limit}_`)) return;
+            delete productCache[key];
+        });
     },
 
     
