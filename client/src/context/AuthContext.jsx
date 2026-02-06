@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
+import { productService } from '../services/productService';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
 
@@ -47,6 +48,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(userData));
         setUser(userData);
+        productService.clearCache(); // Avoid stale data after login
     };
 
     // 3. Centralized Logout Function
@@ -55,6 +57,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('user');
         try { await signOut(auth); } catch (e) { console.error(e); }
         setUser(null); // Updates Navbar instantly!
+        productService.clearCache();
     };
 
     return (

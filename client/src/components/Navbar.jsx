@@ -1,11 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import logo from '/logo.webp';
 
 export default function Navbar() {
     const { user, logout } = useAuth();
+    const { itemCount, openCart } = useCart();
+    const [shakeCart, setShakeCart] = useState(false);
+    const [popBadge, setPopBadge] = useState(false);
+    const prevCountRef = useRef(itemCount);
     const navigate = useNavigate();
     const location = useLocation();
     
@@ -26,6 +31,18 @@ export default function Navbar() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        if (itemCount > prevCountRef.current) {
+            setShakeCart(true);
+            setPopBadge(true);
+            const t = setTimeout(() => setShakeCart(false), 400);
+            const b = setTimeout(() => setPopBadge(false), 250);
+            prevCountRef.current = itemCount;
+            return () => { clearTimeout(t); clearTimeout(b); };
+        }
+        prevCountRef.current = itemCount;
+    }, [itemCount]);
 
     const handleLogout = async () => {
         await logout();
@@ -75,6 +92,17 @@ export default function Navbar() {
 
                     {/* Actions */}
                     <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
+                        <button 
+                            onClick={openCart}
+                            className={`relative p-2 rounded-full hover:bg-gray-100 text-gray-600 hover:text-primary transition-colors ${shakeCart ? 'cart-shake' : ''}`}
+                        >
+                            <ShoppingCart size={22} strokeWidth={2} />
+                            {itemCount > 0 && (
+                                <span className={`absolute -top-1 -right-1 bg-primary text-accent text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center ${popBadge ? 'cart-pop' : ''}`}>
+                                    {itemCount}
+                                </span>
+                            )}
+                        </button>
                         {user ? (
                             <>
                                 <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className={`p-2 rounded-full transition-colors ${isUserMenuOpen ? 'bg-primary text-white' : 'hover:bg-gray-100 text-gray-600'}`}>
@@ -100,13 +128,26 @@ export default function Navbar() {
                         )}
                     </div>
 
-                    {/* Mobile Toggle */}
-                    <button 
-                        className="md:hidden p-2 text-primary"
-                        onClick={() => setIsOpen(!isOpen)}
-                    >
-                        {isOpen ? <X size={28} /> : <Menu size={28} />}
-                    </button>
+                    {/* Mobile Actions */}
+                    <div className="md:hidden flex items-center gap-2">
+                        <button 
+                            onClick={openCart}
+                            className={`relative p-2 text-primary ${shakeCart ? 'cart-shake' : ''}`}
+                        >
+                            <ShoppingCart size={24} />
+                            {itemCount > 0 && (
+                                <span className={`absolute -top-1 -right-1 bg-primary text-accent text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center ${popBadge ? 'cart-pop' : ''}`}>
+                                    {itemCount}
+                                </span>
+                            )}
+                        </button>
+                        <button 
+                            className="p-2 text-primary"
+                            onClick={() => setIsOpen(!isOpen)}
+                        >
+                            {isOpen ? <X size={28} /> : <Menu size={28} />}
+                        </button>
+                    </div>
                 </div>
             </div>
 

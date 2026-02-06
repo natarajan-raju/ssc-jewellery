@@ -35,9 +35,9 @@ const handleResponse = async (res) => {
 };
 
 export const adminService = {
-    getUsers: async (page = 1, role = 'all') => {
+    getUsers: async (page = 1, role = 'all', limit = 10) => {
         // 1. Create a unique key for this request (e.g., "page1_roleadmin")
-        const cacheKey = `page${page}_role${role}`;
+        const cacheKey = `page${page}_role${role}_limit${limit}`;
 
         // 2. Check Cache
         if (userCache[cacheKey]) {
@@ -46,7 +46,7 @@ export const adminService = {
         }
 
         // 3. Fetch from Network
-        const query = `?page=${page}&limit=10&role=${role}`;
+        const query = `?page=${page}&limit=${limit}&role=${role}`;
         const res = await fetch(`${API_URL}/users${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
 
@@ -82,6 +82,26 @@ export const adminService = {
         });
         userCache = {};
         return handleResponse(res);
+    },
+
+    getUserCart: async (userId) => {
+        const res = await fetch(`${API_URL}/users/${userId}/cart`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+
+    getUsersAll: async (role = 'all') => {
+        const all = [];
+        let page = 1;
+        let totalPages = 1;
+        const pageSize = 200;
+        do {
+            const data = await adminService.getUsers(page, role, pageSize);
+            const users = data.users || data || [];
+            all.push(...users);
+            totalPages = data.pagination?.totalPages || 1;
+            page += 1;
+        } while (page <= totalPages);
+        return all;
     },
 
     // IMPORTANT: Clear cache when data changes!

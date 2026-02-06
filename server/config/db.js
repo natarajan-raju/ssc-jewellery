@@ -74,6 +74,22 @@ const initDB = async () => {
             )
         `);
 
+        // 3.1 CART ITEMS TABLE (User Cart Persistence)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS cart_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                product_id VARCHAR(50) NOT NULL,
+                variant_id VARCHAR(50) NOT NULL DEFAULT '',
+                quantity INT NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_cart (user_id, product_id, variant_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        `);
+
         // 4. [NEW] PRODUCT VARIANTS TABLE
         await connection.query(`
             CREATE TABLE IF NOT EXISTS product_variants (

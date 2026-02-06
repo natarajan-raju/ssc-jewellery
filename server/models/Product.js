@@ -368,6 +368,19 @@ class Product {
         return rows;
     }
 
+    static async getCategoryStatsById(categoryId) {
+        const query = `
+            SELECT c.id, c.name, c.image_url, COUNT(pc.product_id) as product_count 
+            FROM categories c 
+            LEFT JOIN product_categories pc ON c.id = pc.category_id 
+            WHERE c.id = ?
+            GROUP BY c.id
+            LIMIT 1
+        `;
+        const [rows] = await db.execute(query, [categoryId]);
+        return rows[0] || null;
+    }
+
     // B. Get Single Category with Ordered Products
     static async getCategoryDetails(categoryId) {
         // 1. Get Category Info

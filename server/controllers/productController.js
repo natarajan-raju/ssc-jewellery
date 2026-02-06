@@ -199,7 +199,8 @@ const updateCategory = async (req, res) => {
         const { name } = req.body;
         const imageUrl = req.file ? `/uploads/categories/${req.file.filename}` : null;
         await Product.updateCategory(req.params.id, name, imageUrl);
-        notifyClients(req, 'refresh:categories',{ action: 'update', id: req.params.id }); // [NEW] Notify Sync
+        const category = await Product.getCategoryStatsById(req.params.id);
+        notifyClients(req, 'refresh:categories',{ action: 'update', category }); // [NEW] Notify Sync
         res.json({ message: 'Category updated' });
     } catch (error) {
         res.status(500).json({ message: 'Update failed' });
@@ -212,7 +213,7 @@ const reorderCategory = async (req, res) => {
         await Product.reorderCategoryProducts(req.params.id, productIds);
         // [FIX] Fetch Name to notify clients precisely
         const catName = await Product.getCategoryName(req.params.id);
-        notifyClients(req, 'refresh:categories', { action: 'reorder', categoryId: req.params.id, categoryName: catName }); // [NEW] Notify Sync
+        notifyClients(req, 'refresh:categories', { action: 'reorder', categoryId: req.params.id, categoryName: catName, orderedProductIds: productIds }); // [NEW] Notify Sync
         res.json({ message: 'Order updated' });
     } catch (error) {
         res.status(500).json({ message: 'Reorder failed' });
@@ -225,16 +226,19 @@ const manageCategoryProduct = async (req, res) => {
         await Product.manageCategoryProduct(req.params.id, productId, action);
         // [FIX] Fetch Name
         const catName = await Product.getCategoryName(req.params.id);
+        const updatedProduct = await Product.findById(productId);
         notifyClients(req, 'product:category_change', {
             id: productId,
             categoryId: req.params.id,
             categoryName: catName,
             action,
+            product: updatedProduct
         }); // [NEW] Notify Sync
         // 2. To update category stats (Jumbotron counts)
+        const category = await Product.getCategoryStatsById(req.params.id);
         notifyClients(req, 'refresh:categories', { 
             action: 'count_update', 
-            categoryId: req.params.id 
+            category
         });
         res.json({ message: 'Success' });
     } catch (error) {
@@ -248,8 +252,9 @@ const createCategory = async (req, res) => {
         const imageUrl = req.file ? `/uploads/categories/${req.file.filename}` : null;
         if (!name) return res.status(400).json({ message: 'Name is required' });
         
-        await Product.createCategory(name, imageUrl);
-        notifyClients(req, 'refresh:categories', {action: 'create'}); // [NEW] Notify Sync
+        const id = await Product.createCategory(name, imageUrl);
+        const category = await Product.getCategoryStatsById(id);
+        notifyClients(req, 'refresh:categories', {action: 'create', category}); // [NEW] Notify Sync
         res.status(201).json({ message: 'Category created' });
     } catch (error) {
         res.status(500).json({ message: error.message || 'Create failed' });
@@ -258,8 +263,9 @@ const createCategory = async (req, res) => {
 
 const deleteCategory = async (req, res) => {
     try {
+        const catName = await Product.getCategoryName(req.params.id);
         await Product.deleteCategory(req.params.id);
-        notifyClients(req, 'refresh:categories',{ action: 'delete', id: req.params.id }); // [NEW] Notify Sync
+        notifyClients(req, 'refresh:categories',{ action: 'delete', categoryId: req.params.id, categoryName: catName }); // [NEW] Notify Sync
         res.json({ message: 'Category deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Delete failed' });

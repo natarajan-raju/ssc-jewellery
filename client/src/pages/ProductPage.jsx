@@ -8,6 +8,7 @@ import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useCart } from '../context/CartContext';
 import ProductCard from '../components/ProductCard';
 import placeholderImg from '../assets/placeholder.jpg'
 
@@ -16,6 +17,7 @@ export default function ProductPage() {
     const navigate = useNavigate();
     const { socket } = useSocket();
     const { user } = useAuth(); // Assuming cart logic might need user later
+    const { addItem } = useCart();
     const toast = useToast();
 
     // --- State ---
@@ -201,6 +203,20 @@ export default function ProductPage() {
                 console.error("Failed to load related products", err);
             }
         }
+    };
+
+    const handleAddToCart = () => {
+        if (!product) return;
+        if (product.variants && product.variants.length > 0) {
+            if (!activeVariant) {
+                toast.error('Please select a variant');
+                return;
+            }
+            addItem({ product, variant: activeVariant, quantity: 1 });
+        } else {
+            addItem({ product, quantity: 1 });
+        }
+        toast.success('Added to cart');
     };
 
     // --- 1. Initial Fetch ---
@@ -597,7 +613,7 @@ export default function ProductPage() {
                                 disabled={isOutOfStock}
                                 className={`flex-1 btn-primary py-4 text-lg flex items-center justify-center transition-all
                                 ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : 'hover:shadow-lg'}`}
-                                onClick={() => !isOutOfStock && toast.success("Added to Cart")} 
+                                onClick={() => !isOutOfStock && handleAddToCart()} 
                             >
                                 <ShoppingCart size={20} className="mr-2" />
                                 {isOutOfStock ? 'Sold out' : 'Add to Cart'}

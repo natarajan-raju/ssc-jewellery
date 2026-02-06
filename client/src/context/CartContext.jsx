@@ -1,0 +1,267 @@
+import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { cartService } from '../services/cartService';
+import { useAuth } from './AuthContext';
+import { useSocket } from './SocketContext';
+import CartDrawer from '../components/CartDrawer';
+import QuickAddModal from '../components/QuickAddModal';
+import { useToast } from './ToastContext';
+
+const CartContext = createContext(null);
+const STORAGE_KEY = 'guest_cart_v1';
+
+const buildKey = (productId, variantId) => `${productId}__${variantId || ''}`;
+
+const parseMedia = (media) => {
+    try {
+        const raw = typeof media === 'string' ? JSON.parse(media) : media;
+        if (!Array.isArray(raw)) return [];
+        return raw.map(m => (m && typeof m === 'object' && m.url) ? m.url : m).filter(Boolean);
+    } catch {
+        return [];
+    }
+};
+
+const buildItemFromProduct = (product, variant, quantity = 1) => {
+    const media = parseMedia(product.media);
+    const imageUrl = variant?.image_url || media[0] || null;
+    const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || 0);
+    const compareAt = Number(variant?.price || product.mrp || 0);
+
+    return {
+        key: buildKey(product.id, variant?.id || ''),
+        productId: product.id,
+        variantId: variant?.id || '',
+        quantity,
+        title: product.title,
+        status: product.status || 'active',
+        imageUrl,
+        price,
+        compareAt,
+        variantTitle: variant?.variant_title || null,
+    };
+};
+
+const loadGuestCart = () => {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+};
+
+const saveGuestCart = (items) => {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    } catch {
+        // ignore
+    }
+};
+
+export const CartProvider = ({ children }) => {
+    const { user } = useAuth();
+    const { socket } = useSocket();
+    const toast = useToast();
+    const [items, setItems] = useState([]);
+    const [isOpen, setIsOpen] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [quickAddProduct, setQuickAddProduct] = useState(null);
+
+    const hydrateFromServer = useCallback(async (mergeGuest = false) => {
+        if (!user) return;
+        setIsSyncing(true);
+        try {
+            const guestItems = loadGuestCart();
+            if (mergeGuest && guestItems.length > 0) {
+                await cartService.bulkAdd(guestItems.map(i => ({
+                    productId: i.productId,
+                    variantId: i.variantId,
+                    quantity: i.quantity
+                })));
+                localStorage.removeItem(STORAGE_KEY);
+            }
+            const data = await cartService.getCart();
+            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [user]);
+
+    useEffect(() => {
+        if (user) {
+            hydrateFromServer(true);
+        } else {
+            setItems(loadGuestCart());
+        }
+    }, [user, hydrateFromServer]);
+
+    useEffect(() => {
+        if (!user) {
+            saveGuestCart(items);
+        }
+    }, [items, user]);
+
+    const addItem = async ({ product, variant, quantity = 1 }) => {
+        if (!product) return;
+        if (user) {
+            const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
+            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+        } else {
+            setItems(prev => {
+                const key = buildKey(product.id, variant?.id || '');
+                const existing = prev.find(p => p.key === key);
+                if (existing) {
+                    return prev.map(p => p.key === key ? { ...p, quantity: p.quantity + quantity } : p);
+                }
+                return [...prev, buildItemFromProduct(product, variant, quantity)];
+            });
+        }
+    };
+
+    const updateQuantity = async ({ productId, variantId = '', quantity }) => {
+        if (user) {
+            const data = await cartService.updateItem({ productId, variantId, quantity });
+            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+        } else {
+            setItems(prev => {
+                if (quantity <= 0) return prev.filter(p => !(p.productId === productId && p.variantId === variantId));
+                return prev.map(p => (p.productId === productId && p.variantId === variantId) ? { ...p, quantity } : p);
+            });
+        }
+    };
+
+    const removeItem = async ({ productId, variantId = '' }) => {
+        if (user) {
+            const data = await cartService.removeItem({ productId, variantId });
+            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+        } else {
+            setItems(prev => prev.filter(p => !(p.productId === productId && p.variantId === variantId)));
+        }
+    };
+
+    const clearCart = async () => {
+        if (user) {
+            const data = await cartService.clearCart();
+            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+        } else {
+            setItems([]);
+        }
+    };
+
+    const openCart = () => setIsOpen(true);
+    const closeCart = () => setIsOpen(false);
+    const openQuickAdd = (product) => setQuickAddProduct(product);
+    const closeQuickAdd = () => setQuickAddProduct(null);
+    const handleQuickAddConfirm = async (variant) => {
+        await addItem({ product: quickAddProduct, variant, quantity: 1 });
+        closeQuickAdd();
+    };
+
+    useEffect(() => {
+        if (!socket) return;
+        const updateQueueRef = { current: new Map() };
+        const deleteQueueRef = { current: new Set() };
+        let debounceTimer = null;
+
+        const flushUpdates = () => {
+            const updates = updateQueueRef.current;
+            const deletes = deleteQueueRef.current;
+            updateQueueRef.current = new Map();
+            deleteQueueRef.current = new Set();
+
+            let affectedUpdate = false;
+            let affectedDelete = false;
+
+            setItems(prev => {
+                affectedDelete = prev.some(item => deletes.has(item.productId));
+                affectedUpdate = prev.some(item => updates.has(item.productId));
+                let next = prev.filter(item => !deletes.has(item.productId));
+                if (updates.size === 0) return next;
+
+                return next.map(item => {
+                    const product = updates.get(item.productId);
+                    if (!product) return item;
+                    const variants = Array.isArray(product.variants) ? product.variants : [];
+                    const media = parseMedia(product.media);
+                    const variant = item.variantId ? variants.find(v => String(v.id) === String(item.variantId)) : null;
+                    const imageUrl = variant?.image_url || media[0] || item.imageUrl;
+                    const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || item.price || 0);
+                    const compareAt = Number(variant?.price || product.mrp || item.compareAt || 0);
+                    return {
+                        ...item,
+                        title: product.title || item.title,
+                        status: product.status || item.status,
+                        variantTitle: variant?.variant_title || item.variantTitle,
+                        imageUrl,
+                        price,
+                        compareAt
+                    };
+                });
+            });
+
+            if (affectedDelete) {
+                toast.error('Some items were removed from your cart (no longer available).');
+            } else if (affectedUpdate) {
+                toast.success('Cart updated due to product changes.');
+            }
+        };
+
+        const scheduleFlush = () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(flushUpdates, 200);
+        };
+
+        const handleProductUpdate = (product) => {
+            if (!product?.id) return;
+            updateQueueRef.current.set(product.id, product);
+            scheduleFlush();
+        };
+        const handleProductDelete = ({ id }) => {
+            if (!id) return;
+            deleteQueueRef.current.add(id);
+            scheduleFlush();
+        };
+
+        socket.on('product:update', handleProductUpdate);
+        socket.on('product:delete', handleProductDelete);
+
+        return () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            socket.off('product:update', handleProductUpdate);
+            socket.off('product:delete', handleProductDelete);
+        };
+    }, [socket]);
+
+    const itemCount = useMemo(() => items.reduce((sum, i) => sum + i.quantity, 0), [items]);
+    const subtotal = useMemo(() => items.reduce((sum, i) => sum + (i.price * i.quantity), 0), [items]);
+
+    const value = useMemo(() => ({
+        items,
+        itemCount,
+        subtotal,
+        isOpen,
+        isSyncing,
+        openCart,
+        closeCart,
+        addItem,
+        updateQuantity,
+        removeItem,
+        clearCart,
+        openQuickAdd
+    }), [items, itemCount, subtotal, isOpen, isSyncing]);
+
+    return (
+        <CartContext.Provider value={value}>
+            {children}
+            <CartDrawer />
+            <QuickAddModal 
+                product={quickAddProduct}
+                onClose={closeQuickAdd}
+                onConfirm={handleQuickAddConfirm}
+            />
+        </CartContext.Provider>
+    );
+};
+
+export const useCart = () => useContext(CartContext);

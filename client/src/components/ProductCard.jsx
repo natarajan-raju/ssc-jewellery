@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Heart, ShoppingCart, Eye } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useCart } from '../context/CartContext';
 
 export default function ProductCard({ product }) {
     const [isHovered, setIsHovered] = useState(false);
     const { user } = useAuth();
+    const { addItem, openQuickAdd } = useCart();
     const navigate = useNavigate();
 
     // --- 1. Pricing Logic ---
@@ -118,7 +120,18 @@ export default function ProductCard({ product }) {
                 
                 {/* Quick Add Overlay */}
                 <div className={`absolute inset-x-0 bottom-0 p-4 transition-all duration-300 ${isHovered ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`}>
-                    <button className="w-full bg-white text-gray-900 font-bold py-2 rounded-lg shadow-lg hover:bg-primary hover:text-white transition-colors flex items-center justify-center gap-2">
+                    <button 
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (product.variants && product.variants.length > 0) {
+                                openQuickAdd(product);
+                            } else {
+                                addItem({ product, quantity: 1 });
+                            }
+                        }}
+                        className="w-full bg-white text-gray-900 font-bold py-2 rounded-lg shadow-lg hover:bg-primary hover:text-white transition-colors flex items-center justify-center gap-2"
+                    >
                         <ShoppingCart size={18} /> Quick Add
                     </button>
                 </div>

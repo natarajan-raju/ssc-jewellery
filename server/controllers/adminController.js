@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Cart = require('../models/Cart');
 const bcrypt = require('bcryptjs');
 
 // --- 1. GET ALL USERS (PAGINATED) ---
@@ -124,4 +125,17 @@ const resetUserPassword = async (req, res) => {
     }
 };
 
-module.exports = { getUsers, createUser, deleteUser, resetUserPassword };
+// --- 5. GET USER CART (Admin/Staff) ---
+const getUserCart = async (req, res) => {
+    try {
+        const userToFetch = await User.findById(req.params.id);
+        if (!userToFetch) return res.status(404).json({ message: 'User not found' });
+        const items = await Cart.getByUser(req.params.id);
+        res.json({ items });
+    } catch (error) {
+        console.error('Admin cart fetch error:', error);
+        res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+module.exports = { getUsers, createUser, deleteUser, resetUserPassword, getUserCart };

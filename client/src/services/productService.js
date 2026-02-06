@@ -1,4 +1,5 @@
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+const CATEGORY_STATS_CACHE_KEY = 'category_stats_cache_v1';
 const API_URL = import.meta.env.PROD 
   ? '/api/products' 
   : 'http://localhost:5000/api/products';
@@ -40,14 +41,16 @@ const handleResponse = async (res) => {
 export const productService = {
     clearCache: () => {
         productCache = {};
+        try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
     },
     // --- GET PRODUCTS (With Caching) ---
     getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10) => {
         // [NEW] Include sort + limit in cache key
         const cacheKey = buildProductsCacheKey(page, category, status, sort, limit);
 
-        if (productCache[cacheKey]) {
-            return productCache[cacheKey];
+        const cached = productCache[cacheKey];
+        if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+            return cached.data;
         }
 
         // [NEW] Add sort to query string (and timestamp for cache busting)
@@ -60,7 +63,7 @@ export const productService = {
         });
         const data = await handleResponse(res);
 
-        productCache[cacheKey] = data;
+        productCache[cacheKey] = { data, timestamp: Date.now() };
         return data;
     },
     clearProductsCache: ({ category, status, sort, limit } = {}) => {
@@ -104,9 +107,10 @@ export const productService = {
     // --- GET CATEGORIES (With Caching) ---
     getCategories: async () => {
         // 1. Check Cache
-        if (productCache['all_categories']) {
+        const cached = productCache['all_categories'];
+        if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
             console.log("Returning categories from cache");
-            return productCache['all_categories'];
+            return cached.data;
         }
 
         // 2. Fetch if missing
@@ -114,7 +118,7 @@ export const productService = {
         const data = await handleResponse(res);
 
         // 3. Store in Cache
-        productCache['all_categories'] = data;
+        productCache['all_categories'] = { data, timestamp: Date.now() };
         return data;
     },
 
@@ -162,8 +166,39 @@ export const productService = {
 
     // --- CATEGORY MANAGEMENT ---
     getCategoryStats: async () => {
+        const cached = productCache['category_stats'];
+        if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+            return cached.data;
+        }
+
+        try {
+            const raw = localStorage.getItem(CATEGORY_STATS_CACHE_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (parsed?.data && (Date.now() - parsed.timestamp < CACHE_DURATION)) {
+                    productCache['category_stats'] = parsed;
+                    return parsed.data;
+                }
+            }
+        } catch {}
+
         const res = await fetch(`${API_URL}/categories/stats`);
-        return handleResponse(res);
+        const data = await handleResponse(res);
+        const payload = { data, timestamp: Date.now() };
+        productCache['category_stats'] = payload;
+        try { localStorage.setItem(CATEGORY_STATS_CACHE_KEY, JSON.stringify(payload)); } catch {}
+        return data;
+    },
+    patchCategoryStatsCache: (updater) => {
+        try {
+            const raw = localStorage.getItem(CATEGORY_STATS_CACHE_KEY);
+            const parsed = raw ? JSON.parse(raw) : null;
+            const current = parsed?.data || [];
+            const next = updater(Array.isArray(current) ? current : []);
+            const payload = { data: next, timestamp: Date.now() };
+            productCache['category_stats'] = payload;
+            localStorage.setItem(CATEGORY_STATS_CACHE_KEY, JSON.stringify(payload));
+        } catch {}
     },
 
     getCategoryDetails: async (id) => {

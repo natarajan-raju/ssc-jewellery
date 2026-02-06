@@ -25,7 +25,6 @@ export default function CategoryStore() {
     const pageRef = useRef(page);
     const [showTopBtn, setShowTopBtn] = useState(false);
     const PAGE_LIMIT = 20;
-    const refreshTimerRef = useRef(null);
 
     // --- FILTER STATE ---
     const [showFilters, setShowFilters] = useState(false);
@@ -45,11 +44,6 @@ export default function CategoryStore() {
         return () => window.removeEventListener('scroll', toggleVisibility);
     }, []);
 
-    useEffect(() => {
-        return () => {
-            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-        };
-    }, []);
 
     // Add Scroll Function
     const scrollToTop = () => {
@@ -100,14 +94,12 @@ export default function CategoryStore() {
         }
     };
 
-    const scheduleDefaultRefresh = () => {
-        const serverSort = sortBy === 'default' ? 'manual' : sortBy;
-        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = setTimeout(() => {
-            setPage(1);
-            productService.clearProductsCache({ category, status: 'active', sort: serverSort });
-            fetchProducts(1, false, true);
-        }, 250);
+    const reorderByIds = (items, orderedIds = []) => {
+        if (!Array.isArray(orderedIds) || orderedIds.length === 0) return items;
+        const map = new Map(items.map(p => [String(p.id), p]));
+        const ordered = orderedIds.map(id => map.get(String(id))).filter(Boolean);
+        const remaining = items.filter(p => !orderedIds.includes(String(p.id)));
+        return [...ordered, ...remaining];
     };
     
     // Initial Load (Optimized with Promise.all)
@@ -159,10 +151,6 @@ export default function CategoryStore() {
             
             // Only add if it belongs to this category and is active
             if (shouldItemBeVisible(newProduct)) {
-                if (sortBy === 'default') {
-                    scheduleDefaultRefresh();
-                    return;
-                }
                 setProducts(prev => {
                     // Prevent duplicates
                     if (prev.find(p => p.id === newProduct.id)) return prev;
@@ -179,10 +167,6 @@ export default function CategoryStore() {
         // B. Handle Item Updates (PATCH LOCALLY + REAPPEARANCE)
         const handleProductUpdate = (updatedItem) => {
             console.log("⚡ Item Update Received:", updatedItem.id);
-            if (sortBy === 'default') {
-                scheduleDefaultRefresh();
-                return;
-            }
             setProducts(prevProducts => {
                 const exists = prevProducts.find(p => p.id === updatedItem.id);
                 const isVisible = shouldItemBeVisible(updatedItem);
@@ -214,13 +198,10 @@ export default function CategoryStore() {
         };
 
         // D. Handle Category Add/Remove (Admin Action)
-        const handleCategoryChange = ({ id, categoryId, action }) => {
+        const handleCategoryChange = (payload) => {
+            const { id, categoryId, action } = payload || {};
             // Check if event relates to THIS category page
             if (categoryInfo && String(categoryInfo.id) === String(categoryId)) {
-                if (sortBy === 'default') {
-                    scheduleDefaultRefresh();
-                    return;
-                }
                 if (action === 'remove') {
                     // Locally remove
                     setProducts(prev => prev.filter(p => p.id !== id));
@@ -229,9 +210,13 @@ export default function CategoryStore() {
                     // We MUST fetch here to get the image/price/etc.
                     // However, we only fetch if necessary.
                     console.log("⚡ Product added to category. Refreshing...");
-                    const serverSort = sortBy === 'default' ? 'manual' : sortBy;
-                    productService.clearProductsCache({ category, status: 'active', sort: serverSort });
-                    fetchProducts(pageRef.current, false, true); // Fetch current page without loading spinner
+                    if (payload.product && shouldItemBeVisible(payload.product)) {
+                        setProducts(prev => {
+                            if (prev.find(p => p.id === payload.product.id)) return prev;
+                            if (sortBy === 'newest') return [payload.product, ...prev];
+                            return [...prev, payload.product];
+                        });
+                    }
                 }
             }
         };
@@ -242,12 +227,12 @@ export default function CategoryStore() {
                 console.log('[Socket] refresh:categories', payload);
             }
             fetchCategoryMetadata();
-            if (sortBy === 'default') {
+            if (payload.action === 'reorder' && payload.orderedProductIds) {
                 const cleanCatParam = decodeURIComponent(category).toLowerCase();
                 const matchesByName = payload.categoryName && payload.categoryName.toLowerCase() === cleanCatParam;
                 const matchesById = categoryInfo && payload.categoryId && String(categoryInfo.id) === String(payload.categoryId);
-                if (payload.action === 'reorder' ? (matchesByName || matchesById) : true) {
-                    scheduleDefaultRefresh();
+                if (matchesByName || matchesById) {
+                    setProducts(prev => reorderByIds(prev, payload.orderedProductIds));
                 }
             }
         };

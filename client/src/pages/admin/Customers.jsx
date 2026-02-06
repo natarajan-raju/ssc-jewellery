@@ -1,21 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { 
     Loader2, Trash2, Search, Mail, Phone, Key, 
-    ShieldCheck, Plus, UserCog, Filter, ChevronLeft, ChevronRight
+    ShieldCheck, Plus, UserCog, Filter, ShoppingCart, X
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
+import { useCustomers } from '../../context/CustomerContext';
 
 export default function Customers() {
-    const [users, setUsers] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { users, loading: isLoading, refreshUsers } = useCustomers();
     const [searchTerm, setSearchTerm] = useState('');
 
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
     const [roleFilter, setRoleFilter] = useState('all');
     
     // --- ROLE & ID TRACKING ---
@@ -28,36 +26,15 @@ export default function Customers() {
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'default', title: '', message: '', targetUser: null });
     const [addModalRole, setAddModalRole] = useState(null); 
     const [isActionLoading, setIsActionLoading] = useState(false);
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isCartOpen, setIsCartOpen] = useState(false);
+    const [cartItems, setCartItems] = useState([]);
+    const [isCartLoading, setIsCartLoading] = useState(false);
 
     useEffect(() => { 
-        loadUsers(); 
-    }, [page, roleFilter]);
-
-    const loadUsers = async () => {
-        setIsLoading(true);
-        try {
-            const data = await adminService.getUsers(page, roleFilter);
-            
-            // --- FIX: Bounce back if current page is empty ---
-            if (data.users && data.users.length === 0 && page > 1) {
-                // If we are on Page 2 and it's now empty, go back to Page 1
-                setPage(prev => prev - 1);
-                return; // Stop here, the useEffect will fetch the previous page
-            }
-            // -------------------------------------------------
-
-            if (data.users) {
-                setUsers(data.users);
-                setTotalPages(data.pagination?.totalPages || 1);
-            } else {
-                setUsers(data);
-            }
-        } catch (error) { 
-            console.error(error);
-            toast.error("Failed to load users"); 
-        } 
-        finally { setIsLoading(false); }
-    };
+        refreshUsers(false);
+    }, [refreshUsers]);
 
     const handleAddUser = async (userData) => {
         const payload = { ...userData, role: addModalRole };
@@ -66,7 +43,7 @@ export default function Customers() {
         }
         await adminService.createUser(payload);
         // adminService.clearCache();
-        await loadUsers();
+        await refreshUsers(true);
         setAddModalRole(null);
         toast.success(`${addModalRole === 'staff' ? 'Staff' : 'Customer'} added successfully`);
     };
@@ -92,7 +69,7 @@ export default function Customers() {
             if (type === 'delete') {
                 await adminService.deleteUser(targetUser.id);
                 // adminService.clearCache();
-                await loadUsers();
+                await refreshUsers(true);
                 toast.success("User deleted successfully");
             } else if (type === 'password' || type === 'input') {
                 if (!inputValue || inputValue.length < 6) {
@@ -114,6 +91,34 @@ export default function Customers() {
         (user.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
         (user.mobile || '').includes(searchTerm)
     );
+
+    const roleFilteredUsers = useMemo(() => {
+        if (roleFilter === 'all') return filteredUsers;
+        return filteredUsers.filter(u => u.role === roleFilter);
+    }, [filteredUsers, roleFilter]);
+
+    const staffAndAdmins = roleFilteredUsers.filter(u => u.role === 'admin' || u.role === 'staff');
+    const customersOnly = roleFilteredUsers.filter(u => !u.role || u.role === 'customer');
+
+    const openProfile = (user) => {
+        if (user.role !== 'customer') return;
+        setSelectedUser(user);
+        setIsProfileOpen(true);
+    };
+
+    const openCart = async (user) => {
+        setSelectedUser(user);
+        setIsCartOpen(true);
+        setIsCartLoading(true);
+        try {
+            const data = await adminService.getUserCart(user.id);
+            setCartItems(data.items || []);
+        } catch (error) {
+            toast.error('Failed to load cart');
+        } finally {
+            setIsCartLoading(false);
+        }
+    };
 
     // --- HELPER FOR PERMISSIONS ---
     const canResetPassword = (targetUser) => {
@@ -154,6 +159,94 @@ export default function Customers() {
                 onConfirm={handleAddUser}
                 roleToAdd={addModalRole} 
             />
+
+            {/* --- CART MODAL --- */}
+            {isCartOpen && selectedUser && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-bold text-gray-800">
+                                {selectedUser.name}'s Cart
+                            </h3>
+                            <button onClick={() => setIsCartOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="max-h-80 overflow-y-auto space-y-3">
+                            {isCartLoading && (
+                                <div className="flex items-center justify-center text-xs text-gray-400 py-6">
+                                    <Loader2 className="animate-spin mr-2" size={14} />
+                                    Loading cart...
+                                </div>
+                            )}
+                            {!isCartLoading && cartItems.length === 0 && (
+                                <div className="text-center text-xs text-gray-400 py-6">
+                                    Cart is empty.
+                                </div>
+                            )}
+                            {cartItems.map(item => (
+                                <div key={`${item.productId}_${item.variantId}`} className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
+                                        {item.imageUrl && <img src={item.imageUrl} className="w-full h-full object-cover" />}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold text-gray-800 line-clamp-1">{item.title}</p>
+                                        {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
+                                        <p className="text-sm font-bold text-primary">₹{Number(item.price || 0).toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- PROFILE DRAWER --- */}
+            {isProfileOpen && selectedUser && selectedUser.role === 'customer' && (
+                <div className="fixed inset-0 z-[60] flex items-stretch justify-end bg-black/40 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-xl font-bold text-gray-800">Customer Profile</h3>
+                            <button onClick={() => setIsProfileOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="bg-gray-50 rounded-2xl p-4 mb-6 border border-gray-100">
+                            <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
+                            <p className="text-sm text-gray-500 mt-1">{selectedUser.email}</p>
+                            <p className="text-sm text-gray-500">{selectedUser.mobile}</p>
+                            <p className="text-xs text-gray-400 mt-2">Role: {selectedUser.role || 'customer'}</p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Overall Volume</p>
+                                <p className="text-lg font-bold text-gray-800 mt-1">₹0</p>
+                            </div>
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Avg Order</p>
+                                <p className="text-lg font-bold text-gray-800 mt-1">₹0</p>
+                            </div>
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Last Order</p>
+                                <p className="text-lg font-bold text-gray-800 mt-1">—</p>
+                            </div>
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Status</p>
+                                <p className="text-lg font-bold text-gray-800 mt-1">Active</p>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 p-4 rounded-xl border border-dashed border-gray-200 text-sm text-gray-500">
+                            Analytics will update once Orders & Checkout are enabled.
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
@@ -215,54 +308,116 @@ export default function Customers() {
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
             ) : (
                 <>
-                    {/* MOBILE LIST */}
-                    <div className="grid grid-cols-1 gap-4 md:hidden">
-                        {filteredUsers.map((user) => (
-                            <div key={user.id} className={`p-5 rounded-xl shadow-sm border relative 
-                                ${user.role === 'admin' ? 'bg-amber-50 border-accent/30' : 
-                                  user.role === 'staff' ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100'}`}>
-                                
-                                <div className="flex items-start gap-4">
-                                    <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 
-                                        ${user.role === 'admin' ? 'bg-accent text-primary' : 
-                                          user.role === 'staff' ? 'bg-blue-100 text-blue-600' : 'bg-primary/5 text-primary'}`}>
-                                        {user.role === 'admin' ? <ShieldCheck size={20} /> : 
-                                         user.role === 'staff' ? <UserCog size={20} /> : 
-                                         <span className="font-bold">{user.name.charAt(0)}</span>}
-                                    </div>
-
-                                    <div className="flex-1 overflow-hidden">
-                                        <div className="flex items-center gap-2">
-                                            <h3 className="font-bold text-gray-800">{user.name}</h3>
-                                            {user.role === 'admin' && <span className="text-[10px] bg-primary text-accent px-2 py-0.5 rounded uppercase font-bold tracking-wider">Admin</span>}
-                                            {user.role === 'staff' && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Staff</span>}
-                                        </div>
-                                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Mail size={12}/> {user.email}</p>
-                                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Phone size={12}/> {user.mobile}</p>
-                                    </div>
-                                </div>
-
-                                <div className="mt-4 pt-3 border-t border-gray-200/50 flex justify-end gap-3">
-                                    {/* RESET PASSWORD */}
-                                    {canResetPassword(user) && (
-                                        <button onClick={() => openResetModal(user)} className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-accent-deep bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
-                                            <Key size={14} /> Reset Pwd
-                                        </button>
-                                    )}
+                    {/* MOBILE LIST: ADMINS/STAFF */}
+                    <div className="md:hidden space-y-3">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Admins & Staff</h3>
+                        <div className="grid grid-cols-1 gap-4">
+                            {staffAndAdmins.map((user) => (
+                                <div 
+                                    key={user.id} 
+                                    onClick={() => openProfile(user)}
+                                    className={`p-5 rounded-xl shadow-sm border relative cursor-pointer
+                                    ${user.role === 'admin' ? 'bg-amber-50 border-accent/30' : 
+                                      user.role === 'staff' ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100'}`}>
                                     
-                                    {/* DELETE */}
-                                    {canDeleteUser(user) && (
-                                        <button onClick={() => openDeleteModal(user)} className="flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100">
-                                            <Trash2 size={14} /> Delete
-                                        </button>
-                                    )}
+                                    <div className="flex items-start gap-4">
+                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 
+                                            ${user.role === 'admin' ? 'bg-accent text-primary' : 
+                                              user.role === 'staff' ? 'bg-blue-100 text-blue-600' : 'bg-primary/5 text-primary'}`}>
+                                            {user.role === 'admin' ? <ShieldCheck size={20} /> : 
+                                             user.role === 'staff' ? <UserCog size={20} /> : 
+                                             <span className="font-bold">{user.name.charAt(0)}</span>}
+                                        </div>
+
+                                        <div className="flex-1 overflow-hidden">
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-bold text-gray-800">{user.name}</h3>
+                                                {user.role === 'admin' && <span className="text-[10px] bg-primary text-accent px-2 py-0.5 rounded uppercase font-bold tracking-wider">Admin</span>}
+                                                {user.role === 'staff' && <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Staff</span>}
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Mail size={12}/> {user.email}</p>
+                                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Phone size={12}/> {user.mobile}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 pt-3 border-t border-gray-200/50 flex justify-end gap-3">
+                                        {canResetPassword(user) && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); openResetModal(user); }} 
+                                                className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-accent-deep bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200"
+                                            >
+                                                <Key size={14} /> Reset Pwd
+                                            </button>
+                                        )}
+                                        {canDeleteUser(user) && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} 
+                                                className="flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100"
+                                            >
+                                                <Trash2 size={14} /> Delete
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
                     </div>
 
-                    {/* DESKTOP TABLE */}
-                    <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    {/* MOBILE LIST: CUSTOMERS */}
+                    <div className="md:hidden space-y-3 mt-8">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Customers</h3>
+                        <div className="grid grid-cols-1 gap-4">
+                            {customersOnly.map((user) => (
+                                <div 
+                                    key={user.id} 
+                                    onClick={() => openProfile(user)}
+                                    className="p-5 rounded-xl shadow-sm border relative cursor-pointer bg-white border-gray-100">
+                                    
+                                    <div className="flex items-start gap-4">
+                                        <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 bg-primary/5 text-primary">
+                                            <span className="font-bold">{user.name.charAt(0)}</span>
+                                        </div>
+
+                                        <div className="flex-1 overflow-hidden">
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="font-bold text-gray-800">{user.name}</h3>
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Mail size={12}/> {user.email}</p>
+                                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Phone size={12}/> {user.mobile}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 pt-3 border-t border-gray-200/50 flex justify-end gap-3">
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); openCart(user); }}
+                                            className={`relative flex items-center gap-1 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${user.cart_count > 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-primary'}`}
+                                        >
+                                            <ShoppingCart size={14} /> Cart
+                                            {user.cart_count > 0 && (
+                                                <span className="ml-1 text-[10px] font-bold bg-green-600 text-white rounded-full px-1.5 py-0.5">
+                                                    {user.cart_count}
+                                                </span>
+                                            )}
+                                        </button>
+                                        {canDeleteUser(user) && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} 
+                                                className="flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100"
+                                            >
+                                                <Trash2 size={14} /> Delete
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* DESKTOP TABLE: ADMINS/STAFF */}
+                    <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                        <div className="px-6 py-4 border-b border-gray-100">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Admins & Staff</h3>
+                        </div>
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
@@ -273,8 +428,12 @@ export default function Customers() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {filteredUsers.map((user) => (
-                                    <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
+                                {staffAndAdmins.map((user) => (
+                                    <tr 
+                                        key={user.id} 
+                                        onClick={() => openProfile(user)}
+                                        className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                                    >
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs 
@@ -294,18 +453,24 @@ export default function Customers() {
                                         <td className="px-6 py-4">
                                             {user.role === 'admin' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary text-accent">ADMIN</span>}
                                             {user.role === 'staff' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">STAFF</span>}
-                                            {(!user.role || user.role === 'customer') && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Customer</span>}
                                         </td>
                                         <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                            
                                             {canResetPassword(user) && (
-                                                <button onClick={() => openResetModal(user)} className="text-gray-400 hover:text-accent-deep hover:bg-amber-50 p-2 rounded-lg transition-all" title="Reset Password">
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); openResetModal(user); }} 
+                                                    className="text-gray-400 hover:text-accent-deep hover:bg-amber-50 p-2 rounded-lg transition-all" 
+                                                    title="Reset Password"
+                                                >
                                                     <Key size={18} />
                                                 </button>
                                             )}
 
                                             {canDeleteUser(user) && (
-                                                <button onClick={() => openDeleteModal(user)} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all" title="Delete User">
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} 
+                                                    className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all" 
+                                                    title="Delete User"
+                                                >
                                                     <Trash2 size={18} />
                                                 </button>
                                             )}
@@ -315,12 +480,73 @@ export default function Customers() {
                                 ))}
                             </tbody>
                         </table>
-                        
-                        
+                    </div>
+
+                    {/* DESKTOP TABLE: CUSTOMERS */}
+                    <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
+                        </div>
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {customersOnly.map((user) => (
+                                    <tr 
+                                        key={user.id} 
+                                        onClick={() => openProfile(user)}
+                                        className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                                    >
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary">
+                                                    {user.name.charAt(0)}
+                                                </div>
+                                                <span className="font-medium text-gray-900">{user.name}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="text-sm text-gray-900">{user.email}</div>
+                                            <div className="text-xs text-gray-500">{user.mobile}</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); openCart(user); }} 
+                                                className={`relative p-2 rounded-lg transition-all ${user.cart_count > 0 ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:text-primary hover:bg-emerald-50'}`}
+                                                title="View Cart"
+                                            >
+                                                <ShoppingCart size={18} />
+                                                {user.cart_count > 0 && (
+                                                    <span className="absolute -top-1 -right-1 bg-green-600 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                                                        {user.cart_count}
+                                                    </span>
+                                                )}
+                                            </button>
+
+                                            {canDeleteUser(user) && (
+                                                <button 
+                                                    onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} 
+                                                    className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all" 
+                                                    title="Delete User"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            )}
+
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
 
                     {/* --- EMPTY STATE ILLUSTRATION (Only Admins Visible) --- */}
-                    {!isLoading && filteredUsers.length > 0 && filteredUsers.every(u => u.role === 'admin') && (
+                    {!isLoading && roleFilteredUsers.length > 0 && roleFilteredUsers.every(u => u.role === 'admin') && (
                         <div className="flex flex-col items-center justify-center py-12 animate-fade-in bg-white rounded-2xl border border-dashed border-gray-200 mt-6 mx-4 md:mx-0 shadow-sm">
                             <img 
                                 src="/user_add.svg" 
@@ -338,38 +564,6 @@ export default function Customers() {
                                 <Plus size={18} strokeWidth={3} />
                                 <span>Add First Customer</span>
                             </button>
-                        </div>
-                    )}
-                    
-                    {/* --- PAGINATION CONTROLS (Mobile Optimized) --- */}
-                    {!isLoading && users.length > 0 && (
-                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-gray-200 mt-4">
-                            
-                            {/* Text: Page Info */}
-                            <p className="text-sm text-gray-500 font-medium order-2 md:order-1">
-                                Page <span className="text-primary font-bold">{page}</span> of {totalPages}
-                            </p>
-
-                            {/* Buttons: Prev/Next */}
-                            <div className="flex gap-3 order-1 md:order-2 w-full md:w-auto justify-center">
-                                <button 
-                                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                                    disabled={page === 1}
-                                    className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-white hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all bg-gray-50 text-sm font-bold flex-1 md:flex-none justify-center"
-                                >
-                                    <ChevronLeft size={18} />
-                                    Prev
-                                </button>
-                                
-                                <button 
-                                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={page === totalPages}
-                                    className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-white hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all bg-gray-50 text-sm font-bold flex-1 md:flex-none justify-center"
-                                >
-                                    Next
-                                    <ChevronRight size={18} />
-                                </button>
-                            </div>
                         </div>
                     )}
                 </>

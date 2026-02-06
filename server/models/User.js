@@ -21,13 +21,15 @@ class User {
     static async getPaginated(page = 1, limit = 10, roleFilter = null) {
         const offset = (page - 1) * limit;
         
-        let query = 'SELECT * FROM users';
+        let query = `SELECT u.*,
+            (SELECT COUNT(*) FROM cart_items ci WHERE ci.user_id = u.id) as cart_count
+            FROM users u`;
         let countQuery = 'SELECT COUNT(*) as total FROM users';
         const params = [];
         
         // Filter Logic
         if (roleFilter && roleFilter !== 'all') {
-            query += ' WHERE role = ?';
+            query += ' WHERE u.role = ?';
             countQuery += ' WHERE role = ?';
             params.push(roleFilter);
         }
@@ -36,11 +38,11 @@ class User {
         query += ` 
             ORDER BY 
                 CASE 
-                WHEN role = 'admin' THEN 3
-                WHEN role = 'staff' THEN 2
+                WHEN u.role = 'admin' THEN 3
+                WHEN u.role = 'staff' THEN 2
                 ELSE 1
                 END DESC, 
-                createdAt DESC
+                u.createdAt DESC
             LIMIT ? OFFSET ?`;
         
         params.push(parseInt(limit), parseInt(offset));

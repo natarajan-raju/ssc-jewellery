@@ -4,6 +4,7 @@ import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
 import { productService } from '../services/productService';
 import { ArrowRight, ChevronLeft, ChevronRight, Folder, Truck, PenTool, ShieldCheck, Gem, Headphones, Check } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
+import ProductCard from '../components/ProductCard';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
@@ -125,8 +126,10 @@ export default function Home() {
     const navigate = useNavigate();
     const [slides, setSlides] = useState([]);
     const [categories, setCategories] = useState([]);
+    const [bestSellers, setBestSellers] = useState([]);
     const [isLoadingHero, setIsLoadingHero] = useState(true);
     const [isLoadingCats, setIsLoadingCats] = useState(true);
+    const [isLoadingBest, setIsLoadingBest] = useState(true);
     const { getSlides } = useCms();
 
     // [FIX] Moved fetchHero out to component scope for Promise.all
@@ -156,13 +159,25 @@ export default function Home() {
         }
     };
 
+    const fetchBestSellers = async () => {
+        try {
+            const data = await productService.getProducts(1, 'Best Sellers', 'active', 'manual', 10);
+            setBestSellers(data.products || []);
+        } catch (err) {
+            console.error("Best sellers load failed", err);
+        } finally {
+            setIsLoadingBest(false);
+        }
+    };
+
     // [FIX] Unified Parallel Data Loading
     useEffect(() => {
         const loadInitialData = async () => {
             // Start both requests in parallel
             await Promise.all([
                 fetchHero(),
-                fetchCategories()
+                fetchCategories(),
+                fetchBestSellers()
             ]);
         };
         loadInitialData();
@@ -177,18 +192,122 @@ export default function Home() {
         if (!socket) return;
 
         // B. Define Handler
-        const handleCategoryRefresh = (payload) => {
-            console.log("⚡ Syncing categories from Admin update...");
-            productService.clearCache(); 
-            fetchCategories();
+        const handleCategoryRefresh = (payload = {}) => {
+            const category = payload.category;
+            if (category) {
+                productService.patchCategoryStatsCache((current) => {
+                    const idx = current.findIndex(c => String(c.id) === String(category.id));
+                    if (idx >= 0) {
+                        const next = [...current];
+                        next[idx] = { ...next[idx], ...category };
+                        return next;
+                    }
+                    return [...current, category];
+                });
+            }
+
+            // Patch Featured Categories list (exclude Best Sellers/New Arrivals)
+            setCategories(prev => {
+                let next = [...prev];
+                const name = category?.name || payload.categoryName;
+                const isSpecial = name && ['best sellers', 'new arrivals'].includes(name.toLowerCase());
+                const id = category?.id || payload.categoryId;
+
+                if (payload.action === 'delete') {
+                    next = next.filter(c => String(c.id) !== String(id) && c.name?.toLowerCase() !== String(name || '').toLowerCase());
+                    return next;
+                }
+
+                if (category && !isSpecial) {
+                    if (category.product_count > 0) {
+                        const existing = next.findIndex(c => String(c.id) === String(category.id));
+                        if (existing >= 0) next[existing] = { ...next[existing], ...category };
+                        else next.push(category);
+                    } else {
+                        next = next.filter(c => String(c.id) !== String(category.id));
+                    }
+                }
+
+                return next.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            });
+
+            // Best Sellers reorder patch (manual order)
+            if (payload.action === 'reorder' && payload.categoryName && payload.categoryName.toLowerCase() === 'best sellers') {
+                const ordered = payload.orderedProductIds || [];
+                if (ordered.length > 0) {
+                    setBestSellers(prev => {
+                        const map = new Map(prev.map(p => [String(p.id), p]));
+                        const reordered = ordered.map(id => map.get(String(id))).filter(Boolean);
+                        const remaining = prev.filter(p => !ordered.includes(String(p.id)));
+                        return [...reordered, ...remaining].slice(0, 10);
+                    });
+                }
+            }
         };
 
         // C. Listen
         socket.on('refresh:categories', handleCategoryRefresh);
 
+        const handleCategoryChange = (payload = {}) => {
+            const name = payload.categoryName || '';
+            if (name.toLowerCase() === 'best sellers' && payload.product) {
+                const product = payload.product;
+                const isActive = product.status === 'active';
+                if (payload.action === 'remove' || !isActive) {
+                    setBestSellers(prev => prev.filter(p => String(p.id) !== String(product.id)));
+                } else if (payload.action === 'add' && isActive) {
+                    setBestSellers(prev => {
+                        if (prev.find(p => String(p.id) === String(product.id))) return prev;
+                        return [...prev, product].slice(0, 10);
+                    });
+                }
+            }
+        };
+        socket.on('product:category_change', handleCategoryChange);
+
+        const isBestSellerProduct = (product) => {
+            if (!product || !product.categories) return false;
+            return product.categories.some(c => String(c).toLowerCase() === 'best sellers');
+        };
+
+        const handleProductCreate = (product) => {
+            if (isBestSellerProduct(product) && product.status === 'active') {
+                setBestSellers(prev => {
+                    if (prev.find(p => String(p.id) === String(product.id))) return prev;
+                    return [...prev, product].slice(0, 10);
+                });
+            }
+        };
+
+        const handleProductUpdate = (product) => {
+            if (!product) return;
+            const isBest = isBestSellerProduct(product);
+            setBestSellers(prev => {
+                const exists = prev.find(p => String(p.id) === String(product.id));
+                if (isBest && product.status === 'active') {
+                    if (exists) return prev.map(p => String(p.id) === String(product.id) ? { ...p, ...product } : p);
+                    return [...prev, product].slice(0, 10);
+                }
+                if (exists) return prev.filter(p => String(p.id) !== String(product.id));
+                return prev;
+            });
+        };
+
+        const handleProductDelete = ({ id }) => {
+            setBestSellers(prev => prev.filter(p => String(p.id) !== String(id)));
+        };
+
+        socket.on('product:create', handleProductCreate);
+        socket.on('product:update', handleProductUpdate);
+        socket.on('product:delete', handleProductDelete);
+
         // D. Cleanup (Remove Listener ONLY)
         return () => {
             socket.off('refresh:categories', handleCategoryRefresh);
+            socket.off('product:category_change', handleCategoryChange);
+            socket.off('product:create', handleProductCreate);
+            socket.off('product:update', handleProductUpdate);
+            socket.off('product:delete', handleProductDelete);
         };
     }, [socket]); // Depend on socket
 
@@ -277,6 +396,8 @@ export default function Home() {
                     </div>
                 )}
             </section>
+
+          
 
             {/* --- INFO DISPLAY GRID (Interactive Hover Effect) --- */}
             <section 
@@ -397,6 +518,41 @@ export default function Home() {
                     </div>
 
                 </div>
+            </section>
+
+              {/* --- BEST SELLERS --- */}
+            <section className="container mx-auto px-4">
+                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
+                    <div>
+                        <h2 className="text-3xl font-serif text-primary">Best Sellers</h2>
+                        <p className="text-gray-500 mt-2">Our most loved pieces, curated for you</p>
+                    </div>
+                    <Link
+                        to={`/shop/${encodeURIComponent('Best Sellers')}`}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-primary border border-primary/20 hover:border-primary hover:bg-primary/5 transition-all w-fit"
+                    >
+                        View All <ArrowRight size={18} />
+                    </Link>
+                </div>
+
+                {isLoadingBest ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                        {[...Array(10)].map((_, i) => (
+                            <div key={i} className="h-56 bg-gray-100 rounded-2xl animate-pulse"></div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                        {bestSellers.slice(0, 10).map((product) => (
+                            <ProductCard key={product.id} product={product} />
+                        ))}
+                        {bestSellers.length === 0 && (
+                            <div className="col-span-full py-10 text-center text-gray-400">
+                                No best sellers available yet.
+                            </div>
+                        )}
+                    </div>
+                )}
             </section>
         </div>
     );
