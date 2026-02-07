@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { productService } from '../../services/productService';
-import { ArrowLeft, GripVertical, Trash2, Plus, X, Search, Loader2, Edit3 } from 'lucide-react';
+import { ArrowLeft, GripVertical, Trash2, Plus, X, Search, Loader2, Edit3, Check } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useProducts } from '../../context/ProductContext';
 // Add Modal to imports
@@ -17,6 +17,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const { allProducts, isDownloading, ensureAllProducts } = useProducts();
     const [assignSearch, setAssignSearch] = useState('');
+    const [selectedAssignIds, setSelectedAssignIds] = useState(new Set());
     // Custom Modal State
     const [modalConfig, setModalConfig] = useState({ 
         isOpen: false, type: 'delete', title: '', message: '', confirmText: '', targetId: null 
@@ -157,27 +158,50 @@ export default function CategoryDetail({ categoryId, onBack }) {
         }
     };
 
-    // --- ASSIGN PRODUCT ---
-    const handleAssign = async (product) => {
-        try {
-            await productService.manageCategoryProduct(categoryId, product.id, 'add');
-            toast.success("Product added");
-            
-            // [NEW] Clear cache so Product List updates
-            productService.clearCache();
-            
-            loadData(); 
-            setIsAssignModalOpen(false);
-        } catch (error) {
-            toast.error("Failed to add product");
-        }
-    };
-
-    // --- ASSIGN PRODUCT ---
-    // --- ASSIGN PRODUCT ---
+    // --- ASSIGN PRODUCTS ---
     const openAssignModal = async () => {
         setIsAssignModalOpen(true);
         ensureAllProducts();
+    };
+
+    const closeAssignModal = () => {
+        setIsAssignModalOpen(false);
+        setAssignSearch('');
+        setSelectedAssignIds(new Set());
+    };
+
+    const toggleAssignSelection = (productId) => {
+        setSelectedAssignIds(prev => {
+            const next = new Set(prev);
+            if (next.has(productId)) {
+                next.delete(productId);
+            } else {
+                next.add(productId);
+            }
+            return next;
+        });
+    };
+
+    const handleAssignSubmit = async () => {
+        if (selectedAssignIds.size === 0) {
+            toast.error("Select at least one product");
+            return;
+        }
+        setIsActionLoading(true);
+        try {
+            const selectedProducts = assignableProducts.filter(p => selectedAssignIds.has(p.id));
+            for (const product of selectedProducts) {
+                await productService.manageCategoryProduct(categoryId, product.id, 'add');
+            }
+            toast.success("Products added");
+            productService.clearCache();
+            await loadData();
+            closeAssignModal();
+        } catch (error) {
+            toast.error("Failed to add products");
+        } finally {
+            setIsActionLoading(false);
+        }
     };
    
     const assignableProducts = useMemo(() => {
@@ -298,7 +322,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
                     <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl p-6 space-y-4 animate-in zoom-in-95">
                         <div className="flex justify-between items-center">
                             <h3 className="text-lg font-bold font-serif text-gray-800">Assign Products</h3>
-                            <button onClick={() => setIsAssignModalOpen(false)}><X size={20} className="text-gray-400" /></button>
+                            <button onClick={closeAssignModal}><X size={20} className="text-gray-400" /></button>
                         </div>
                         <div className="relative">
                             <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
@@ -322,10 +346,12 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                     No matching products.
                                 </div>
                             )}
-                            {assignableProducts.map(product => (
+                            {assignableProducts.map(product => {
+                                const isSelected = selectedAssignIds.has(product.id);
+                                return (
                                     <button 
                                         key={product.id} 
-                                        onClick={() => handleAssign(product)}
+                                        onClick={() => toggleAssignSelection(product.id)}
                                         className="w-full flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors text-left"
                                     >
                                         <div className="w-10 h-10 bg-gray-100 rounded overflow-hidden shrink-0">
@@ -335,10 +361,37 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                             <p className="text-sm font-bold text-gray-800 line-clamp-1">{product.title}</p>
                                             <p className="text-xs text-gray-500">{product.sku}</p>
                                         </div>
-                                        <Plus size={16} className="text-gray-400 shrink-0" />
+                                        {isSelected ? (
+                                            <Check size={18} className="text-green-500 shrink-0" />
+                                        ) : (
+                                            <Plus size={16} className="text-gray-400 shrink-0" />
+                                        )}
                                     </button>
-                                ))
+                                );
+                            })
                             }
+                        </div>
+                        <div className="flex items-center justify-between gap-3 pt-2">
+                            <p className="text-xs text-gray-500">
+                                {selectedAssignIds.size} selected
+                            </p>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={closeAssignModal}
+                                    className="px-4 py-2 rounded-lg border border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700 transition-colors"
+                                    type="button"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleAssignSubmit}
+                                    disabled={isActionLoading}
+                                    className="px-4 py-2 rounded-lg bg-primary text-white font-semibold hover:bg-primary/90 transition-colors disabled:opacity-60"
+                                    type="button"
+                                >
+                                    {isActionLoading ? 'Assigning...' : 'Assign Selected'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

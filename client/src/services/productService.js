@@ -165,7 +165,11 @@ export const productService = {
     },
 
     // --- CATEGORY MANAGEMENT ---
-    getCategoryStats: async () => {
+    getCategoryStats: async (force = false) => {
+        if (force) {
+            try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
+            delete productCache['category_stats'];
+        }
         const cached = productCache['category_stats'];
         if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
             return cached.data;

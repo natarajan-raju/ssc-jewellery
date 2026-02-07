@@ -10,9 +10,10 @@ export default function HeroCMS() {
     const [isLoading, setIsLoading] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
     const [isBannerUpdating, setIsBannerUpdating] = useState(false);
+    const [isSecondaryBannerUpdating, setIsSecondaryBannerUpdating] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
-    const { getSlides, getBanner, createSlide, updateBanner, deleteSlide, reorderSlides } = useCms();
+    const { getSlides, getBanner, getSecondaryBanner, createSlide, updateBanner, updateSecondaryBanner, deleteSlide, reorderSlides } = useCms();
     // Form State
     const [newSlide, setNewSlide] = useState({ title: '', subtitle: '', link: '' });
     const [selectedFile, setSelectedFile] = useState(null);
@@ -21,12 +22,17 @@ export default function HeroCMS() {
     const [bannerFile, setBannerFile] = useState(null);
     const [bannerPreview, setBannerPreview] = useState(null);
     const [bannerLink, setBannerLink] = useState('');
+    const [secondaryBannerData, setSecondaryBannerData] = useState(null);
+    const [secondaryBannerFile, setSecondaryBannerFile] = useState(null);
+    const [secondaryBannerPreview, setSecondaryBannerPreview] = useState(null);
+    const [secondaryBannerLink, setSecondaryBannerLink] = useState('');
     const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, type: 'delete', title: '', message: '', targetId: null 
     });
     useEffect(() => { 
         loadSlides(); 
         loadBanner();
+        loadSecondaryBanner();
     }, []);
 
     const loadSlides = async () => {
@@ -51,6 +57,17 @@ export default function HeroCMS() {
         }
     };
 
+    const loadSecondaryBanner = async () => {
+        try {
+            const data = await getSecondaryBanner(true);
+            setSecondaryBannerData(data);
+            setSecondaryBannerLink(data?.link || '');
+            setSecondaryBannerPreview(data?.image_url || null);
+        } catch (error) {
+            toast.error("Failed to load secondary banner");
+        }
+    };
+
     // --- HANDLERS ---
     const handleFileChange = (e) => {
         const file = e.target.files[0];
@@ -65,6 +82,14 @@ export default function HeroCMS() {
         if (file) {
             setBannerFile(file);
             setBannerPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleSecondaryBannerFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setSecondaryBannerFile(file);
+            setSecondaryBannerPreview(URL.createObjectURL(file));
         }
     };
 
@@ -112,6 +137,26 @@ export default function HeroCMS() {
             toast.error("Banner update failed");
         } finally {
             setIsBannerUpdating(false);
+        }
+    };
+
+    const handleSecondaryBannerUpdate = async (e) => {
+        e.preventDefault();
+        setIsSecondaryBannerUpdating(true);
+        try {
+            const formData = new FormData();
+            if (secondaryBannerFile) {
+                formData.append('image', secondaryBannerFile);
+            }
+            formData.append('link', secondaryBannerLink);
+            await updateSecondaryBanner(formData);
+            toast.success("Secondary banner updated");
+            setSecondaryBannerFile(null);
+            await loadSecondaryBanner();
+        } catch (error) {
+            toast.error("Secondary banner update failed");
+        } finally {
+            setIsSecondaryBannerUpdating(false);
         }
     };
 
@@ -337,6 +382,50 @@ export default function HeroCMS() {
                         </div>
                         {bannerData?.image_url && (
                             <p className="text-xs text-gray-400">Current image: {bannerData.image_url}</p>
+                        )}
+                    </div>
+                </form>
+            </div>
+
+            {/* SECONDARY HOME BANNER SECTION */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                    <ImageIcon size={20} className="text-primary"/> Home Banner 2 (16:9)
+                </h3>
+                <form onSubmit={handleSecondaryBannerUpdate} className="flex flex-col md:flex-row gap-6">
+                    <div className="w-full md:w-1/3">
+                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                            {secondaryBannerPreview ? (
+                                <img src={secondaryBannerPreview} className="w-full h-full object-cover rounded-xl" />
+                            ) : (
+                                <div className="text-center p-4">
+                                    <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
+                                    <span className="text-sm text-gray-500 font-medium">Click to upload banner</span>
+                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended)</span>
+                                </div>
+                            )}
+                            <input type="file" className="hidden" accept="image/*" onChange={handleSecondaryBannerFileChange} />
+                        </label>
+                    </div>
+                    <div className="flex-1 space-y-4">
+                        <input 
+                            placeholder="Banner Link (e.g. /shop/new-arrivals)" 
+                            className="input-field"
+                            value={secondaryBannerLink}
+                            onChange={e => setSecondaryBannerLink(e.target.value)}
+                        />
+                        <div className="pt-2 flex justify-end">
+                            <button 
+                                type="submit" 
+                                disabled={isSecondaryBannerUpdating}
+                                className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isSecondaryBannerUpdating ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                                Save Banner
+                            </button>
+                        </div>
+                        {secondaryBannerData?.image_url && (
+                            <p className="text-xs text-gray-400">Current image: {secondaryBannerData.image_url}</p>
                         )}
                     </div>
                 </form>

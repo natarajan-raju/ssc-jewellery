@@ -167,12 +167,19 @@ const initDB = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
-        // Ensure singleton row exists
-        const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id = 1');
-        if (bannerRows.length === 0) {
+        // Ensure singleton rows exist (Primary + Secondary)
+        const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id IN (1, 2)');
+        const existingIds = new Set(bannerRows.map(r => r.id));
+        if (!existingIds.has(1)) {
             await connection.execute(
                 'INSERT INTO home_banner (id, image_url, link) VALUES (?, ?, ?)',
                 [1, '/placeholder_banner.jpg', '']
+            );
+        }
+        if (!existingIds.has(2)) {
+            await connection.execute(
+                'INSERT INTO home_banner (id, image_url, link) VALUES (?, ?, ?)',
+                [2, '/placeholder_banner.jpg', '']
             );
         }
         // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)

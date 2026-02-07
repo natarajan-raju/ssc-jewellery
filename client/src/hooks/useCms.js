@@ -70,6 +70,24 @@ export const useCms = () => {
         return res.json();
     }, [logout]);
 
+    const getSecondaryBanner = useCallback(async (isAdmin = false) => {
+        const token = localStorage.getItem('token');
+        const headers = {};
+        if (isAdmin && token && token !== "undefined") {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(`${API_URL}/banner-secondary?admin=${isAdmin}`, { headers });
+        if (res.status === 401 && isAdmin) {
+            logout();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.message || 'API Error');
+        }
+        return res.json();
+    }, [logout]);
+
     // 2. Create Slide
     const createSlide = useCallback(async (formData) => {
         // Note: FormData does not need Content-Type header
@@ -112,5 +130,12 @@ export const useCms = () => {
         });
     }, [authFetch]);
 
-    return { getSlides, getBanner, createSlide, deleteSlide, reorderSlides, updateSlide, updateBanner };
+    const updateSecondaryBanner = useCallback(async (formData) => {
+        return authFetch('/banner-secondary', {
+            method: 'PUT',
+            body: formData
+        });
+    }, [authFetch]);
+
+    return { getSlides, getBanner, getSecondaryBanner, createSlide, deleteSlide, reorderSlides, updateSlide, updateBanner, updateSecondaryBanner };
 };

@@ -129,12 +129,16 @@ export default function Home() {
     const [slides, setSlides] = useState([]);
     const [categories, setCategories] = useState([]);
     const [bestSellers, setBestSellers] = useState([]);
+    const [newArrivals, setNewArrivals] = useState([]);
     const [homeBanner, setHomeBanner] = useState(null);
+    const [secondaryBanner, setSecondaryBanner] = useState(null);
     const [isLoadingHero, setIsLoadingHero] = useState(true);
     const [isLoadingCats, setIsLoadingCats] = useState(true);
     const [isLoadingBest, setIsLoadingBest] = useState(true);
+    const [isLoadingNewArrivals, setIsLoadingNewArrivals] = useState(true);
     const [isLoadingBanner, setIsLoadingBanner] = useState(true);
-    const { getSlides, getBanner } = useCms();
+    const [isLoadingSecondaryBanner, setIsLoadingSecondaryBanner] = useState(true);
+    const { getSlides, getBanner, getSecondaryBanner } = useCms();
     const infoSectionRef = useRef(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
@@ -160,6 +164,17 @@ export default function Home() {
             setIsLoadingBanner(false);
         }
     }, [getBanner]);
+
+    const fetchSecondaryBanner = useCallback(async () => {
+        try {
+            const data = await getSecondaryBanner(false);
+            setSecondaryBanner(data);
+        } catch (err) {
+            console.error("Secondary banner load failed", err);
+        } finally {
+            setIsLoadingSecondaryBanner(false);
+        }
+    }, [getSecondaryBanner]);
 
     // 2. [NEW] Fetch Categories
     // We will wrap this in a function so we can call it later from the Socket listener
@@ -187,6 +202,17 @@ export default function Home() {
         }
     }, []);
 
+    const fetchNewArrivals = useCallback(async () => {
+        try {
+            const data = await productService.getProducts(1, 'New Arrivals', 'active', 'manual', 10);
+            setNewArrivals(data.products || []);
+        } catch (err) {
+            console.error("New arrivals load failed", err);
+        } finally {
+            setIsLoadingNewArrivals(false);
+        }
+    }, []);
+
     // [FIX] Unified Parallel Data Loading
     useEffect(() => {
         const loadInitialData = async () => {
@@ -195,11 +221,13 @@ export default function Home() {
                 fetchHero(),
                 fetchCategories(),
                 fetchBestSellers(),
-                fetchBanner()
+                fetchNewArrivals(),
+                fetchBanner(),
+                fetchSecondaryBanner()
             ]);
         };
         loadInitialData();
-    }, [fetchHero, fetchCategories, fetchBestSellers, fetchBanner]);
+    }, [fetchHero, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner]);
 
 
     // 3. [NEW] Initial Load + Real-Time Sync
@@ -261,6 +289,17 @@ export default function Home() {
                     });
                 }
             }
+            if (payload.action === 'reorder' && payload.categoryName && payload.categoryName.toLowerCase() === 'new arrivals') {
+                const ordered = payload.orderedProductIds || [];
+                if (ordered.length > 0) {
+                    setNewArrivals(prev => {
+                        const map = new Map(prev.map(p => [String(p.id), p]));
+                        const reordered = ordered.map(id => map.get(String(id))).filter(Boolean);
+                        const remaining = prev.filter(p => !ordered.includes(String(p.id)));
+                        return [...reordered, ...remaining].slice(0, 10);
+                    });
+                }
+            }
         };
 
         // C. Listen
@@ -280,12 +319,28 @@ export default function Home() {
                     });
                 }
             }
+            if (name.toLowerCase() === 'new arrivals' && payload.product) {
+                const product = payload.product;
+                const isActive = product.status === 'active';
+                if (payload.action === 'remove' || !isActive) {
+                    setNewArrivals(prev => prev.filter(p => String(p.id) !== String(product.id)));
+                } else if (payload.action === 'add' && isActive) {
+                    setNewArrivals(prev => {
+                        if (prev.find(p => String(p.id) === String(product.id))) return prev;
+                        return [...prev, product].slice(0, 10);
+                    });
+                }
+            }
         };
         socket.on('product:category_change', handleCategoryChange);
 
         const isBestSellerProduct = (product) => {
             if (!product || !product.categories) return false;
             return product.categories.some(c => String(c).toLowerCase() === 'best sellers');
+        };
+        const isNewArrivalProduct = (product) => {
+            if (!product || !product.categories) return false;
+            return product.categories.some(c => String(c).toLowerCase() === 'new arrivals');
         };
 
         const handleProductCreate = (product) => {
@@ -295,14 +350,30 @@ export default function Home() {
                     return [...prev, product].slice(0, 10);
                 });
             }
+            if (isNewArrivalProduct(product) && product.status === 'active') {
+                setNewArrivals(prev => {
+                    if (prev.find(p => String(p.id) === String(product.id))) return prev;
+                    return [...prev, product].slice(0, 10);
+                });
+            }
         };
 
         const handleProductUpdate = (product) => {
             if (!product) return;
             const isBest = isBestSellerProduct(product);
+            const isNewArrival = isNewArrivalProduct(product);
             setBestSellers(prev => {
                 const exists = prev.find(p => String(p.id) === String(product.id));
                 if (isBest && product.status === 'active') {
+                    if (exists) return prev.map(p => String(p.id) === String(product.id) ? { ...p, ...product } : p);
+                    return [...prev, product].slice(0, 10);
+                }
+                if (exists) return prev.filter(p => String(p.id) !== String(product.id));
+                return prev;
+            });
+            setNewArrivals(prev => {
+                const exists = prev.find(p => String(p.id) === String(product.id));
+                if (isNewArrival && product.status === 'active') {
                     if (exists) return prev.map(p => String(p.id) === String(product.id) ? { ...p, ...product } : p);
                     return [...prev, product].slice(0, 10);
                 }
@@ -313,6 +384,7 @@ export default function Home() {
 
         const handleProductDelete = ({ id }) => {
             setBestSellers(prev => prev.filter(p => String(p.id) !== String(id)));
+            setNewArrivals(prev => prev.filter(p => String(p.id) !== String(id)));
         };
 
         socket.on('product:create', handleProductCreate);
@@ -320,6 +392,7 @@ export default function Home() {
         socket.on('product:delete', handleProductDelete);
         socket.on('cms:hero_update', fetchHero);
         socket.on('cms:banner_update', fetchBanner);
+        socket.on('cms:banner_secondary_update', fetchSecondaryBanner);
 
         // D. Cleanup (Remove Listener ONLY)
         return () => {
@@ -330,8 +403,9 @@ export default function Home() {
             socket.off('product:delete', handleProductDelete);
             socket.off('cms:hero_update', fetchHero);
             socket.off('cms:banner_update', fetchBanner);
+            socket.off('cms:banner_secondary_update', fetchSecondaryBanner);
         };
-    }, [socket, fetchHero, fetchBanner]); // Depend on socket
+    }, [socket, fetchHero, fetchBanner, fetchSecondaryBanner]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
     const handleMouseMove = (e) => {
@@ -582,6 +656,78 @@ export default function Home() {
                     (() => {
                         const link = homeBanner?.link || '';
                         const imageUrl = homeBanner?.image_url || '/placeholder_banner.jpg';
+                        const content = (
+                            <div className="relative w-full bg-gray-100 overflow-hidden">
+                                <div className="pt-[56.25%]" />
+                                <img
+                                    src={imageUrl}
+                                    alt="Featured banner"
+                                    className="absolute inset-0 w-full h-full object-contain"
+                                    onError={(e) => { e.currentTarget.src = '/placeholder_banner.jpg'; }}
+                                />
+                            </div>
+                        );
+
+                        if (!link) return content;
+                        if (isExternalLink(link)) {
+                            return (
+                                <a href={link} target="_blank" rel="noreferrer" className="block">
+                                    {content}
+                                </a>
+                            );
+                        }
+                        return (
+                            <Link to={link} className="block">
+                                {content}
+                            </Link>
+                        );
+                    })()
+                )}
+            </section>
+
+            {/* --- NEW ARRIVALS --- */}
+            <section className="container mx-auto px-4">
+                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
+                    <div>
+                        <h2 className="text-3xl font-serif text-primary">New Arrivals</h2>
+                        <p className="text-gray-500 mt-2">Fresh additions handpicked for you</p>
+                    </div>
+                    <Link
+                        to={`/shop/${encodeURIComponent('New Arrivals')}`}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-primary border border-primary/20 hover:border-primary hover:bg-primary/5 transition-all w-fit"
+                    >
+                        View All <ArrowRight size={18} />
+                    </Link>
+                </div>
+
+                {isLoadingNewArrivals ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                        {[...Array(10)].map((_, i) => (
+                            <div key={i} className="h-56 bg-gray-100 rounded-2xl animate-pulse"></div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                        {newArrivals.slice(0, 10).map((product) => (
+                            <ProductCard key={product.id} product={product} />
+                        ))}
+                        {newArrivals.length === 0 && (
+                            <div className="col-span-full py-10 text-center text-gray-400">
+                                No new arrivals available yet.
+                            </div>
+                        )}
+                    </div>
+                )}
+            </section>
+
+            {/* --- SECOND HOME BANNER --- */}
+            <section className="w-full">
+                {isLoadingSecondaryBanner ? (
+                    <div className="w-full bg-gray-100 animate-pulse pt-[56.25%]" />
+                ) : (
+                    (() => {
+                        const link = secondaryBanner?.link || '';
+                        const imageUrl = secondaryBanner?.image_url || '/placeholder_banner.jpg';
                         const content = (
                             <div className="relative w-full bg-gray-100 overflow-hidden">
                                 <div className="pt-[56.25%]" />

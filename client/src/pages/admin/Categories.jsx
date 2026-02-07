@@ -28,7 +28,7 @@ export default function Categories() {
     const loadCategories = async () => {
         setIsLoading(true);
         try {
-            const data = await productService.getCategoryStats();
+            const data = await productService.getCategoryStats(true);
             setCategories(data);
         } catch (error) {
             toast.error("Failed to load categories");
