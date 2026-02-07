@@ -11,6 +11,7 @@ import Shop from './pages/Shop';
 
 // Components & Pages
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -18,6 +19,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ProductPage from './pages/ProductPage';
+import Contact from './pages/Contact';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -35,6 +37,7 @@ const PublicLayout = () => {
       <main className="min-h-screen bg-secondary pt-[74px]"> 
         <Outlet />
       </main>
+      <Footer />
     </>
   );
 };
@@ -55,6 +58,7 @@ function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
+                <Route path="/contact" element={<Contact />} />
                 {/* Product Details Route */}
                 <Route path="/product/:id" element={<ProductPage />} />
               </Route>

@@ -22,6 +22,7 @@ export default function Shop() {
     const [showFilters, setShowFilters] = useState(false);
     const [inStockOnly, setInStockOnly] = useState(false);
     const [priceRange, setPriceRange] = useState({ min: '', max: '' });
+    const [searchTerm, setSearchTerm] = useState('');
     const [isShareOpen, setIsShareOpen] = useState(false);
     const shareRef = useRef(null);
     const [showTopBtn, setShowTopBtn] = useState(false);
@@ -254,6 +255,13 @@ export default function Shop() {
                 return !isTracked || (p.quantity && p.quantity > 0);
             });
         }
+        if (searchTerm.trim()) {
+            const q = searchTerm.trim().toLowerCase();
+            result = result.filter(p =>
+                (p.title || '').toLowerCase().includes(q) ||
+                (p.sku || '').toLowerCase().includes(q)
+            );
+        }
 
         if (priceRange.min !== '') {
             result = result.filter(p => (p.discount_price || p.mrp) >= Number(priceRange.min));
@@ -269,7 +277,7 @@ export default function Shop() {
         }
 
         return result;
-    }, [products, sortBy, inStockOnly, priceRange]);
+    }, [products, sortBy, inStockOnly, priceRange, searchTerm]);
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20 w-full">
@@ -464,6 +472,16 @@ export default function Shop() {
 
                             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-40 opacity-100 mt-3 pb-2' : 'max-h-0 opacity-0'}`}>
                                 <div className="flex flex-wrap items-center gap-4 md:gap-8 pt-3 border-t border-gray-100">
+                                    {/* Search */}
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="Search products..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            className="w-48 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
+                                        />
+                                    </div>
                                     <label className="flex items-center gap-2 cursor-pointer select-none">
                                         <div className="relative">
                                             <input
