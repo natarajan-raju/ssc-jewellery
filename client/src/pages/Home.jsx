@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
 import { productService } from '../services/productService';
@@ -120,6 +120,8 @@ const CarouselHero = ({ slides }) => {
     );
 };
 
+const isExternalLink = (url) => /^https?:\/\//i.test(url || '');
+
 // --- 3. MAIN PAGE COMPONENT ---
 export default function Home() {
     const { socket } = useSocket();
@@ -127,13 +129,17 @@ export default function Home() {
     const [slides, setSlides] = useState([]);
     const [categories, setCategories] = useState([]);
     const [bestSellers, setBestSellers] = useState([]);
+    const [homeBanner, setHomeBanner] = useState(null);
     const [isLoadingHero, setIsLoadingHero] = useState(true);
     const [isLoadingCats, setIsLoadingCats] = useState(true);
     const [isLoadingBest, setIsLoadingBest] = useState(true);
-    const { getSlides } = useCms();
+    const [isLoadingBanner, setIsLoadingBanner] = useState(true);
+    const { getSlides, getBanner } = useCms();
+    const infoSectionRef = useRef(null);
+    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
     // [FIX] Moved fetchHero out to component scope for Promise.all
-    const fetchHero = async () => {
+    const fetchHero = useCallback(async () => {
         try {
             const data = await getSlides(false); // false = public
             setSlides(data);
@@ -142,11 +148,22 @@ export default function Home() {
         } finally {
             setIsLoadingHero(false);
         }
-    };
+    }, [getSlides]);
+
+    const fetchBanner = useCallback(async () => {
+        try {
+            const data = await getBanner(false);
+            setHomeBanner(data);
+        } catch (err) {
+            console.error("Banner load failed", err);
+        } finally {
+            setIsLoadingBanner(false);
+        }
+    }, [getBanner]);
 
     // 2. [NEW] Fetch Categories
     // We will wrap this in a function so we can call it later from the Socket listener
-    const fetchCategories = async () => {
+    const fetchCategories = useCallback(async () => {
         try {
             const data = await productService.getCategoryStats();
             // [FIX] Filter out Best Sellers & New Arrivals from the Featured Grid
@@ -157,9 +174,9 @@ export default function Home() {
         } finally {
             setIsLoadingCats(false);
         }
-    };
+    }, []);
 
-    const fetchBestSellers = async () => {
+    const fetchBestSellers = useCallback(async () => {
         try {
             const data = await productService.getProducts(1, 'Best Sellers', 'active', 'manual', 10);
             setBestSellers(data.products || []);
@@ -168,7 +185,7 @@ export default function Home() {
         } finally {
             setIsLoadingBest(false);
         }
-    };
+    }, []);
 
     // [FIX] Unified Parallel Data Loading
     useEffect(() => {
@@ -177,11 +194,12 @@ export default function Home() {
             await Promise.all([
                 fetchHero(),
                 fetchCategories(),
-                fetchBestSellers()
+                fetchBestSellers(),
+                fetchBanner()
             ]);
         };
         loadInitialData();
-    }, [getSlides]);
+    }, [fetchHero, fetchCategories, fetchBestSellers, fetchBanner]);
 
 
     // 3. [NEW] Initial Load + Real-Time Sync
@@ -300,6 +318,8 @@ export default function Home() {
         socket.on('product:create', handleProductCreate);
         socket.on('product:update', handleProductUpdate);
         socket.on('product:delete', handleProductDelete);
+        socket.on('cms:hero_update', fetchHero);
+        socket.on('cms:banner_update', fetchBanner);
 
         // D. Cleanup (Remove Listener ONLY)
         return () => {
@@ -308,13 +328,12 @@ export default function Home() {
             socket.off('product:create', handleProductCreate);
             socket.off('product:update', handleProductUpdate);
             socket.off('product:delete', handleProductDelete);
+            socket.off('cms:hero_update', fetchHero);
+            socket.off('cms:banner_update', fetchBanner);
         };
-    }, [socket]); // Depend on socket
+    }, [socket, fetchHero, fetchBanner]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
-    const infoSectionRef = useRef(null);
-    const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-
     const handleMouseMove = (e) => {
         if (!infoSectionRef.current) return;
         const rect = infoSectionRef.current.getBoundingClientRect();
@@ -552,6 +571,43 @@ export default function Home() {
                             </div>
                         )}
                     </div>
+                )}
+            </section>
+
+            {/* --- HOME BANNER --- */}
+            <section className="w-full">
+                {isLoadingBanner ? (
+                    <div className="w-full bg-gray-100 animate-pulse pt-[56.25%]" />
+                ) : (
+                    (() => {
+                        const link = homeBanner?.link || '';
+                        const imageUrl = homeBanner?.image_url || '/placeholder_banner.jpg';
+                        const content = (
+                            <div className="relative w-full bg-gray-100 overflow-hidden">
+                                <div className="pt-[56.25%]" />
+                                <img
+                                    src={imageUrl}
+                                    alt="Featured banner"
+                                    className="absolute inset-0 w-full h-full object-contain"
+                                    onError={(e) => { e.currentTarget.src = '/placeholder_banner.jpg'; }}
+                                />
+                            </div>
+                        );
+
+                        if (!link) return content;
+                        if (isExternalLink(link)) {
+                            return (
+                                <a href={link} target="_blank" rel="noreferrer" className="block">
+                                    {content}
+                                </a>
+                            );
+                        }
+                        return (
+                            <Link to={link} className="block">
+                                {content}
+                            </Link>
+                        );
+                    })()
                 )}
             </section>
         </div>

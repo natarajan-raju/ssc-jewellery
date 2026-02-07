@@ -9,17 +9,25 @@ export default function HeroCMS() {
     const [slides, setSlides] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
+    const [isBannerUpdating, setIsBannerUpdating] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
-    const { getSlides, createSlide, deleteSlide, reorderSlides } = useCms();
+    const { getSlides, getBanner, createSlide, updateBanner, deleteSlide, reorderSlides } = useCms();
     // Form State
     const [newSlide, setNewSlide] = useState({ title: '', subtitle: '', link: '' });
     const [selectedFile, setSelectedFile] = useState(null);
     const [previewUrl, setPreviewUrl] = useState(null);
+    const [bannerData, setBannerData] = useState(null);
+    const [bannerFile, setBannerFile] = useState(null);
+    const [bannerPreview, setBannerPreview] = useState(null);
+    const [bannerLink, setBannerLink] = useState('');
     const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, type: 'delete', title: '', message: '', targetId: null 
     });
-    useEffect(() => { loadSlides(); }, []);
+    useEffect(() => { 
+        loadSlides(); 
+        loadBanner();
+    }, []);
 
     const loadSlides = async () => {
         try {
@@ -32,12 +40,31 @@ export default function HeroCMS() {
         }
     };
 
+    const loadBanner = async () => {
+        try {
+            const data = await getBanner(true);
+            setBannerData(data);
+            setBannerLink(data?.link || '');
+            setBannerPreview(data?.image_url || null);
+        } catch (error) {
+            toast.error("Failed to load banner");
+        }
+    };
+
     // --- HANDLERS ---
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
             setSelectedFile(file);
             setPreviewUrl(URL.createObjectURL(file));
+        }
+    };
+
+    const handleBannerFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setBannerFile(file);
+            setBannerPreview(URL.createObjectURL(file));
         }
     };
 
@@ -65,6 +92,26 @@ export default function HeroCMS() {
             toast.error("Upload failed");
         } finally {
             setIsUploading(false);
+        }
+    };
+
+    const handleBannerUpdate = async (e) => {
+        e.preventDefault();
+        setIsBannerUpdating(true);
+        try {
+            const formData = new FormData();
+            if (bannerFile) {
+                formData.append('image', bannerFile);
+            }
+            formData.append('link', bannerLink);
+            await updateBanner(formData);
+            toast.success("Banner updated");
+            setBannerFile(null);
+            await loadBanner();
+        } catch (error) {
+            toast.error("Banner update failed");
+        } finally {
+            setIsBannerUpdating(false);
         }
     };
 
@@ -249,6 +296,50 @@ export default function HeroCMS() {
                         ))}
                     </div>
                 )}
+            </div>
+
+            {/* HOME BANNER SECTION */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                    <ImageIcon size={20} className="text-primary"/> Home Banner (16:9)
+                </h3>
+                <form onSubmit={handleBannerUpdate} className="flex flex-col md:flex-row gap-6">
+                    <div className="w-full md:w-1/3">
+                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                            {bannerPreview ? (
+                                <img src={bannerPreview} className="w-full h-full object-cover rounded-xl" />
+                            ) : (
+                                <div className="text-center p-4">
+                                    <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
+                                    <span className="text-sm text-gray-500 font-medium">Click to upload banner</span>
+                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended)</span>
+                                </div>
+                            )}
+                            <input type="file" className="hidden" accept="image/*" onChange={handleBannerFileChange} />
+                        </label>
+                    </div>
+                    <div className="flex-1 space-y-4">
+                        <input 
+                            placeholder="Banner Link (e.g. /shop/best-sellers)" 
+                            className="input-field"
+                            value={bannerLink}
+                            onChange={e => setBannerLink(e.target.value)}
+                        />
+                        <div className="pt-2 flex justify-end">
+                            <button 
+                                type="submit" 
+                                disabled={isBannerUpdating}
+                                className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isBannerUpdating ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                                Save Banner
+                            </button>
+                        </div>
+                        {bannerData?.image_url && (
+                            <p className="text-xs text-gray-400">Current image: {bannerData.image_url}</p>
+                        )}
+                    </div>
+                </form>
             </div>
         </div>
     );

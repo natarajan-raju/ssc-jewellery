@@ -1,13 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useSocket } from '../context/SocketContext';
+import { productService } from '../services/productService';
 import logo from '/logo.webp';
 
 export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
+    const { socket } = useSocket();
     const [shakeCart, setShakeCart] = useState(false);
     const [popBadge, setPopBadge] = useState(false);
     const prevCountRef = useRef(itemCount);
@@ -17,7 +20,13 @@ export default function Navbar() {
     // UI States
     const [isOpen, setIsOpen] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+    const [isMegaOpen, setIsMegaOpen] = useState(false);
+    const [categories, setCategories] = useState([]);
+    const [isLoadingCategories, setIsLoadingCategories] = useState(false);
     const userMenuRef = useRef(null);
+    const megaMenuRef = useRef(null);
+    const megaTriggerRef = useRef(null);
+    const refreshTimerRef = useRef(null);
 
    
 
@@ -33,6 +42,17 @@ export default function Navbar() {
     }, []);
 
     useEffect(() => {
+        if (!isMegaOpen) return;
+        const handleClickOutside = (event) => {
+            if (megaMenuRef.current?.contains(event.target)) return;
+            if (megaTriggerRef.current?.contains(event.target)) return;
+            setIsMegaOpen(false);
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isMegaOpen]);
+
+    useEffect(() => {
         if (itemCount > prevCountRef.current) {
             setShakeCart(true);
             setPopBadge(true);
@@ -44,6 +64,60 @@ export default function Navbar() {
         prevCountRef.current = itemCount;
     }, [itemCount]);
 
+    const loadCategories = useCallback(async () => {
+        setIsLoadingCategories(true);
+        try {
+            const data = await productService.getCategoryStats();
+            const filtered = Array.isArray(data)
+                ? data.filter((category) =>
+                    category &&
+                    typeof category.name === 'string' &&
+                    category.name.trim().length > 0 &&
+                    Number(category.product_count) > 0
+                )
+                : [];
+            const sorted = filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            setCategories(sorted);
+        } catch (error) {
+            console.error('Failed to load categories for mega menu', error);
+            setCategories([]);
+        } finally {
+            setIsLoadingCategories(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadCategories();
+    }, [loadCategories]);
+
+    useEffect(() => {
+        if (!isMegaOpen) return;
+        loadCategories();
+    }, [isMegaOpen, loadCategories]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const scheduleRefresh = () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => {
+                loadCategories();
+            }, 200);
+        };
+
+        socket.on('refresh:categories', scheduleRefresh);
+        socket.on('product:category_change', scheduleRefresh);
+
+        return () => {
+            socket.off('refresh:categories', scheduleRefresh);
+            socket.off('product:category_change', scheduleRefresh);
+            if (refreshTimerRef.current) {
+                clearTimeout(refreshTimerRef.current);
+                refreshTimerRef.current = null;
+            }
+        };
+    }, [socket, loadCategories]);
+
     const handleLogout = async () => {
         await logout();
         setIsUserMenuOpen(false);
@@ -52,12 +126,12 @@ export default function Navbar() {
 
     const navLinks = [
         { name: 'Home', path: '/' },
-        { name: 'Shop', path: '/shop' },
         { name: 'About', path: '/about' },
         { name: 'Contact', path: '/contact' },
     ];
 
     const isActive = (path) => location.pathname === path;
+    const isShopActive = () => location.pathname === '/shop' || location.pathname.startsWith('/shop/');
 
     return (
         // [FIX] Dynamic Classes for Animation
@@ -82,7 +156,93 @@ export default function Navbar() {
 
                     {/* Desktop Links */}
                     <div className="hidden md:flex items-center gap-8">
-                        {navLinks.map((link) => (
+                        {navLinks.slice(0, 1).map((link) => (
+                            <Link key={link.name} to={link.path} className={`text-sm font-medium tracking-wide transition-colors relative group ${isActive(link.path) ? 'text-accent-deep' : 'text-gray-600 hover:text-accent-deep'}`}>
+                                {link.name}
+                                <span className={`absolute -bottom-1 left-0 w-0 h-0.5 bg-accent transition-all duration-300 group-hover:w-full ${isActive(link.path) ? 'w-full' : ''}`}></span>
+                            </Link>
+                        ))}
+
+                        <div className="relative flex items-center gap-2" ref={megaTriggerRef}>
+                            <Link
+                                to="/shop"
+                                className={`text-sm font-medium tracking-wide transition-colors relative group ${isShopActive() ? 'text-accent-deep' : 'text-gray-600 hover:text-accent-deep'}`}
+                            >
+                                Shop
+                                <span className={`absolute -bottom-1 left-0 w-0 h-0.5 bg-accent transition-all duration-300 group-hover:w-full ${isShopActive() ? 'w-full' : ''}`}></span>
+                            </Link>
+                            <button
+                                type="button"
+                                aria-label="Toggle shop categories"
+                                aria-expanded={isMegaOpen}
+                                onClick={() => setIsMegaOpen((prev) => !prev)}
+                                className="p-1 rounded-full text-gray-500 hover:text-primary hover:bg-gray-100 transition-colors"
+                            >
+                                <ChevronDown
+                                    size={18}
+                                    className={`transition-transform duration-200 ${isMegaOpen ? 'rotate-180' : 'rotate-0'}`}
+                                />
+                            </button>
+
+                            <div
+                                ref={megaMenuRef}
+                                className={`absolute left-1/2 top-full mt-6 w-[760px] max-w-[90vw] -translate-x-1/2 rounded-2xl border border-gray-100 bg-white shadow-2xl transition-all duration-200 ${
+                                    isMegaOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
+                                }`}
+                            >
+                                <div className="p-6">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse Categories</p>
+                                        <Link to="/shop" className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors">
+                                            View All
+                                        </Link>
+                                    </div>
+                                    <div className="mt-5 grid grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {isLoadingCategories && (
+                                            <div className="col-span-2 lg:col-span-3 text-sm text-gray-500">
+                                                Loading categories...
+                                            </div>
+                                        )}
+                                        {!isLoadingCategories && categories.length === 0 && (
+                                            <div className="col-span-2 lg:col-span-3 text-sm text-gray-500">
+                                                No categories available yet.
+                                            </div>
+                                        )}
+                                        {!isLoadingCategories && categories.map((category) => {
+                                            const categoryName = (category?.name || '').trim();
+                                            if (!categoryName) return null;
+                                            const categoryId = category?.id ?? categoryName;
+                                            return (
+                                            <Link
+                                                key={`cat-${categoryId}`}
+                                                to={`/shop/${encodeURIComponent(categoryName)}`}
+                                                className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition-all hover:border-gray-100 hover:bg-gray-50"
+                                            >
+                                                <div className="h-12 w-12 rounded-full bg-gray-100 shadow-inner overflow-hidden">
+                                                    <img
+                                                        src={category?.image_url || '/placeholder_banner.jpg'}
+                                                        alt={categoryName}
+                                                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                                        onError={(e) => { e.currentTarget.src = '/placeholder_banner.jpg'; }}
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-semibold text-gray-800 group-hover:text-primary transition-colors">
+                                                        {categoryName}
+                                                    </span>
+                                                    {typeof category.product_count === 'number' && (
+                                                        <span className="text-xs text-gray-400">{category.product_count} items</span>
+                                                    )}
+                                                </div>
+                                            </Link>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {navLinks.slice(1).map((link) => (
                             <Link key={link.name} to={link.path} className={`text-sm font-medium tracking-wide transition-colors relative group ${isActive(link.path) ? 'text-accent-deep' : 'text-gray-600 hover:text-accent-deep'}`}>
                                 {link.name}
                                 <span className={`absolute -bottom-1 left-0 w-0 h-0.5 bg-accent transition-all duration-300 group-hover:w-full ${isActive(link.path) ? 'w-full' : ''}`}></span>
@@ -156,6 +316,13 @@ export default function Navbar() {
                 isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
             }`}>
                 <div className="flex flex-col p-6 space-y-4 text-center">
+                    <Link 
+                        to="/shop"
+                        className={`text-lg font-medium py-2 border-b border-gray-100 ${isShopActive() ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
+                        onClick={() => setIsOpen(false)}
+                    >
+                        Shop
+                    </Link>
                     {navLinks.map((link) => (
                         <Link 
                             key={link.name} 

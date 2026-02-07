@@ -2,6 +2,12 @@ const db = require('../config/db');
 const fs = require('fs');
 const path = require('path');
 
+const notifyClients = (req, event, payload = {}) => {
+    const io = req.app.get('io');
+    if (!io) return;
+    io.emit(event, payload);
+};
+
 // 1. GET ALL SLIDES (Public & Admin)
 const getSlides = async (req, res) => {
     try {
@@ -22,6 +28,16 @@ const getSlides = async (req, res) => {
     }
 };
 
+// 1.1 GET HOME BANNER (Public & Admin)
+const getBanner = async (req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 1 LIMIT 1');
+        res.json(rows[0] || null);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch banner' });
+    }
+};
+
 // 2. CREATE SLIDE
 const createSlide = async (req, res) => {
     try {
@@ -39,9 +55,29 @@ const createSlide = async (req, res) => {
             [imageUrl, title || '', subtitle || '', link || '', nextOrder]
         );
 
+        notifyClients(req, 'cms:hero_update', { action: 'create', id: result.insertId });
         res.status(201).json({ message: 'Slide added', id: result.insertId, imageUrl });
     } catch (error) {
         res.status(500).json({ message: 'Failed to create slide' });
+    }
+};
+
+// 2.1 UPDATE HOME BANNER (Image + Link)
+const updateBanner = async (req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 1 LIMIT 1');
+        const current = rows[0] || { image_url: '', link: '' };
+        const imageUrl = req.file ? `/uploads/banner/${req.file.filename}` : current.image_url;
+        const link = typeof req.body.link === 'string' ? req.body.link : current.link;
+
+        await db.execute(
+            'UPDATE home_banner SET image_url = ?, link = ? WHERE id = 1',
+            [imageUrl, link]
+        );
+        notifyClients(req, 'cms:banner_update', { image_url: imageUrl, link });
+        res.json({ message: 'Banner updated', image_url: imageUrl, link });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update banner' });
     }
 };
 
@@ -49,6 +85,7 @@ const createSlide = async (req, res) => {
 const deleteSlide = async (req, res) => {
     try {
         await db.execute('DELETE FROM hero_slides WHERE id = ?', [req.params.id]);
+        notifyClients(req, 'cms:hero_update', { action: 'delete', id: req.params.id });
         res.json({ message: 'Slide deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Failed to delete slide' });
@@ -70,6 +107,7 @@ const reorderSlides = async (req, res) => {
         }
 
         await connection.commit();
+        notifyClients(req, 'cms:hero_update', { action: 'reorder', slideIds });
         res.json({ message: 'Order updated' });
     } catch (error) {
         await connection.rollback();
@@ -87,10 +125,11 @@ const updateSlide = async (req, res) => {
             'UPDATE hero_slides SET title = ?, subtitle = ?, link = ?, status = ? WHERE id = ?',
             [title, subtitle, link, status, req.params.id]
         );
+        notifyClients(req, 'cms:hero_update', { action: 'update', id: req.params.id });
         res.json({ message: 'Slide updated' });
     } catch (error) {
         res.status(500).json({ message: 'Update failed' });
     }
 };
 
-module.exports = { getSlides, createSlide, deleteSlide, reorderSlides, updateSlide };
+module.exports = { getSlides, getBanner, createSlide, updateBanner, deleteSlide, reorderSlides, updateSlide };

@@ -51,6 +51,25 @@ export const useCms = () => {
         return res.json();
     }, [logout]);
 
+    // 1.1 Get Home Banner (Public or Admin)
+    const getBanner = useCallback(async (isAdmin = false) => {
+        const token = localStorage.getItem('token');
+        const headers = {};
+        if (isAdmin && token && token !== "undefined") {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(`${API_URL}/banner?admin=${isAdmin}`, { headers });
+        if (res.status === 401 && isAdmin) {
+            logout();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.message || 'API Error');
+        }
+        return res.json();
+    }, [logout]);
+
     // 2. Create Slide
     const createSlide = useCallback(async (formData) => {
         // Note: FormData does not need Content-Type header
@@ -85,5 +104,13 @@ export const useCms = () => {
         });
     }, [authFetch]);
 
-    return { getSlides, createSlide, deleteSlide, reorderSlides, updateSlide };
+    // 6. Update Home Banner (Image + Link)
+    const updateBanner = useCallback(async (formData) => {
+        return authFetch('/banner', {
+            method: 'PUT',
+            body: formData
+        });
+    }, [authFetch]);
+
+    return { getSlides, getBanner, createSlide, deleteSlide, reorderSlides, updateSlide, updateBanner };
 };

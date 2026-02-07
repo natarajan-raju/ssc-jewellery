@@ -158,6 +158,23 @@ const initDB = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        // 7.1 [NEW] HOME BANNER TABLE (CMS)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS home_banner (
+                id INT PRIMARY KEY,
+                image_url TEXT,
+                link VARCHAR(255),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        // Ensure singleton row exists
+        const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id = 1');
+        if (bannerRows.length === 0) {
+            await connection.execute(
+                'INSERT INTO home_banner (id, image_url, link) VALUES (?, ?, ?)',
+                [1, '/placeholder_banner.jpg', '']
+            );
+        }
         // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)
         const defaultCats = ['Best Sellers', 'New Arrivals'];
         for (const catName of defaultCats) {
