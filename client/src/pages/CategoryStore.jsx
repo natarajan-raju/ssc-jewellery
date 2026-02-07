@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
-import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp } from 'lucide-react';
+import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home } from 'lucide-react';
 // import { io } from 'socket.io-client';
 
 export default function CategoryStore() {
@@ -22,9 +22,46 @@ export default function CategoryStore() {
     const [hasMore, setHasMore] = useState(true);
     const [sortBy, setSortBy] = useState('default');
     const [isHovered, setIsHovered] = useState(false);
+    const [isShareOpen, setIsShareOpen] = useState(false);
+    const shareRef = useRef(null);
     const pageRef = useRef(page);
     const [showTopBtn, setShowTopBtn] = useState(false);
     const PAGE_LIMIT = 20;
+
+    const shareUrl = window.location.href;
+    const shareText = `I found this category in SSC Impo jewellery website - ${shareUrl}`;
+    const encodedUrl = encodeURIComponent(shareUrl);
+    const encodedText = encodeURIComponent(shareText);
+    const shareLinks = {
+        whatsapp: `https://wa.me/9500941350?text=${encodedText}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+        twitter: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+        telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`
+    };
+
+    const handleCopyLink = async () => {
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+        } catch (err) {
+            console.error("Copy failed", err);
+        }
+    };
+
+    const handleShareClick = async () => {
+        if (navigator.share) {
+            try {
+                await navigator.share({
+                    title: `SSC Impo Jewellery`,
+                    text: shareText,
+                    url: shareUrl
+                });
+                return;
+            } catch (err) {
+                // Fall back to panel
+            }
+        }
+        setIsShareOpen((prev) => !prev);
+    };
 
     // --- FILTER STATE ---
     const [showFilters, setShowFilters] = useState(false);
@@ -56,6 +93,17 @@ export default function CategoryStore() {
     useEffect(() => {
         pageRef.current = page;
     }, [page]);
+
+    useEffect(() => {
+        if (!isShareOpen) return;
+        const handleClickOutside = (event) => {
+            if (shareRef.current && !shareRef.current.contains(event.target)) {
+                setIsShareOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isShareOpen]);
     // --- 1. Fetch Jumbotron & Explore Data ---
     const fetchCategoryMetadata = async () => {
         try {
@@ -331,24 +379,68 @@ export default function CategoryStore() {
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20 w-full">
+            {/* Breadcrumb */}
+            <div className="bg-white border-b border-gray-100">
+                <div className="container mx-auto px-4 py-3 flex items-center gap-2 text-xs md:text-sm text-gray-500">
+                    <Link to="/" className="hover:text-primary"><Home size={14} /></Link>
+                    <span>/</span>
+                    <Link to="/shop" className="hover:text-primary">Store</Link>
+                    <span>/</span>
+                    <span className="font-bold text-gray-800 line-clamp-1 capitalize">{category.replace(/-/g, ' ')}</span>
+                </div>
+            </div>
             
             {/* Jumbotron (Unchanged) */}
-            <div className="relative h-64 md:h-80 bg-gray-900 w-full overflow-hidden">
+            <div className="relative h-64 md:h-80 bg-gray-900 w-full overflow-visible z-50">
                 <div className="absolute inset-0 bg-black/50 z-10"></div>
-                <img 
-                    key={categoryInfo?.image_url} 
-                    src={categoryInfo?.image_url || '/placeholder_banner.jpg'} 
-                    alt={category}
-                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
-                    onError={(e) => e.target.src = '/placeholder_banner.jpg'}
-                />
+                <div className="absolute inset-0 overflow-hidden">
+                    <img 
+                        key={categoryInfo?.image_url} 
+                        src={categoryInfo?.image_url || '/placeholder_banner.jpg'} 
+                        alt={category}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-1000 hover:scale-105"
+                        onError={(e) => e.target.src = '/placeholder_banner.jpg'}
+                    />
+                </div>
                 <div className="relative z-20 container mx-auto px-4 h-full flex flex-col justify-center items-center text-center">
                     <span className="text-accent uppercase tracking-[0.2em] text-xs md:text-sm font-bold mb-3 animate-fade-in">
                         Exclusive Collection
                     </span>
-                    <h1 className="text-4xl md:text-6xl font-serif text-white mb-4 capitalize drop-shadow-lg animate-slide-up">
-                        {category.replace(/-/g, ' ')}
-                    </h1>
+                    <div className="flex items-center gap-3">
+                        <h1 className="text-4xl md:text-6xl font-serif text-white mb-4 capitalize drop-shadow-lg animate-slide-up">
+                            {category.replace(/-/g, ' ')}
+                        </h1>
+                        <div className="relative" ref={shareRef}>
+                            <button
+                                onClick={handleShareClick}
+                                className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors text-white mb-4"
+                            >
+                                <Share2 size={18} />
+                            </button>
+                            {isShareOpen && (
+                                <div className="absolute left-full ml-3 top-0 w-56 bg-white border border-gray-200 shadow-2xl rounded-xl p-3 z-[70]">
+                                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Share</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.whatsapp} target="_blank" rel="noreferrer">
+                                            <MessageCircle size={14} className="text-green-500" /> WhatsApp
+                                        </a>
+                                        <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.facebook} target="_blank" rel="noreferrer">
+                                            <Facebook size={14} className="text-blue-600" /> Facebook
+                                        </a>
+                                        <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.twitter} target="_blank" rel="noreferrer">
+                                            <Twitter size={14} className="text-sky-500" /> Twitter
+                                        </a>
+                                        <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.telegram} target="_blank" rel="noreferrer">
+                                            <Send size={14} className="text-blue-400" /> Telegram
+                                        </a>
+                                    </div>
+                                    <button onClick={() => { handleCopyLink(); setIsShareOpen(false); }} className="mt-3 w-full text-xs font-semibold text-primary border border-primary/20 rounded-lg py-2 hover:bg-primary/5 flex items-center justify-center gap-1">
+                                        <Copy size={14} className="text-primary/80" /> Copy Link
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 

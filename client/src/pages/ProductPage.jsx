@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
     Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, 
-    AlertTriangle, Check, ArrowRight, Home, ShieldCheck 
+    AlertTriangle, Check, ArrowRight, Home, ShieldCheck,
+    MessageCircle, Facebook, Twitter, Send, Copy
 } from 'lucide-react';
 import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
@@ -29,6 +30,8 @@ export default function ProductPage() {
     const [loading, setLoading] = useState(true);
     const [zoomStyle, setZoomStyle] = useState({ display: 'none' });
     const [activeAccordion, setActiveAccordion] = useState(null);
+    const [isShareOpen, setIsShareOpen] = useState(false);
+    const shareRef = useRef(null);
 
     // [FIX] Helper to normalize socket data (Strings -> Arrays)
     const normalizeSocketData = (data) => {
@@ -414,23 +417,52 @@ export default function ProductPage() {
         });
     };
 
-    const handleShare = async () => {
+    const shareUrl = window.location.href;
+    const shareText = `I found this product in SSC Impo jewellery website - ${shareUrl}`;
+    const encodedUrl = encodeURIComponent(shareUrl);
+    const encodedText = encodeURIComponent(shareText);
+    const shareLinks = {
+        whatsapp: `https://wa.me/9500941350?text=${encodedText}`,
+        facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+        twitter: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+        telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`
+    };
+
+    const handleCopyLink = async () => {
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            toast.success("Link copied to clipboard!");
+        } catch (err) {
+            console.error("Copy failed", err);
+        }
+    };
+
+    const handleShareClick = async () => {
         if (navigator.share) {
             try {
                 await navigator.share({
-                    title: product.title,
-                    text: product.subtitle,
-                    url: window.location.href,
+                    title: product?.title || 'Product',
+                    text: shareText,
+                    url: shareUrl
                 });
+                return;
             } catch (err) {
-                console.error("Share failed", err);
+                // Fall back to panel
             }
-        } else {
-            // Fallback: Copy to clipboard
-            navigator.clipboard.writeText(window.location.href);
-            toast.success("Link copied to clipboard!");
         }
+        setIsShareOpen((prev) => !prev);
     };
+
+    useEffect(() => {
+        if (!isShareOpen) return;
+        const handleClickOutside = (event) => {
+            if (shareRef.current && !shareRef.current.contains(event.target)) {
+                setIsShareOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isShareOpen]);
 
     // --- Render Helpers ---
     if (loading) return <div className="h-screen flex items-center justify-center"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
@@ -460,6 +492,12 @@ export default function ProductPage() {
     // Status Check: Product must be active. If tracking is on, qty must be > 0.
     const isOutOfStock = product.status !== 'active' || (!!shouldTrackQty && currentQty <= 0);
     const isLowStock = !isOutOfStock && !!shouldTrackLowStock && currentQty <= stockThreshold;
+    const breadcrumbCategory = (() => {
+        const cats = product?.categories;
+        if (Array.isArray(cats) && cats.length > 0) return cats[0];
+        if (typeof cats === 'string' && cats.trim()) return cats.trim();
+        return null;
+    })();
 
     return (
         <div className="bg-secondary min-h-screen pb-20">
@@ -469,6 +507,14 @@ export default function ProductPage() {
                     <Link to="/" className="hover:text-primary"><Home size={14} /></Link>
                     <span>/</span>
                     <Link to="/store" className="hover:text-primary">Store</Link>
+                    {breadcrumbCategory && (
+                        <>
+                            <span>/</span>
+                            <Link to={`/shop/${encodeURIComponent(breadcrumbCategory)}`} className="hover:text-primary line-clamp-1">
+                                {breadcrumbCategory}
+                            </Link>
+                        </>
+                    )}
                     <span>/</span>
                     <span className="font-bold text-gray-800 line-clamp-1">{product.title}</span>
                 </div>
@@ -531,9 +577,36 @@ export default function ProductPage() {
                                 <h1 className="text-3xl md:text-4xl font-serif text-primary mb-2">{product.title}</h1>
                                 {product.subtitle && <p className="text-gray-500 text-lg mb-4">{product.subtitle}</p>}
                             </div>
-                            <button onClick={handleShare} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors text-gray-600">
-                                <Share2 size={20} />
-                            </button>
+                            <div className="relative" ref={shareRef}>
+                                <button
+                                    onClick={handleShareClick}
+                                    className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors text-gray-600"
+                                >
+                                    <Share2 size={20} />
+                                </button>
+                                {isShareOpen && (
+                                    <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 shadow-xl rounded-xl p-3 z-20">
+                                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Share</p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.whatsapp} target="_blank" rel="noreferrer">
+                                                <MessageCircle size={14} className="text-green-500" /> WhatsApp
+                                            </a>
+                                            <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.facebook} target="_blank" rel="noreferrer">
+                                                <Facebook size={14} className="text-blue-600" /> Facebook
+                                            </a>
+                                            <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.twitter} target="_blank" rel="noreferrer">
+                                                <Twitter size={14} className="text-sky-500" /> Twitter
+                                            </a>
+                                            <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.telegram} target="_blank" rel="noreferrer">
+                                                <Send size={14} className="text-blue-400" /> Telegram
+                                            </a>
+                                        </div>
+                                        <button onClick={() => { handleCopyLink(); setIsShareOpen(false); }} className="mt-3 w-full text-xs font-semibold text-primary border border-primary/20 rounded-lg py-2 hover:bg-primary/5 flex items-center justify-center gap-1">
+                                            <Copy size={14} /> Copy Link
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
 
                         {/* Pricing */}

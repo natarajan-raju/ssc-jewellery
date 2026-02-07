@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
 import { productService } from '../services/productService';
-import { ArrowRight, ChevronLeft, ChevronRight, Folder, Truck, PenTool, ShieldCheck, Gem, Headphones, Check } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Folder, Truck, PenTool, ShieldCheck, Gem, Headphones, Check, ArrowUp } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import ProductCard from '../components/ProductCard';
 // import { io } from 'socket.io-client';
@@ -122,6 +122,39 @@ const CarouselHero = ({ slides }) => {
 
 const isExternalLink = (url) => /^https?:\/\//i.test(url || '');
 
+const TextCarousel = ({ texts }) => {
+    const [index, setIndex] = useState(0);
+
+    useEffect(() => {
+        if (!texts || texts.length === 0) return;
+        const interval = setInterval(() => {
+            setIndex(prev => (prev + 1) % texts.length);
+        }, 3500);
+        return () => clearInterval(interval);
+    }, [texts]);
+
+    if (!texts || texts.length === 0) return null;
+
+    return (
+        <div className="w-full bg-primary text-accent">
+            <div className="container mx-auto px-6 md:px-4 py-4 md:py-3 overflow-hidden">
+                <div className="relative h-6 text-center">
+                    {texts.map((item, i) => (
+                        <div
+                            key={item.id || i}
+                            className={`absolute inset-0 flex items-center justify-center text-[10px] md:text-sm font-semibold tracking-[0.25em] md:tracking-[0.3em] uppercase transition-all duration-700 px-2 ${
+                                i === index ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+                            }`}
+                        >
+                            {item.text}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- 3. MAIN PAGE COMPONENT ---
 export default function Home() {
     const { socket } = useSocket();
@@ -132,15 +165,21 @@ export default function Home() {
     const [newArrivals, setNewArrivals] = useState([]);
     const [homeBanner, setHomeBanner] = useState(null);
     const [secondaryBanner, setSecondaryBanner] = useState(null);
+    const [featuredSection, setFeaturedSection] = useState(null);
+    const [featuredSectionProducts, setFeaturedSectionProducts] = useState([]);
+    const [heroTexts, setHeroTexts] = useState([]);
     const [isLoadingHero, setIsLoadingHero] = useState(true);
     const [isLoadingCats, setIsLoadingCats] = useState(true);
     const [isLoadingBest, setIsLoadingBest] = useState(true);
     const [isLoadingNewArrivals, setIsLoadingNewArrivals] = useState(true);
     const [isLoadingBanner, setIsLoadingBanner] = useState(true);
     const [isLoadingSecondaryBanner, setIsLoadingSecondaryBanner] = useState(true);
-    const { getSlides, getBanner, getSecondaryBanner } = useCms();
+    const [isLoadingFeaturedSection, setIsLoadingFeaturedSection] = useState(true);
+    const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory } = useCms();
     const infoSectionRef = useRef(null);
+    const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+    const [showTopBtn, setShowTopBtn] = useState(false);
 
     // [FIX] Moved fetchHero out to component scope for Promise.all
     const fetchHero = useCallback(async () => {
@@ -175,6 +214,40 @@ export default function Home() {
             setIsLoadingSecondaryBanner(false);
         }
     }, [getSecondaryBanner]);
+
+    const fetchHeroTexts = useCallback(async () => {
+        try {
+            const data = await getHeroTexts(false);
+            setHeroTexts(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error("Hero text load failed", err);
+        }
+    }, [getHeroTexts]);
+
+    const fetchFeaturedSection = useCallback(async () => {
+        try {
+            const data = await getFeaturedCategory(false);
+            setFeaturedSection(data);
+        } catch (err) {
+            console.error("Featured category load failed", err);
+        } finally {
+            setIsLoadingFeaturedSection(false);
+        }
+    }, [getFeaturedCategory]);
+
+    const fetchFeaturedSectionProducts = useCallback(async (categoryName) => {
+        if (!categoryName) {
+            setFeaturedSectionProducts([]);
+            return;
+        }
+        try {
+            const data = await productService.getProducts(1, categoryName, 'active', 'manual', 10);
+            setFeaturedSectionProducts(data.products || []);
+        } catch (err) {
+            console.error("Featured category products failed", err);
+            setFeaturedSectionProducts([]);
+        }
+    }, []);
 
     // 2. [NEW] Fetch Categories
     // We will wrap this in a function so we can call it later from the Socket listener
@@ -219,15 +292,44 @@ export default function Home() {
             // Start both requests in parallel
             await Promise.all([
                 fetchHero(),
+                fetchHeroTexts(),
                 fetchCategories(),
                 fetchBestSellers(),
                 fetchNewArrivals(),
                 fetchBanner(),
-                fetchSecondaryBanner()
+                fetchSecondaryBanner(),
+                fetchFeaturedSection()
             ]);
         };
         loadInitialData();
-    }, [fetchHero, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner]);
+    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner, fetchFeaturedSection]);
+
+    useEffect(() => {
+        if (!featuredSection) return;
+        const titleFallback = featuredSection?.category_name || '';
+        featuredCategoryNameRef.current = titleFallback;
+        if (titleFallback) {
+            fetchFeaturedSectionProducts(titleFallback);
+        } else {
+            fetchFeaturedSectionProducts('');
+        }
+    }, [featuredSection, fetchFeaturedSectionProducts]);
+
+    useEffect(() => {
+        const toggleVisibility = () => {
+            if (window.scrollY > 300) {
+                setShowTopBtn(true);
+            } else {
+                setShowTopBtn(false);
+            }
+        };
+        window.addEventListener('scroll', toggleVisibility);
+        return () => window.removeEventListener('scroll', toggleVisibility);
+    }, []);
+
+    const scrollToTop = () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
 
     // 3. [NEW] Initial Load + Real-Time Sync
@@ -300,6 +402,11 @@ export default function Home() {
                     });
                 }
             }
+            const featuredName = featuredCategoryNameRef.current;
+            if (featuredName && payload.categoryName && payload.categoryName.toLowerCase() === featuredName.toLowerCase()) {
+                productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
+                fetchFeaturedSectionProducts(featuredName);
+            }
         };
 
         // C. Listen
@@ -331,6 +438,11 @@ export default function Home() {
                     });
                 }
             }
+            const featuredName = featuredCategoryNameRef.current;
+            if (featuredName && name.toLowerCase() === featuredName.toLowerCase()) {
+                productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
+                fetchFeaturedSectionProducts(featuredName);
+            }
         };
         socket.on('product:category_change', handleCategoryChange);
 
@@ -356,6 +468,11 @@ export default function Home() {
                     return [...prev, product].slice(0, 10);
                 });
             }
+            const featuredName = featuredCategoryNameRef.current;
+            if (featuredName && product?.categories?.some(c => String(c).toLowerCase() === featuredName.toLowerCase())) {
+                productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
+                fetchFeaturedSectionProducts(featuredName);
+            }
         };
 
         const handleProductUpdate = (product) => {
@@ -380,19 +497,31 @@ export default function Home() {
                 if (exists) return prev.filter(p => String(p.id) !== String(product.id));
                 return prev;
             });
+            const featuredName = featuredCategoryNameRef.current;
+            if (featuredName && product?.categories?.some(c => String(c).toLowerCase() === featuredName.toLowerCase())) {
+                productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
+                fetchFeaturedSectionProducts(featuredName);
+            }
         };
 
         const handleProductDelete = ({ id }) => {
             setBestSellers(prev => prev.filter(p => String(p.id) !== String(id)));
             setNewArrivals(prev => prev.filter(p => String(p.id) !== String(id)));
+            const featuredName = featuredCategoryNameRef.current;
+            if (featuredName) {
+                productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
+                fetchFeaturedSectionProducts(featuredName);
+            }
         };
 
         socket.on('product:create', handleProductCreate);
         socket.on('product:update', handleProductUpdate);
         socket.on('product:delete', handleProductDelete);
         socket.on('cms:hero_update', fetchHero);
+        socket.on('cms:texts_update', fetchHeroTexts);
         socket.on('cms:banner_update', fetchBanner);
         socket.on('cms:banner_secondary_update', fetchSecondaryBanner);
+        socket.on('cms:featured_category_update', fetchFeaturedSection);
 
         // D. Cleanup (Remove Listener ONLY)
         return () => {
@@ -402,10 +531,12 @@ export default function Home() {
             socket.off('product:update', handleProductUpdate);
             socket.off('product:delete', handleProductDelete);
             socket.off('cms:hero_update', fetchHero);
+            socket.off('cms:texts_update', fetchHeroTexts);
             socket.off('cms:banner_update', fetchBanner);
             socket.off('cms:banner_secondary_update', fetchSecondaryBanner);
+            socket.off('cms:featured_category_update', fetchFeaturedSection);
         };
-    }, [socket, fetchHero, fetchBanner, fetchSecondaryBanner]); // Depend on socket
+    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchFeaturedSection, fetchFeaturedSectionProducts]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
     const handleMouseMove = (e) => {
@@ -418,8 +549,10 @@ export default function Home() {
     };
 
     return (
-        <div className="space-y-16 pb-16">
+        <div className="pb-16">
             
+            <TextCarousel texts={heroTexts} />
+
             {/* HERO SECTION: Conditional Render */}
             {!isLoadingHero && slides.length > 0 ? (
                 <CarouselHero slides={slides} />
@@ -428,7 +561,7 @@ export default function Home() {
             )}
 
             {/* --- FEATURED CATEGORIES --- */}
-            <section className="container mx-auto px-4">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
                 <div className="text-center mb-10">
                     <h2 className="text-3xl font-serif text-primary">Featured Categories</h2>
                     <p className="text-gray-500 mt-2">Explore our wide range of handcrafted collections</p>
@@ -614,7 +747,7 @@ export default function Home() {
             </section>
 
               {/* --- BEST SELLERS --- */}
-            <section className="container mx-auto px-4">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">Best Sellers</h2>
@@ -686,7 +819,7 @@ export default function Home() {
             </section>
 
             {/* --- NEW ARRIVALS --- */}
-            <section className="container mx-auto px-4">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">New Arrivals</h2>
@@ -756,6 +889,66 @@ export default function Home() {
                     })()
                 )}
             </section>
+
+            {/* --- FEATURED CATEGORY SECTION --- */}
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
+                {isLoadingFeaturedSection ? (
+                    <div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />
+                ) : (
+                    (() => {
+                        const categoryName = featuredSection?.category_name || '';
+                        const title = featuredSection?.title?.trim() || categoryName;
+                        const subtitle = featuredSection?.subtitle?.trim() || 'Curated picks from this collection';
+
+                        if (!categoryName) {
+                            return (
+                                <div className="py-10 text-center text-gray-400">
+                                    Featured category not set yet.
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <>
+                                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
+                                    <div>
+                                        <h2 className="text-3xl font-serif text-primary">{title}</h2>
+                                        <p className="text-gray-500 mt-2">{subtitle}</p>
+                                    </div>
+                                    <Link
+                                        to={`/shop/${encodeURIComponent(categoryName)}`}
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-primary border border-primary/20 hover:border-primary hover:bg-primary/5 transition-all w-fit"
+                                    >
+                                        View All <ArrowRight size={18} />
+                                    </Link>
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                                    {featuredSectionProducts.slice(0, 10).map((product) => (
+                                        <ProductCard key={product.id} product={product} />
+                                    ))}
+                                    {featuredSectionProducts.length === 0 && (
+                                        <div className="col-span-full py-10 text-center text-gray-400">
+                                            No products available in this category.
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        );
+                    })()
+                )}
+            </section>
+
+            {/* Back to top */}
+            {showTopBtn && (
+                <button
+                    onClick={scrollToTop}
+                    className="fixed bottom-8 right-6 z-50 p-3 rounded-full bg-primary text-white shadow-lg hover:bg-primary/90 transition-all"
+                    aria-label="Back to top"
+                >
+                    <ArrowUp size={18} />
+                </button>
+            )}
         </div>
     );
 }

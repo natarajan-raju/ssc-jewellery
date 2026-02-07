@@ -4,6 +4,7 @@ import { useCms } from '../../hooks/useCms';
 import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
+import { productService } from '../../services/productService';
 
 export default function HeroCMS() {
     const [slides, setSlides] = useState([]);
@@ -13,7 +14,12 @@ export default function HeroCMS() {
     const [isSecondaryBannerUpdating, setIsSecondaryBannerUpdating] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
-    const { getSlides, getBanner, getSecondaryBanner, createSlide, updateBanner, updateSecondaryBanner, deleteSlide, reorderSlides } = useCms();
+    const { 
+        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, 
+        createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory,
+        createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts,
+        deleteSlide, reorderSlides 
+    } = useCms();
     // Form State
     const [newSlide, setNewSlide] = useState({ title: '', subtitle: '', link: '' });
     const [selectedFile, setSelectedFile] = useState(null);
@@ -26,13 +32,26 @@ export default function HeroCMS() {
     const [secondaryBannerFile, setSecondaryBannerFile] = useState(null);
     const [secondaryBannerPreview, setSecondaryBannerPreview] = useState(null);
     const [secondaryBannerLink, setSecondaryBannerLink] = useState('');
+    const [featuredCategories, setFeaturedCategories] = useState([]);
+    const [isFeaturedLoading, setIsFeaturedLoading] = useState(false);
+    const [featuredConfig, setFeaturedConfig] = useState(null);
+    const [featuredCategoryId, setFeaturedCategoryId] = useState('');
+    const [featuredTitle, setFeaturedTitle] = useState('');
+    const [featuredSubtitle, setFeaturedSubtitle] = useState('');
+    const [heroTexts, setHeroTexts] = useState([]);
+    const [heroTextInput, setHeroTextInput] = useState('');
+    const [isHeroTextLoading, setIsHeroTextLoading] = useState(false);
+    const [draggedTextIndex, setDraggedTextIndex] = useState(null);
     const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, type: 'delete', title: '', message: '', targetId: null 
     });
     useEffect(() => { 
         loadSlides(); 
+        loadHeroTexts();
         loadBanner();
         loadSecondaryBanner();
+        loadFeaturedConfig();
+        loadFeaturedCategories();
     }, []);
 
     const loadSlides = async () => {
@@ -43,6 +62,15 @@ export default function HeroCMS() {
             toast.error("Failed to load slides");
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const loadHeroTexts = async () => {
+        try {
+            const data = await getHeroTexts(true);
+            setHeroTexts(Array.isArray(data) ? data : []);
+        } catch (error) {
+            toast.error("Failed to load hero texts");
         }
     };
 
@@ -65,6 +93,30 @@ export default function HeroCMS() {
             setSecondaryBannerPreview(data?.image_url || null);
         } catch (error) {
             toast.error("Failed to load secondary banner");
+        }
+    };
+
+    const loadFeaturedConfig = async () => {
+        try {
+            const data = await getFeaturedCategory(true);
+            setFeaturedConfig(data);
+            setFeaturedCategoryId(data?.category_id ? String(data.category_id) : '');
+            setFeaturedTitle(data?.title || '');
+            setFeaturedSubtitle(data?.subtitle || '');
+        } catch (error) {
+            toast.error("Failed to load featured category");
+        }
+    };
+
+    const loadFeaturedCategories = async () => {
+        setIsFeaturedLoading(true);
+        try {
+            const data = await productService.getCategoryStats(true);
+            setFeaturedCategories(Array.isArray(data) ? data : []);
+        } catch (error) {
+            toast.error("Failed to load categories");
+        } finally {
+            setIsFeaturedLoading(false);
         }
     };
 
@@ -157,6 +209,92 @@ export default function HeroCMS() {
             toast.error("Secondary banner update failed");
         } finally {
             setIsSecondaryBannerUpdating(false);
+        }
+    };
+
+    const handleHeroTextAdd = async (e) => {
+        e.preventDefault();
+        const text = heroTextInput.trim();
+        if (!text) return toast.error("Enter text");
+        setIsHeroTextLoading(true);
+        try {
+            await createHeroText({ text });
+            setHeroTextInput('');
+            await loadHeroTexts();
+            toast.success("Text added");
+        } catch (error) {
+            toast.error("Failed to add text");
+        } finally {
+            setIsHeroTextLoading(false);
+        }
+    };
+
+    const handleHeroTextUpdate = async (id, text) => {
+        setIsHeroTextLoading(true);
+        try {
+            await updateHeroText(id, { text });
+            await loadHeroTexts();
+            toast.success("Text updated");
+        } catch (error) {
+            toast.error("Failed to update text");
+        } finally {
+            setIsHeroTextLoading(false);
+        }
+    };
+
+    const handleHeroTextDelete = async (id) => {
+        setIsHeroTextLoading(true);
+        try {
+            await deleteHeroText(id);
+            await loadHeroTexts();
+            toast.success("Text deleted");
+        } catch (error) {
+            toast.error("Failed to delete text");
+        } finally {
+            setIsHeroTextLoading(false);
+        }
+    };
+
+    const handleHeroTextDragStart = (index) => setDraggedTextIndex(index);
+    const handleHeroTextDragOver = (e, index) => {
+        e.preventDefault();
+        if (draggedTextIndex === null || draggedTextIndex === index) return;
+        const next = [...heroTexts];
+        const item = next[draggedTextIndex];
+        next.splice(draggedTextIndex, 1);
+        next.splice(index, 0, item);
+        setDraggedTextIndex(index);
+        setHeroTexts(next);
+    };
+    const handleHeroTextDragEnd = async () => {
+        setDraggedTextIndex(null);
+        try {
+            const ids = heroTexts.map(t => t.id);
+            await reorderHeroTexts(ids);
+        } catch (error) {
+            toast.error("Failed to save order");
+        }
+    };
+
+    const handleFeaturedCategorySave = async (e) => {
+        e.preventDefault();
+        if (!featuredCategoryId) {
+            toast.error("Select a category");
+            return;
+        }
+        setIsFeaturedLoading(true);
+        try {
+            await updateFeaturedCategory({
+                categoryId: Number(featuredCategoryId),
+                title: featuredTitle,
+                subtitle: featuredSubtitle
+            });
+            toast.success("Featured category updated");
+            await loadFeaturedConfig();
+        } catch (error) {
+            toast.error("Featured category update failed");
+        } finally {
+            setIsFeaturedLoading(false);
         }
     };
 
@@ -343,6 +481,74 @@ export default function HeroCMS() {
                 )}
             </div>
 
+            {/* HERO TEXTS SECTION */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                <div>
+                    <h3 className="font-bold text-gray-700 mb-1 flex items-center gap-2">
+                        <ImageIcon size={20} className="text-primary"/> Hero Text Carousel
+                    </h3>
+                    <p className="text-xs text-gray-400">Short single-line highlights shown above the hero.</p>
+                </div>
+                <form onSubmit={handleHeroTextAdd} className="flex flex-col md:flex-row gap-3">
+                    <input
+                        placeholder="Add new text..."
+                        className="input-field flex-1"
+                        value={heroTextInput}
+                        onChange={(e) => setHeroTextInput(e.target.value)}
+                    />
+                    <button
+                        type="submit"
+                        disabled={isHeroTextLoading}
+                        className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isHeroTextLoading ? <Loader2 className="animate-spin"/> : <Plus size={18} />}
+                        Add Text
+                    </button>
+                </form>
+                {heroTexts.length === 0 ? (
+                    <div className="text-sm text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4 text-center">
+                        No texts yet. Add one above.
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {heroTexts.map((item, index) => (
+                            <div
+                                key={item.id}
+                                draggable
+                                onDragStart={() => handleHeroTextDragStart(index)}
+                                onDragOver={(e) => handleHeroTextDragOver(e, index)}
+                                onDragEnd={handleHeroTextDragEnd}
+                                className={`flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl p-3 ${
+                                    draggedTextIndex === index ? 'opacity-50 border-accent' : 'hover:bg-white'
+                                }`}
+                            >
+                                <div className="cursor-grab text-gray-400 hover:text-gray-600">
+                                    <GripVertical size={18} />
+                                </div>
+                                <input
+                                    defaultValue={item.text}
+                                    className="flex-1 bg-transparent outline-none text-sm text-gray-700"
+                                    onBlur={(e) => {
+                                        const nextText = e.target.value.trim();
+                                        if (nextText && nextText !== item.text) {
+                                            handleHeroTextUpdate(item.id, nextText);
+                                        }
+                                    }}
+                                />
+                                <button
+                                    onClick={() => handleHeroTextDelete(item.id)}
+                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                    type="button"
+                                    title="Delete text"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             {/* HOME BANNER SECTION */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                 <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
@@ -427,6 +633,58 @@ export default function HeroCMS() {
                         {secondaryBannerData?.image_url && (
                             <p className="text-xs text-gray-400">Current image: {secondaryBannerData.image_url}</p>
                         )}
+                    </div>
+                </form>
+            </div>
+
+            {/* FEATURED CATEGORY SECTION */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                    <ImageIcon size={20} className="text-primary"/> Featured Category Section
+                </h3>
+                <form onSubmit={handleFeaturedCategorySave} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <select
+                            value={featuredCategoryId}
+                            onChange={(e) => {
+                                const nextId = e.target.value;
+                                setFeaturedCategoryId(nextId);
+                                if (!featuredTitle) {
+                                    const found = featuredCategories.find(c => String(c.id) === String(nextId));
+                                    if (found?.name) setFeaturedTitle(found.name);
+                                }
+                            }}
+                            className="input-field"
+                        >
+                            <option value="">Select Category...</option>
+                            {featuredCategories.map((cat) => (
+                                <option key={cat.id} value={cat.id}>
+                                    {cat.name}
+                                </option>
+                            ))}
+                        </select>
+                        <input
+                            placeholder="Title (defaults to category name)"
+                            className="input-field"
+                            value={featuredTitle}
+                            onChange={(e) => setFeaturedTitle(e.target.value)}
+                        />
+                    </div>
+                    <input
+                        placeholder="Subtitle"
+                        className="input-field"
+                        value={featuredSubtitle}
+                        onChange={(e) => setFeaturedSubtitle(e.target.value)}
+                    />
+                    <div className="pt-2 flex justify-end">
+                        <button
+                            type="submit"
+                            disabled={isFeaturedLoading}
+                            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isFeaturedLoading ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                            Save Featured Section
+                        </button>
                     </div>
                 </form>
             </div>

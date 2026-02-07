@@ -137,7 +137,7 @@ export default function Navbar() {
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`fixed top-0 w-full z-50 bg-white transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-gray-100
+        <nav className={`fixed top-0 w-full z-[80] bg-white transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-gray-100
         `}>
             <div className="container mx-auto px-4 md:px-8">
                 <div className="flex justify-between items-center">
@@ -216,6 +216,7 @@ export default function Navbar() {
                                             <Link
                                                 key={`cat-${categoryId}`}
                                                 to={`/shop/${encodeURIComponent(categoryName)}`}
+                                                onClick={() => setIsMegaOpen(false)}
                                                 className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition-all hover:border-gray-100 hover:bg-gray-50"
                                             >
                                                 <div className="h-12 w-12 rounded-full bg-gray-100 shadow-inner overflow-hidden">

@@ -158,13 +158,34 @@ const initDB = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        // 7.1 [NEW] HOME BANNER TABLE (CMS)
+        // 7.1 [NEW] HERO TEXTS (Ticker)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS hero_texts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                text VARCHAR(255) NOT NULL,
+                display_order INT DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        // 7.2 [NEW] HOME BANNER TABLE (CMS)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS home_banner (
                 id INT PRIMARY KEY,
                 image_url TEXT,
                 link VARCHAR(255),
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        // 7.3 [NEW] HOME FEATURED CATEGORY SECTION (CMS)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS home_featured_category (
+                id INT PRIMARY KEY,
+                category_id INT NULL,
+                title VARCHAR(255),
+                subtitle VARCHAR(255),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
             )
         `);
         // Ensure singleton rows exist (Primary + Secondary)
@@ -180,6 +201,16 @@ const initDB = async () => {
             await connection.execute(
                 'INSERT INTO home_banner (id, image_url, link) VALUES (?, ?, ?)',
                 [2, '/placeholder_banner.jpg', '']
+            );
+        }
+        // Ensure featured category row exists (id=1)
+        const [featureRows] = await connection.execute('SELECT id FROM home_featured_category WHERE id = 1');
+        if (featureRows.length === 0) {
+            const [catRows] = await connection.execute('SELECT id FROM categories ORDER BY name ASC LIMIT 1');
+            const defaultCatId = catRows[0]?.id || null;
+            await connection.execute(
+                'INSERT INTO home_featured_category (id, category_id, title, subtitle) VALUES (?, ?, ?, ?)',
+                [1, defaultCatId, '', '']
             );
         }
         // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)

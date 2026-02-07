@@ -7,6 +7,7 @@ import { CustomerProvider } from './context/CustomerContext';
 import { useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import CategoryStore from './pages/CategoryStore';
+import Shop from './pages/Shop';
 
 // Components & Pages
 import Navbar from './components/Navbar';
@@ -52,6 +53,7 @@ function App() {
               {/* Public Routes */}
               <Route element={<PublicLayout />}>
                 <Route path="/" element={<Home />} />
+                <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 {/* Product Details Route */}
                 <Route path="/product/:id" element={<ProductPage />} />

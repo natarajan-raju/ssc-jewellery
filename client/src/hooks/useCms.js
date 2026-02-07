@@ -51,6 +51,24 @@ export const useCms = () => {
         return res.json();
     }, [logout]);
 
+    // 1.0 Get Hero Texts
+    const getHeroTexts = useCallback(async (isAdmin = false) => {
+        const token = localStorage.getItem('token');
+        const headers = {};
+        if (isAdmin && token && token !== "undefined") {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(`${API_URL}/hero-texts?admin=${isAdmin}`, { headers });
+        if (res.status === 401 && isAdmin) {
+            logout();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.message || 'API Error');
+        }
+        return res.json();
+    }, [logout]);
     // 1.1 Get Home Banner (Public or Admin)
     const getBanner = useCallback(async (isAdmin = false) => {
         const token = localStorage.getItem('token');
@@ -77,6 +95,24 @@ export const useCms = () => {
             headers['Authorization'] = `Bearer ${token}`;
         }
         const res = await fetch(`${API_URL}/banner-secondary?admin=${isAdmin}`, { headers });
+        if (res.status === 401 && isAdmin) {
+            logout();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.message || 'API Error');
+        }
+        return res.json();
+    }, [logout]);
+
+    const getFeaturedCategory = useCallback(async (isAdmin = false) => {
+        const token = localStorage.getItem('token');
+        const headers = {};
+        if (isAdmin && token && token !== "undefined") {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(`${API_URL}/featured-category?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             logout();
             throw new Error("Session expired");
@@ -137,5 +173,49 @@ export const useCms = () => {
         });
     }, [authFetch]);
 
-    return { getSlides, getBanner, getSecondaryBanner, createSlide, deleteSlide, reorderSlides, updateSlide, updateBanner, updateSecondaryBanner };
+    const updateFeaturedCategory = useCallback(async (data) => {
+        return authFetch('/featured-category', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }, [authFetch]);
+
+    // 7. Hero Texts CRUD
+    const createHeroText = useCallback(async (data) => {
+        return authFetch('/hero-texts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }, [authFetch]);
+
+    const updateHeroText = useCallback(async (id, data) => {
+        return authFetch(`/hero-texts/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }, [authFetch]);
+
+    const deleteHeroText = useCallback(async (id) => {
+        return authFetch(`/hero-texts/${id}`, {
+            method: 'DELETE'
+        });
+    }, [authFetch]);
+
+    const reorderHeroTexts = useCallback(async (textIds) => {
+        return authFetch('/hero-texts/reorder', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ textIds })
+        });
+    }, [authFetch]);
+
+    return { 
+        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory,
+        createSlide, deleteSlide, reorderSlides, updateSlide,
+        updateBanner, updateSecondaryBanner, updateFeaturedCategory,
+        createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts
+    };
 };
