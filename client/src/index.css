@@ -99,6 +99,7 @@
   .cart-pop {
     animation: cartPop 0.25s ease-out;
   }
+
 }
 
 /* --- Z-INDEX OVERRIDE FOR MOBILE --- */

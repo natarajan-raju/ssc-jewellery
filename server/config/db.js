@@ -42,10 +42,18 @@ const initDB = async () => {
                 mobile VARCHAR(15) UNIQUE,
                 password VARCHAR(255),
                 address TEXT,
+                billing_address TEXT,
+                profile_image TEXT,
                 role VARCHAR(20) DEFAULT 'customer', -- Updated default to match logic
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN billing_address TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN profile_image TEXT');
+        } catch {}
 
         // 3. PRODUCTS TABLE (Added 'options' column)
         await connection.query(`
@@ -117,6 +125,30 @@ const initDB = async () => {
                 name VARCHAR(255) UNIQUE NOT NULL,
                 image_url TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS shipping_zones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                states JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS shipping_options (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                zone_id INT NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                rate DECIMAL(10,2) NOT NULL DEFAULT 0,
+                condition_type VARCHAR(20) DEFAULT 'price',
+                min_value DECIMAL(10,2) DEFAULT NULL,
+                max_value DECIMAL(10,2) DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (zone_id) REFERENCES shipping_zones(id) ON DELETE CASCADE
             )
         `);
 

@@ -1,6 +1,24 @@
 const db = require('../config/db'); 
 
 class User {
+    static normalizeRow(row) {
+        if (!row) return row;
+        const parseJson = (value) => {
+            if (!value) return null;
+            if (typeof value === 'object') return value;
+            try {
+                return JSON.parse(value);
+            } catch {
+                return null;
+            }
+        };
+        return {
+            ...row,
+            address: parseJson(row.address),
+            billingAddress: parseJson(row.billing_address),
+            profileImage: row.profile_image || null
+        };
+    }
     
     // --- 1. GET ALL (Ordered by Role & Date) ---
     static async getAll() {
@@ -14,7 +32,7 @@ class User {
                 END DESC, 
                 createdAt DESC
         `);
-        return rows;
+        return rows.map(User.normalizeRow);
     }
 
     // --- 2. PAGINATION (Pure SQL) ---
@@ -51,7 +69,7 @@ class User {
         const [countResult] = await db.execute(countQuery, roleFilter && roleFilter !== 'all' ? [roleFilter] : []);
         
         return {
-            users,
+            users: users.map(User.normalizeRow),
             total: countResult[0].total,
             totalPages: Math.ceil(countResult[0].total / limit)
         };
@@ -60,17 +78,17 @@ class User {
     // --- 3. FIND HELPERS ---
     static async findByEmail(email) {
         const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
-        return rows[0];
+        return User.normalizeRow(rows[0]);
     }
 
     static async findByMobile(mobile) {
         const [rows] = await db.execute('SELECT * FROM users WHERE mobile = ?', [mobile]);
-        return rows[0];
+        return User.normalizeRow(rows[0]);
     }
 
     static async findById(id) {
         const [rows] = await db.execute('SELECT * FROM users WHERE id = ?', [id]);
-        return rows[0];
+        return User.normalizeRow(rows[0]);
     }
 
     // --- 4. CREATE USER ---
@@ -86,12 +104,13 @@ class User {
         const randomPart = Math.random().toString(36).substring(2, 6);
         const uniqueId = `${timePart}${randomPart}`;
 
-        const query = `INSERT INTO users (id, name, email, mobile, password, role, address, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+        const query = `INSERT INTO users (id, name, email, mobile, password, role, address, billing_address, profile_image, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         const addressJson = baseData.address ? JSON.stringify(baseData.address) : null;
+        const billingJson = baseData.billingAddress ? JSON.stringify(baseData.billingAddress) : null;
         
         await db.execute(query, [
             uniqueId, baseData.name, baseData.email, baseData.mobile, 
-            baseData.password, baseData.role, addressJson, baseData.createdAt
+            baseData.password, baseData.role, addressJson, billingJson, baseData.profileImage || null, baseData.createdAt
         ]);
         
         return { id: uniqueId, ...baseData };
@@ -139,9 +158,29 @@ class User {
         const updates = [];
         const values = [];
 
+        if (data.name) {
+            updates.push('name = ?');
+            values.push(data.name);
+        }
+        if (data.email) {
+            updates.push('email = ?');
+            values.push(data.email);
+        }
         if (data.mobile) {
             updates.push('mobile = ?');
             values.push(data.mobile);
+        }
+        if (data.address !== undefined) {
+            updates.push('address = ?');
+            values.push(data.address ? JSON.stringify(data.address) : null);
+        }
+        if (data.billingAddress !== undefined) {
+            updates.push('billing_address = ?');
+            values.push(data.billingAddress ? JSON.stringify(data.billingAddress) : null);
+        }
+        if (data.profileImage !== undefined) {
+            updates.push('profile_image = ?');
+            values.push(data.profileImage || null);
         }
         if (data.password) {
             updates.push('password = ?');

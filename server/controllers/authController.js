@@ -110,6 +110,10 @@ exports.register = async (req, res) => {
             address: safeData.address 
         });
 
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('user:create', user);
+        }
         const token = generateToken(user);
         res.status(201).json({ message: 'Registered successfully', token, user });
 
@@ -210,13 +214,21 @@ exports.googleLogin = async (req, res) => {
 exports.updateProfile = async (req, res) => {
     try {
         const userId = req.user.id; // From the JWT token
-        const { mobile, password } = req.body;
+        const { name, email, mobile, password, address, billingAddress, profileImage } = req.body;
+        const safeName = sanitize(name);
+        const safeEmail = email ? sanitize(email).toLowerCase() : '';
 
         // 1. Check if mobile is already taken by ANOTHER user
         if (mobile) {
             const existingUser = await User.findByMobile(mobile);
             if (existingUser && existingUser.id !== userId) {
                 return res.status(400).json({ message: 'Mobile number already in use' });
+            }
+        }
+        if (safeEmail) {
+            const existingEmail = await User.findByEmail(safeEmail);
+            if (existingEmail && existingEmail.id !== userId) {
+                return res.status(400).json({ message: 'Email already in use' });
             }
         }
 
@@ -227,9 +239,23 @@ exports.updateProfile = async (req, res) => {
         }
 
         // 3. Update Database (You need to add this method to your User model)
-        await User.updateProfile(userId, { mobile, password: hashedPassword });
+        await User.updateProfile(userId, {
+            name: safeName || undefined,
+            email: safeEmail || undefined,
+            mobile,
+            address,
+            billingAddress,
+            profileImage,
+            password: hashedPassword
+        });
 
-        res.json({ message: 'Profile updated successfully' });
+        const updatedUser = await User.findById(userId);
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('user:update', updatedUser);
+        }
+
+        res.json({ message: 'Profile updated successfully', user: updatedUser });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

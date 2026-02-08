@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { cartService } from '../services/cartService';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
@@ -63,6 +64,7 @@ export const CartProvider = ({ children }) => {
     const { user } = useAuth();
     const { socket } = useSocket();
     const toast = useToast();
+    const location = useLocation();
     const [items, setItems] = useState([]);
     const [isOpen, setIsOpen] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -158,6 +160,10 @@ export const CartProvider = ({ children }) => {
         closeQuickAdd();
     };
 
+    const isAdminRoute = location.pathname.startsWith('/admin');
+    const isStaffUser = user && (user.role === 'admin' || user.role === 'staff');
+    const shouldShowCartToasts = !isAdminRoute && !isStaffUser;
+
     useEffect(() => {
         if (!socket) return;
         const updateQueueRef = { current: new Map() };
@@ -200,6 +206,7 @@ export const CartProvider = ({ children }) => {
                 });
             });
 
+            if (!shouldShowCartToasts) return;
             if (affectedDelete) {
                 toast.error('Some items were removed from your cart (no longer available).');
             } else if (affectedUpdate) {
@@ -231,7 +238,7 @@ export const CartProvider = ({ children }) => {
             socket.off('product:update', handleProductUpdate);
             socket.off('product:delete', handleProductDelete);
         };
-    }, [socket]);
+    }, [socket, shouldShowCartToasts]);
 
     const itemCount = useMemo(() => items.reduce((sum, i) => sum + i.quantity, 0), [items]);
     const subtotal = useMemo(() => items.reduce((sum, i) => sum + (i.price * i.quantity), 0), [items]);

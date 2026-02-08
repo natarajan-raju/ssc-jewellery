@@ -19,6 +19,8 @@ const adminRoutes = require('./routes/adminRoutes');
 const productRoutes = require('./routes/productRoutes');
 const cmsRoutes = require('./routes/cmsRoutes');
 const cartRoutes = require('./routes/cartRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
+const shippingRoutes = require('./routes/shippingRoutes');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -46,6 +48,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cms', cmsRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('/api/uploads', uploadRoutes);
+app.use('/api/shipping', shippingRoutes);
 app.use('/uploads', express.static(path.join(__dirname, '../client/public/uploads')));
 // Serve Frontend
 app.use(express.static(path.join(__dirname, '../client/dist')));

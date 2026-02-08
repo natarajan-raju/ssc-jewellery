@@ -106,6 +106,19 @@ export default function Customers() {
         setIsProfileOpen(true);
     };
 
+    const formatAddress = (address) => {
+        if (!address) return '—';
+        if (typeof address === 'string') {
+            try {
+                const parsed = JSON.parse(address);
+                return [parsed.line1, parsed.city, parsed.state, parsed.zip].filter(Boolean).join(', ') || '—';
+            } catch {
+                return address;
+            }
+        }
+        return [address.line1, address.city, address.state, address.zip].filter(Boolean).join(', ') || '—';
+    };
+
     const openCart = async (user) => {
         setSelectedUser(user);
         setIsCartOpen(true);
@@ -215,11 +228,31 @@ export default function Customers() {
                             </button>
                         </div>
 
-                        <div className="bg-gray-50 rounded-2xl p-4 mb-6 border border-gray-100">
-                            <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
-                            <p className="text-sm text-gray-500 mt-1">{selectedUser.email}</p>
-                            <p className="text-sm text-gray-500">{selectedUser.mobile}</p>
-                            <p className="text-xs text-gray-400 mt-2">Role: {selectedUser.role || 'customer'}</p>
+                        <div className="bg-gray-50 rounded-2xl p-4 mb-6 border border-gray-100 flex items-center gap-4">
+                            <div className="w-16 h-16 rounded-2xl bg-white border border-gray-200 overflow-hidden flex items-center justify-center">
+                                {selectedUser.profileImage ? (
+                                    <img src={selectedUser.profileImage} alt={selectedUser.name} className="w-full h-full object-cover" />
+                                ) : (
+                                    <UserCog size={24} className="text-gray-400" />
+                                )}
+                            </div>
+                            <div>
+                                <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
+                                <p className="text-sm text-gray-500 mt-1">{selectedUser.email || '—'}</p>
+                                <p className="text-sm text-gray-500">{selectedUser.mobile || '—'}</p>
+                                <p className="text-xs text-gray-400 mt-2">Role: {selectedUser.role || 'customer'}</p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 mb-6">
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Billing Address</p>
+                                <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.billingAddress)}</p>
+                            </div>
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Shipping Address</p>
+                                <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.address)}</p>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">

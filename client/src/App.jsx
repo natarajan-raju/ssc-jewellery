@@ -4,6 +4,7 @@ import { AuthProvider } from './context/AuthContext';
 import { ProductProvider } from './context/ProductContext';
 import { CartProvider } from './context/CartContext';
 import { CustomerProvider } from './context/CustomerContext';
+import { ShippingProvider } from './context/ShippingContext';
 import { useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import CategoryStore from './pages/CategoryStore';
@@ -12,6 +13,7 @@ import Shop from './pages/Shop';
 // Components & Pages
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import FloatingWhatsApp from './components/FloatingWhatsApp';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -20,6 +22,7 @@ import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import ProductPage from './pages/ProductPage';
 import Contact from './pages/Contact';
+import Profile from './pages/Profile';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -37,6 +40,7 @@ const PublicLayout = () => {
       <main className="min-h-screen bg-secondary pt-[74px]"> 
         <Outlet />
       </main>
+      <FloatingWhatsApp />
       <Footer />
     </>
   );
@@ -50,8 +54,9 @@ function App() {
           <ProductProvider>
             <SocketProvider>
               <CustomerProvider>
-                <CartProvider>
-                <Routes>
+                <ShippingProvider>
+                  <CartProvider>
+                  <Routes>
               
               {/* Public Routes */}
               <Route element={<PublicLayout />}>
@@ -59,6 +64,7 @@ function App() {
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 <Route path="/contact" element={<Contact />} />
+                <Route path="/profile" element={<Profile />} />
                 {/* Product Details Route */}
                 <Route path="/product/:id" element={<ProductPage />} />
               </Route>
@@ -80,8 +86,9 @@ function App() {
               />
 
               <Route path="*" element={<Navigate to="/" />} />
-                </Routes>
-                </CartProvider>
+                  </Routes>
+                  </CartProvider>
+                </ShippingProvider>
               </CustomerProvider>
             </SocketProvider>
           </ProductProvider>

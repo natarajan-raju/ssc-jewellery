@@ -677,7 +677,6 @@ export default function CategoryStore() {
                     </div>
                 </section>
             )}
-            {/* Go Up Button */}
             <button
                 onClick={scrollToTop}
                 className={`fixed bottom-8 right-8 z-50 p-3 rounded-full bg-primary text-white shadow-lg transition-all duration-300 transform hover:scale-110 hover:bg-primary-dark ${

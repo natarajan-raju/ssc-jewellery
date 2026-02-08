@@ -32,7 +32,7 @@ export default function CartDrawer() {
                 className={`absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ${closing ? 'opacity-0' : 'opacity-100'}`}
                 onClick={closeCart}
             />
-            <div
+            <div 
                 className={`absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col transition-transform duration-200 ${closing ? 'translate-x-full' : 'translate-x-0'}`}
             >
                 <div className="p-5 border-b border-gray-100 flex items-center justify-between">

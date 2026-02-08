@@ -4,11 +4,16 @@ import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
-import { Users, ShoppingBag, LayoutDashboard, LogOut, Package } from 'lucide-react';
+import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo_light.webp'; 
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
+import ShippingSettings from './ShippingSettings';
+import dashboardIllustration from '../../assets/dashboard.svg';
+import shippingIllustration from '../../assets/shipping.svg';
+import ordersIllustration from '../../assets/orders.svg';
+import cartIllustration from '../../assets/cart.svg';
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
@@ -48,6 +53,16 @@ export default function AdminDashboard() {
             <div className={`w-1.5 h-1.5 rounded-full ${activeTab === id ? 'bg-accent' : 'bg-gray-600'}`}></div>
             <span>{label}</span>
         </button>
+    );
+
+    const EmptyState = ({ illustration, title, message }) => (
+        <div className="p-10 text-center text-gray-400 flex flex-col items-center gap-4">
+            <img src={illustration} alt={title} className="w-56 md:w-72" />
+            <div>
+                <h3 className="text-lg font-semibold text-gray-700">{title}</h3>
+                <p className="text-sm text-gray-500 mt-2">{message}</p>
+            </div>
+        </div>
     );
 
     return (
@@ -91,6 +106,8 @@ export default function AdminDashboard() {
                     </div>
                     <NavItem icon={Users} label="Customers" id="customers" />
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
+                    <NavItem icon={Truck} label="Shipping" id="shipping" />
+                    <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" />
                     <div className="pt-2 mt-2 border-t border-white/10">
                         <NavItem icon={Images} label="Hero CMS" id="cms" />
                     </div>
@@ -136,9 +153,29 @@ export default function AdminDashboard() {
                     {activeTab === 'products' && <Products onNavigate={setActiveTab} />}
                     {activeTab === 'categories' && <Categories />}
                     {activeTab === 'customers' && <Customers />}
+                    {activeTab === 'shipping' && <ShippingSettings />}
                     {activeTab === 'cms' && <HeroCMS />}
-                    {activeTab === 'dashboard' && <div className="p-10 text-center text-gray-400">Dashboard Stats Coming Soon</div>}
-                    {activeTab === 'orders' && <div className="p-10 text-center text-gray-400">Order Management Coming Soon</div>}
+                    {activeTab === 'dashboard' && (
+                        <EmptyState
+                            illustration={dashboardIllustration}
+                            title="Dashboard insights coming soon"
+                            message="We’re preparing analytics for sales, customers, and inventory trends."
+                        />
+                    )}
+                    {activeTab === 'orders' && (
+                        <EmptyState
+                            illustration={ordersIllustration}
+                            title="Order management coming soon"
+                            message="Orders will appear here once checkout is enabled."
+                        />
+                    )}
+                    {activeTab === 'abandoned' && (
+                        <EmptyState
+                            illustration={cartIllustration}
+                            title="Abandoned cart recovery"
+                            message="Recover sales automatically. This module is coming soon."
+                        />
+                    )}
                 </div>
 
                 {/* Mobile Footer Credit (Visible only on mobile at bottom of content) */}
@@ -153,11 +190,12 @@ export default function AdminDashboard() {
             </main>
 
             {/* --- MOBILE BOTTOM NAV --- */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-6 flex justify-between items-center z-40">
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-4 flex justify-between items-center z-40">
                 <MobileNavBtn icon={LayoutDashboard} label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
                 <MobileNavBtn icon={Package} label="Products" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
                 <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
+                <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} onClick={() => setActiveTab('abandoned')} />
             </div>
         </div>
     );

@@ -51,6 +51,15 @@ export const AuthProvider = ({ children }) => {
         productService.clearCache(); // Avoid stale data after login
     };
 
+    const updateUser = (updates) => {
+        setUser((prev) => {
+            if (!prev) return prev;
+            const next = { ...prev, ...updates };
+            localStorage.setItem('user', JSON.stringify(next));
+            return next;
+        });
+    };
+
     // 3. Centralized Logout Function
     const performLogout = async () => {
         localStorage.removeItem('token');
@@ -61,7 +70,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, logout: performLogout, loading }}>
+        <AuthContext.Provider value={{ user, login, logout: performLogout, updateUser, loading }}>
             {!loading && children}
         </AuthContext.Provider>
     );

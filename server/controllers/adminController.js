@@ -53,6 +53,10 @@ const createUser = async (req, res) => {
             address
         });
 
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('user:create', newUser);
+        }
         res.status(201).json({ message: 'User created successfully', user: newUser });
 
     } catch (error) {
@@ -79,6 +83,10 @@ const deleteUser = async (req, res) => {
         }
 
         await User.delete(req.params.id);
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('user:delete', { id: req.params.id });
+        }
         res.json({ message: 'User removed' });
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });

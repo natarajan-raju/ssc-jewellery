@@ -3,6 +3,20 @@ const API_URL = import.meta.env.PROD
   : 'http://localhost:5000/api/auth';
 
 export const authService = {
+  getAuthHeader: () => {
+    const token = localStorage.getItem('token');
+    if (!token || token === 'undefined' || token === 'null') {
+      return { 'Content-Type': 'application/json' };
+    }
+    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+  },
+  getAuthTokenHeader: () => {
+    const token = localStorage.getItem('token');
+    if (!token || token === 'undefined' || token === 'null') {
+      return {};
+    }
+    return { 'Authorization': `Bearer ${token}` };
+  },
   sendOtp: async (mobile) => {
     const res = await fetch(`${API_URL}/send-otp`, {
       method: 'POST',
@@ -42,6 +56,24 @@ export const authService = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken })
+    });
+    return res.json();
+  },
+  updateProfile: async (payload) => {
+    const res = await fetch(`${API_URL}/profile`, {
+      method: 'PUT',
+      headers: authService.getAuthHeader(),
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+  uploadProfileImage: async (file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch(`${API_URL.replace('/auth', '')}/uploads/profile-image`, {
+      method: 'POST',
+      headers: authService.getAuthTokenHeader(),
+      body: formData
     });
     return res.json();
   },

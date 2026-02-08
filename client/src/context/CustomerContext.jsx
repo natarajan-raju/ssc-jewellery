@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { adminService } from '../services/adminService';
 import { useAuth } from './AuthContext';
+import { useSocket } from './SocketContext';
 
 const CustomerContext = createContext(null);
 const CACHE_TTL = 5 * 60 * 1000;
@@ -8,6 +9,7 @@ const STORAGE_KEY = 'admin_users_cache_v1';
 
 export const CustomerProvider = ({ children }) => {
     const { user } = useAuth();
+    const { socket } = useSocket();
     const [users, setUsers] = useState([]);
     const [lastFetchedAt, setLastFetchedAt] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -40,6 +42,58 @@ export const CustomerProvider = ({ children }) => {
         } catch {}
         refreshUsers(false);
     }, [refreshUsers]);
+
+    useEffect(() => {
+        if (!socket || !user || (user.role !== 'admin' && user.role !== 'staff')) return;
+
+        const persist = (updater) => {
+            setUsers((prev) => {
+                const nextUsers = typeof updater === 'function' ? updater(prev) : updater;
+                const ts = Date.now();
+                setLastFetchedAt(ts);
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: nextUsers, ts }));
+                } catch {}
+                return nextUsers;
+            });
+        };
+
+        const handleCreate = (newUser) => {
+            if (!newUser?.id) return;
+            adminService.clearCache();
+            persist((prev) => {
+                const exists = prev.find((u) => u.id === newUser.id);
+                if (exists) return prev.map((u) => (u.id === newUser.id ? { ...u, ...newUser } : u));
+                return [newUser, ...prev];
+            });
+        };
+
+        const handleUpdate = (updatedUser) => {
+            if (!updatedUser?.id) return;
+            adminService.clearCache();
+            persist((prev) => {
+                const exists = prev.find((u) => u.id === updatedUser.id);
+                if (!exists) return prev;
+                return prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u));
+            });
+        };
+
+        const handleDelete = ({ id }) => {
+            if (!id) return;
+            adminService.clearCache();
+            persist((prev) => prev.filter((u) => u.id !== id));
+        };
+
+        socket.on('user:create', handleCreate);
+        socket.on('user:update', handleUpdate);
+        socket.on('user:delete', handleDelete);
+
+        return () => {
+            socket.off('user:create', handleCreate);
+            socket.off('user:update', handleUpdate);
+            socket.off('user:delete', handleDelete);
+        };
+    }, [socket, user]);
 
     const value = useMemo(() => ({
         users,

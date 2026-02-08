@@ -53,6 +53,12 @@ export default function Navbar() {
     }, [isMegaOpen]);
 
     useEffect(() => {
+        setIsUserMenuOpen(false);
+        setIsMegaOpen(false);
+        setIsOpen(false);
+    }, [location.pathname]);
+
+    useEffect(() => {
         if (itemCount > prevCountRef.current) {
             setShakeCart(true);
             setPopBadge(true);
@@ -137,7 +143,7 @@ export default function Navbar() {
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`fixed top-0 w-full z-[80] bg-white transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-gray-100
+        <nav className={`fixed top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-white/70
         `}>
             <div className="container mx-auto px-4 md:px-8">
                 <div className="flex justify-between items-center">
@@ -267,15 +273,23 @@ export default function Navbar() {
                         {user ? (
                             <>
                                 <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className={`p-2 rounded-full transition-colors ${isUserMenuOpen ? 'bg-primary text-white' : 'hover:bg-gray-100 text-gray-600'}`}>
-                                    <User size={22} strokeWidth={2} />
+                                    {user.profileImage ? (
+                                        <img
+                                            src={user.profileImage}
+                                            alt={user.name || 'Profile'}
+                                            className="w-6 h-6 rounded-full object-cover"
+                                        />
+                                    ) : (
+                                        <User size={22} strokeWidth={2} />
+                                    )}
                                 </button>
                                 {isUserMenuOpen && (
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                                         <div className="px-4 py-2 border-b border-gray-50">
                                             <p className="text-xs text-gray-400 font-bold uppercase">Hi, {user.name}</p>
                                         </div>
-                                        <Link to="/profile" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Profile</Link>
-                                        <Link to="/orders" className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Orders</Link>
+                                        <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Profile</Link>
+                                        <Link to="/orders" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Orders</Link>
                                         <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50 mt-1">
                                             <LogOut size={16} /> Logout
                                         </button>
