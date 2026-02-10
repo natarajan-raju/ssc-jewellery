@@ -10,9 +10,9 @@ import logo from '../../assets/logo_light.webp';
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
 import ShippingSettings from './ShippingSettings';
+import Orders from './Orders';
 import dashboardIllustration from '../../assets/dashboard.svg';
 import shippingIllustration from '../../assets/shipping.svg';
-import ordersIllustration from '../../assets/orders.svg';
 import cartIllustration from '../../assets/cart.svg';
 
 export default function AdminDashboard() {
@@ -162,13 +162,7 @@ export default function AdminDashboard() {
                             message="We’re preparing analytics for sales, customers, and inventory trends."
                         />
                     )}
-                    {activeTab === 'orders' && (
-                        <EmptyState
-                            illustration={ordersIllustration}
-                            title="Order management coming soon"
-                            message="Orders will appear here once checkout is enabled."
-                        />
-                    )}
+                    {activeTab === 'orders' && <Orders />}
                     {activeTab === 'abandoned' && (
                         <EmptyState
                             illustration={cartIllustration}

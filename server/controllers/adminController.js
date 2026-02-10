@@ -27,7 +27,7 @@ const getUsers = async (req, res) => {
 
 // --- 2. CREATE USER ---
 const createUser = async (req, res) => {
-    const { name, email, mobile, password, address, role } = req.body;
+    const { name, email, mobile, password, address, role, dob } = req.body;
 
     try {
         const userExists = await User.findByMobile(mobile);
@@ -50,7 +50,8 @@ const createUser = async (req, res) => {
             name, email, mobile,
             password: hashedPassword,
             role: roleToAssign,
-            address
+            address,
+            dob: dob || null
         });
 
         const io = req.app.get('io');

@@ -102,6 +102,31 @@
 
 }
 
+@layer utilities {
+  @keyframes confetti-fall {
+    0% { transform: translateY(-10%) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(120vh) rotate(360deg); opacity: 0.9; }
+  }
+
+  @keyframes confetti-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(180deg); }
+  }
+
+  .confetti-piece {
+    position: absolute;
+    top: -10%;
+    width: var(--size);
+    height: calc(var(--size) * 0.6);
+    background: var(--color);
+    opacity: 0.95;
+    border-radius: 2px;
+    animation:
+      confetti-fall var(--duration) linear var(--delay) forwards,
+      confetti-spin 1.2s ease-in-out infinite;
+  }
+}
+
 /* --- Z-INDEX OVERRIDE FOR MOBILE --- */
 
 /* 1. Force the Modal Container (Backdrop + Content) to be highest */

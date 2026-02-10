@@ -21,6 +21,8 @@ const cmsRoutes = require('./routes/cmsRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const shippingRoutes = require('./routes/shippingRoutes');
+const orderRoutes = require('./routes/orderRoutes');
+const Order = require('./models/Order');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -32,6 +34,15 @@ const io = new Server(server, {
         origin: ["http://localhost:5173", "http://localhost:3000"], 
         methods: ["GET", "POST"]
     }
+});
+
+io.on('connection', (socket) => {
+    socket.on('auth', (payload = {}) => {
+        const userId = payload.userId || payload.id;
+        if (userId) {
+            socket.join(`user:${userId}`);
+        }
+    });
 });
 
 // [NEW] Make 'io' accessible in controllers via req.app.get('io')
@@ -50,6 +61,7 @@ app.use('/api/cms', cmsRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/shipping', shippingRoutes);
+app.use('/api/orders', orderRoutes);
 app.use('/uploads', express.static(path.join(__dirname, '../client/public/uploads')));
 // Serve Frontend
 app.use(express.static(path.join(__dirname, '../client/dist')));
@@ -59,3 +71,20 @@ app.get('*', (req, res) => {
 
 // [CHANGE] Use server.listen instead of app.listen
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+const scheduleMidnightJob = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(24, 0, 0, 0);
+    const delay = next.getTime() - now.getTime();
+    setTimeout(async () => {
+        try {
+            await Order.markStaleAsPending();
+        } catch (error) {
+            console.error('Order pending job failed:', error);
+        }
+        scheduleMidnightJob();
+    }, delay);
+};
+
+scheduleMidnightJob();

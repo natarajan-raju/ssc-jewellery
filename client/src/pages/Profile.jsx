@@ -33,6 +33,7 @@ export default function Profile() {
         name: '',
         email: '',
         mobile: '',
+        dob: '',
         address: { ...emptyAddress },
         billingAddress: { ...emptyAddress },
     });
@@ -53,6 +54,7 @@ export default function Profile() {
             name: user.name || '',
             email: user.email || '',
             mobile: user.mobile || '',
+            dob: user.dob || '',
             address: { ...emptyAddress, ...(user.address || {}) },
             billingAddress: { ...emptyAddress, ...(user.billingAddress || user.address || {}) },
         });
@@ -115,6 +117,7 @@ export default function Profile() {
                 name: form.name,
                 email: form.email,
                 mobile: form.mobile,
+                dob: form.dob,
                 address: form.address,
                 billingAddress: form.billingAddress,
                 profileImage: profileImage || ''
@@ -141,6 +144,7 @@ export default function Profile() {
             name: user.name || '',
             email: user.email || '',
             mobile: user.mobile || '',
+            dob: user.dob || '',
             address: { ...emptyAddress, ...(user.address || {}) },
             billingAddress: { ...emptyAddress, ...(user.billingAddress || user.address || {}) },
         });
@@ -152,6 +156,7 @@ export default function Profile() {
     }, [form.address]);
 
     if (!user) return null;
+    const dobLocked = !!user.dobLocked;
 
     return (
         <div className="bg-secondary min-h-screen">
@@ -312,6 +317,23 @@ export default function Profile() {
                                                 />
                                                 <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                             </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Date of Birth</label>
+                                            <div className="relative">
+                                                <input
+                                                    name="dob"
+                                                    type="date"
+                                                    value={form.dob}
+                                                    onChange={handleFieldChange}
+                                                    disabled={!isEditing || dobLocked}
+                                                    className="input-field pl-10 disabled:bg-gray-50"
+                                                />
+                                                <Sparkles size={16} className="absolute left-3 top-3.5 text-gray-400" />
+                                            </div>
+                                            {dobLocked && (
+                                                <p className="text-[11px] text-gray-400">DOB can only be changed once after registration.</p>
+                                            )}
                                         </div>
                                     </div>
 

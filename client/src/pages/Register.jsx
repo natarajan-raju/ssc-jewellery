@@ -11,7 +11,8 @@ export default function Register() {
   
   const [formData, setFormData] = useState({
     name: '', email: '', mobile: '', password: '', 
-    addressLine1: '', city: '', state: '', zip: '', otp: ''
+    addressLine1: '', city: '', state: '', zip: '', otp: '',
+    dob: ''
   });
   
   const [errors, setErrors] = useState({});
@@ -116,7 +117,15 @@ export default function Register() {
     if (otpStatus !== 'valid') return toast.error("Please enter a valid OTP first.");
     
     // Construct payload
-    const payload = { ...formData, address: formData.addressLine1 ? { line1: formData.addressLine1, city: formData.city, state: formData.state, zip: formData.zip } : null };
+    const addressPayload = formData.addressLine1
+        ? { line1: formData.addressLine1, city: formData.city, state: formData.state, zip: formData.zip }
+        : null;
+    const payload = { 
+        ...formData, 
+        address: addressPayload,
+        billingAddress: addressPayload,
+        dob: formData.dob || null
+    };
 
     try {
         const res = await authService.register(payload);
@@ -165,6 +174,10 @@ export default function Register() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input name="name" placeholder="Full Name" className="input-field" value={formData.name} onChange={handleChange} required />
               <input name="email" placeholder="Email Address" type="email" className="input-field" value={formData.email} onChange={handleChange} required />
+              <div className="md:col-span-2">
+                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Date of Birth (Optional)</label>
+                  <input name="dob" type="date" className="input-field" value={formData.dob} onChange={handleChange} />
+              </div>
           </div>
           
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">

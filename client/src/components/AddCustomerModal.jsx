@@ -4,7 +4,8 @@ import { X, UserPlus, UserCog, Loader2, Eye, EyeOff } from 'lucide-react'; // Ad
 export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd = 'customer' }) {
   const [formData, setFormData] = useState({
     name: '', email: '', mobile: '', password: '',
-    addressLine1: '', city: '', state: '', zip: ''
+    addressLine1: '', city: '', state: '', zip: '',
+    dob: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -13,7 +14,7 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
   // Reset form when modal opens/closes
   useEffect(() => {
     if (isOpen) {
-        setFormData({ name: '', email: '', mobile: '', password: '', addressLine1: '', city: '', state: '', zip: '' });
+        setFormData({ name: '', email: '', mobile: '', password: '', addressLine1: '', city: '', state: '', zip: '', dob: '' });
         setError('');
     }
   }, [isOpen]);
@@ -50,7 +51,8 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
             city: formData.city,
             state: formData.state,
             zip: formData.zip
-        } : null
+        } : null,
+        dob: formData.dob || null
     };
 
     try {
@@ -126,6 +128,8 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
                 {!isStaff && (
                     <div className="border-t pt-4 mt-2 animate-fade-in">
                         <p className="text-sm font-bold text-primary mb-3">Address Details (Optional)</p>
+                        <label className="text-xs font-bold text-gray-500 uppercase">Date of Birth (Optional)</label>
+                        <input name="dob" type="date" className="input-field mt-1 mb-3" value={formData.dob} onChange={handleChange} />
                         <input name="addressLine1" placeholder="Street Address" className="input-field mb-3" value={formData.addressLine1} onChange={handleChange} />
                         <div className="grid grid-cols-3 gap-2">
                             <input name="city" placeholder="City" className="input-field" value={formData.city} onChange={handleChange} />

@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import { X, Minus, Plus, ShoppingCart } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useShipping } from '../context/ShippingContext';
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing } = useCart();
+    const { user } = useAuth();
+    const { zones } = useShipping();
     const [render, setRender] = useState(false);
     const [closing, setClosing] = useState(false);
 
@@ -23,6 +27,45 @@ export default function CartDrawer() {
             return () => clearTimeout(t);
         }
     }, [isOpen, render]);
+
+    const totalWeightKg = useMemo(() => items.reduce((sum, item) => {
+        const weight = Number(item.weightKg || 0);
+        return sum + weight * Number(item.quantity || 0);
+    }, 0), [items]);
+
+    const shippingPreview = useMemo(() => {
+        if (!zones || zones.length === 0) return { fee: null, freeThreshold: null };
+        const state = (user?.address?.state || '').trim().toLowerCase();
+        if (!state) return { fee: null, freeThreshold: null };
+        const zone = zones.find(z => Array.isArray(z.states) && z.states.some(s => String(s).trim().toLowerCase() === state));
+        if (!zone || !Array.isArray(zone.options)) return { fee: null, freeThreshold: null };
+        const eligible = zone.options.filter(opt => {
+            const min = opt.min == null ? null : Number(opt.min);
+            const max = opt.max == null ? null : Number(opt.max);
+            if (opt.conditionType === 'weight') {
+                if (min != null && totalWeightKg < min) return false;
+                if (max != null && totalWeightKg > max) return false;
+                return true;
+            }
+            if (opt.conditionType === 'price' || !opt.conditionType) {
+                if (min != null && subtotal < min) return false;
+                if (max != null && subtotal > max) return false;
+                return true;
+            }
+            return true;
+        });
+        const fee = eligible.length ? Number([...eligible].sort((a, b) => Number(a.rate || 0) - Number(b.rate || 0))[0].rate || 0) : 0;
+        const freeOptions = zone.options.filter(opt => (opt.conditionType === 'price' || !opt.conditionType) && Number(opt.rate || 0) === 0 && opt.min != null);
+        const freeThreshold = freeOptions.length ? Math.min(...freeOptions.map(opt => Number(opt.min))) : null;
+        return { fee, freeThreshold };
+    }, [zones, user?.address?.state, subtotal, totalWeightKg]);
+
+    const freeProgress = useMemo(() => {
+        if (!shippingPreview.freeThreshold) return null;
+        const pct = Math.min(100, (subtotal / shippingPreview.freeThreshold) * 100);
+        const remaining = Math.max(0, shippingPreview.freeThreshold - subtotal);
+        return { pct, remaining };
+    }, [shippingPreview.freeThreshold, subtotal]);
 
     if (!render) return null;
 
@@ -101,8 +144,25 @@ export default function CartDrawer() {
                         <span>Subtotal</span>
                         <span className="font-bold text-gray-800">₹{subtotal.toLocaleString()}</span>
                     </div>
+                    <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
+                        <span>Shipping</span>
+                        <span className="font-bold text-gray-800">
+                            {shippingPreview.fee == null ? 'Add address' : `₹${Number(shippingPreview.fee || 0).toLocaleString()}`}
+                        </span>
+                    </div>
+                    {freeProgress && (
+                        <div className="mb-4">
+                            <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+                                <span>Free shipping progress</span>
+                                <span>₹{Math.max(0, freeProgress.remaining).toLocaleString()} to go</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                                <div className="h-full bg-emerald-500" style={{ width: `${freeProgress.pct}%` }} />
+                            </div>
+                        </div>
+                    )}
                     <Link
-                        to="/checkout"
+                        to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
                         className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
                         onClick={closeCart}
                     >

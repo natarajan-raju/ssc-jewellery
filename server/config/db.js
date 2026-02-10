@@ -7,6 +7,7 @@ const pool = mysql.createPool({
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD, // 2. FIXED: Changed DB_PASSWORD to DB_PASS
     database: process.env.DB_NAME,
+    dateStrings: true,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -41,6 +42,9 @@ const initDB = async () => {
                 email VARCHAR(100) UNIQUE,
                 mobile VARCHAR(15) UNIQUE,
                 password VARCHAR(255),
+                dob DATE,
+                dob_locked TINYINT(1) DEFAULT 0,
+                birthday_offer_claimed_year INT DEFAULT NULL,
                 address TEXT,
                 billing_address TEXT,
                 profile_image TEXT,
@@ -53,6 +57,15 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE users ADD COLUMN profile_image TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN dob DATE');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN dob_locked TINYINT(1) DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN birthday_offer_claimed_year INT DEFAULT NULL');
         } catch {}
 
         // 3. PRODUCTS TABLE (Added 'options' column)
@@ -135,6 +148,57 @@ const initDB = async () => {
                 states JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        // 8. ORDERS TABLE
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS orders (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                order_ref VARCHAR(30) UNIQUE,
+                user_id VARCHAR(50) NOT NULL,
+                status VARCHAR(20) DEFAULT 'confirmed',
+                payment_status VARCHAR(20) DEFAULT 'paid',
+                subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                shipping_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                currency VARCHAR(10) DEFAULT 'INR',
+                billing_address JSON,
+                shipping_address JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // 9. ORDER ITEMS TABLE
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS order_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                order_id INT NOT NULL,
+                product_id VARCHAR(50) NOT NULL,
+                variant_id VARCHAR(50) NOT NULL DEFAULT '',
+                title VARCHAR(255),
+                variant_title VARCHAR(255),
+                quantity INT NOT NULL DEFAULT 1,
+                price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                line_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                image_url TEXT,
+                sku VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+            )
+        `);
+
+        // 10. ORDER STATUS EVENTS (Timeline)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS order_status_events (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                order_id INT NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
             )
         `);
 

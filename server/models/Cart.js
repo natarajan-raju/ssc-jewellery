@@ -17,8 +17,8 @@ class Cart {
         const [rows] = await db.execute(
             `SELECT 
                 ci.user_id, ci.product_id, ci.variant_id, ci.quantity,
-                p.title, p.media, p.mrp, p.discount_price, p.status,
-                pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url
+                p.title, p.media, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg,
+                pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg
              FROM cart_items ci
              JOIN products p ON p.id = ci.product_id
              LEFT JOIN product_variants pv ON pv.id = ci.variant_id
@@ -41,6 +41,7 @@ class Cart {
                 price: Number(price),
                 compareAt: Number(r.variant_price || r.mrp || 0),
                 variantTitle: r.variant_title || null,
+                weightKg: Number(r.variant_weight_kg || r.product_weight_kg || 0)
             };
         });
     }

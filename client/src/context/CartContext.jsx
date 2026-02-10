@@ -27,6 +27,7 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
     const imageUrl = variant?.image_url || media[0] || null;
     const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || 0);
     const compareAt = Number(variant?.price || product.mrp || 0);
+    const weightKg = Number(variant?.weight_kg || product.weight_kg || 0);
 
     return {
         key: buildKey(product.id, variant?.id || ''),
@@ -39,6 +40,7 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
         price,
         compareAt,
         variantTitle: variant?.variant_title || null,
+        weightKg
     };
 };
 

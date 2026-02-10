@@ -2,9 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
 import { productService } from '../services/productService';
-import { ArrowRight, ChevronLeft, ChevronRight, Folder, Truck, PenTool, ShieldCheck, Gem, Headphones, Check, ArrowUp } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Folder, Truck, PenTool, ShieldCheck, Gem, Headphones, Check, ArrowUp, Sparkles, Gift } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import ProductCard from '../components/ProductCard';
+import { useAuth } from '../context/AuthContext';
+import { authService } from '../services/authService';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
@@ -157,6 +159,7 @@ const TextCarousel = ({ texts }) => {
 
 // --- 3. MAIN PAGE COMPONENT ---
 export default function Home() {
+    const { user, updateUser } = useAuth();
     const { socket } = useSocket();
     const navigate = useNavigate();
     const [slides, setSlides] = useState([]);
@@ -180,6 +183,42 @@ export default function Home() {
     const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [showTopBtn, setShowTopBtn] = useState(false);
+    const [showBirthdayModal, setShowBirthdayModal] = useState(false);
+    const [showConfetti, setShowConfetti] = useState(false);
+
+    const confettiPieces = useRef(
+        Array.from({ length: 36 }, (_, i) => ({
+            id: i,
+            left: Math.random() * 100,
+            delay: Math.random() * 0.6,
+            duration: 2.6 + Math.random() * 1.4,
+            size: 6 + Math.random() * 6,
+            color: ['#f59e0b', '#f97316', '#ef4444', '#10b981', '#3b82f6', '#eab308'][i % 6]
+        }))
+    );
+
+    const isBirthdayToday = (dob) => {
+        if (!dob) return false;
+        const [year, month, day] = String(dob).split('T')[0].split('-');
+        if (!month || !day) return false;
+        const now = new Date();
+        return Number(month) === now.getMonth() + 1 && Number(day) === now.getDate();
+    };
+
+    useEffect(() => {
+        if (!user) return;
+        if (user.role && user.role !== 'customer') return;
+        if (!isBirthdayToday(user.dob)) return;
+        if (user.birthdayOfferClaimedYear === new Date().getFullYear()) return;
+        const today = new Date().toISOString().slice(0, 10);
+        const key = `birthday_popup_seen_${user.id || 'guest'}_${today}`;
+        if (localStorage.getItem(key)) return;
+        localStorage.setItem(key, '1');
+        setShowBirthdayModal(true);
+        setShowConfetti(true);
+        const timer = setTimeout(() => setShowConfetti(false), 4500);
+        return () => clearTimeout(timer);
+    }, [user]);
 
     // [FIX] Moved fetchHero out to component scope for Promise.all
     const fetchHero = useCallback(async () => {
@@ -550,6 +589,84 @@ export default function Home() {
 
     return (
         <div className="pb-16">
+            {showConfetti && (
+                <div className="fixed inset-0 z-[80] pointer-events-none overflow-hidden">
+                    {confettiPieces.current.map((piece) => (
+                        <span
+                            key={piece.id}
+                            className="confetti-piece"
+                            style={{
+                                left: `${piece.left}%`,
+                                '--delay': `${piece.delay}s`,
+                                '--duration': `${piece.duration}s`,
+                                '--size': `${piece.size}px`,
+                                '--color': piece.color
+                            }}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {showBirthdayModal && (
+                <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+                    <div className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-amber-100 p-6 overflow-hidden animate-fade-in">
+                        <div className="absolute -top-20 -right-20 w-40 h-40 bg-amber-100 rounded-full blur-3xl opacity-70" />
+                        <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-orange-100 rounded-full blur-3xl opacity-70" />
+                        <div className="relative">
+                            <div className="flex items-center gap-3 text-amber-700 font-bold text-xs uppercase tracking-[0.3em]">
+                                <Sparkles size={16} />
+                                Birthday Surprise
+                            </div>
+                            <h2 className="text-2xl font-serif text-gray-900 mt-3">Happy Birthday!</h2>
+                            <p className="text-sm text-gray-600 mt-2">
+                                Celebrate with a special gift from us. Enjoy a <span className="font-semibold text-gray-800">10% birthday discount</span> on your orders today.
+                            </p>
+
+                            <div className="mt-5 p-4 rounded-2xl bg-amber-50 border border-amber-100 flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-white border border-amber-200 flex items-center justify-center">
+                                    <Gift size={18} className="text-amber-600" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-amber-800">Birthday Coupon</p>
+                                    <p className="text-xs text-amber-700">10% off on all orders (claim now)</p>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        setShowBirthdayModal(false);
+                                        setShowConfetti(false);
+                                    }}
+                                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-semibold hover:bg-gray-50"
+                                >
+                                    Later
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        const yearNow = new Date().getFullYear();
+                                        try {
+                                            const res = await authService.updateProfile({ birthdayOfferClaimedYear: yearNow });
+                                            if (res?.user) {
+                                                updateUser(res.user);
+                                            }
+                                        } catch (error) {
+                                            // Silently ignore claim errors for now
+                                        } finally {
+                                            setShowBirthdayModal(false);
+                                            setShowConfetti(false);
+                                            navigate('/shop');
+                                        }
+                                    }}
+                                    className="flex-1 px-4 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary-dark shadow-lg shadow-amber-100/50"
+                                >
+                                    Claim Now
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             <TextCarousel texts={heroTexts} />
 

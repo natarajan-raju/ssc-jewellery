@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
+import { useAuth } from './AuthContext';
 
 const SocketContext = createContext(null);
 
@@ -16,6 +17,7 @@ const globalSocket = io(SOCKET_URL, {
 
 export const SocketProvider = ({ children }) => {
     const [socket, setSocket] = useState(globalSocket);
+    const { user } = useAuth();
 
     useEffect(() => {
         // Connect when the app loads
@@ -31,6 +33,13 @@ export const SocketProvider = ({ children }) => {
              // globalSocket.disconnect(); // Keep this commented out
         };
     }, []);
+
+    useEffect(() => {
+        if (!socket || !socket.connected) return;
+        if (user?.id) {
+            socket.emit('auth', { userId: user.id, role: user.role });
+        }
+    }, [socket, user]);
 
     return (
         <SocketContext.Provider value={{ socket }}>

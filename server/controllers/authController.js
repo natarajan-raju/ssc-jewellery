@@ -20,7 +20,7 @@ const sanitize = (str) => {
 
 // 2. Validate Input Format
 const validateRegistration = (data) => {
-    const { name, email, mobile, password } = data;
+    const { name, email, mobile, password, dob } = data;
     const errors = [];
 
     // Name: Letters and spaces only, 3-50 chars
@@ -34,6 +34,8 @@ const validateRegistration = (data) => {
 
     // Password: Min 6 chars
     if (!password || password.length < 6) errors.push("Password too short (min 6 chars).");
+    // DOB: Optional, must be YYYY-MM-DD if provided
+    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) errors.push("DOB must be in YYYY-MM-DD format.");
 
     return errors;
 };
@@ -78,7 +80,9 @@ exports.register = async (req, res) => {
             mobile: sanitize(req.body.mobile),
             password: req.body.password,
             otp: sanitize(req.body.otp),
-            address: req.body.address 
+            address: req.body.address,
+            billingAddress: req.body.billingAddress,
+            dob: req.body.dob || null
         };
 
         // ... validation logic ...
@@ -107,7 +111,9 @@ exports.register = async (req, res) => {
             email: safeData.email, 
             mobile: safeData.mobile, 
             password: hashedPassword, 
-            address: safeData.address 
+            address: safeData.address,
+            billingAddress: safeData.billingAddress,
+            dob: safeData.dob
         });
 
         const io = req.app.get('io');
@@ -214,7 +220,7 @@ exports.googleLogin = async (req, res) => {
 exports.updateProfile = async (req, res) => {
     try {
         const userId = req.user.id; // From the JWT token
-        const { name, email, mobile, password, address, billingAddress, profileImage } = req.body;
+        const { name, email, mobile, password, address, billingAddress, profileImage, dob, birthdayOfferClaimedYear } = req.body;
         const safeName = sanitize(name);
         const safeEmail = email ? sanitize(email).toLowerCase() : '';
 
@@ -232,6 +238,45 @@ exports.updateProfile = async (req, res) => {
             }
         }
 
+        if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+            return res.status(400).json({ message: 'DOB must be in YYYY-MM-DD format' });
+        }
+
+        const existingUser = await User.findById(userId);
+        if (!existingUser) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        let dobLockedUpdate;
+        if (dob !== undefined) {
+            const incomingDob = dob === '' ? null : dob;
+            const currentDob = existingUser.dob || null;
+            const hasDobChanged = incomingDob !== currentDob;
+            if (hasDobChanged && existingUser.dobLocked) {
+                return res.status(400).json({ message: 'DOB can only be changed once after registration' });
+            }
+            if (hasDobChanged) {
+                dobLockedUpdate = true;
+            }
+        }
+
+        if (birthdayOfferClaimedYear !== undefined) {
+            const yearNow = new Date().getFullYear();
+            if (Number(birthdayOfferClaimedYear) !== yearNow) {
+                return res.status(400).json({ message: 'Invalid birthday claim year' });
+            }
+            if (existingUser.birthdayOfferClaimedYear === yearNow) {
+                return res.status(409).json({ message: 'Birthday offer already claimed this year' });
+            }
+            const dobValue = existingUser.dob;
+            const [_, month, day] = String(dobValue || '').split('T')[0].split('-');
+            const now = new Date();
+            const isBirthdayToday = !!month && !!day && Number(month) === now.getMonth() + 1 && Number(day) === now.getDate();
+            if (!isBirthdayToday) {
+                return res.status(400).json({ message: 'Birthday offer can only be claimed on your birthday' });
+            }
+        }
+
         // 2. Hash Password if provided
         let hashedPassword = null;
         if (password) {
@@ -246,6 +291,9 @@ exports.updateProfile = async (req, res) => {
             address,
             billingAddress,
             profileImage,
+            dob: dob === '' ? null : dob,
+            dobLocked: dobLockedUpdate,
+            birthdayOfferClaimedYear: birthdayOfferClaimedYear === undefined ? undefined : birthdayOfferClaimedYear,
             password: hashedPassword
         });
 

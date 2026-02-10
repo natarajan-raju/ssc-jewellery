@@ -23,6 +23,9 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import ProductPage from './pages/ProductPage';
 import Contact from './pages/Contact';
 import Profile from './pages/Profile';
+import Checkout from './pages/Checkout';
+import CartPage from './pages/CartPage';
+import Orders from './pages/Orders';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -65,6 +68,9 @@ function App() {
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/orders" element={<Orders />} />
+                <Route path="/cart" element={<CartPage />} />
+                <Route path="/checkout" element={<Checkout />} />
                 {/* Product Details Route */}
                 <Route path="/product/:id" element={<ProductPage />} />
               </Route>

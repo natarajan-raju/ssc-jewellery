@@ -3,7 +3,7 @@ import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { 
     Loader2, Trash2, Search, Mail, Phone, Key, 
-    ShieldCheck, Plus, UserCog, Filter, ShoppingCart, X
+    ShieldCheck, Plus, UserCog, Filter, ShoppingCart, X, Sparkles
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
@@ -15,6 +15,7 @@ export default function Customers() {
     const [searchTerm, setSearchTerm] = useState('');
 
     const [roleFilter, setRoleFilter] = useState('all');
+    const [birthdayOnly, setBirthdayOnly] = useState(false);
     
     // --- ROLE & ID TRACKING ---
     // const [currentUserRole, setCurrentUserRole] = useState(null);
@@ -97,8 +98,28 @@ export default function Customers() {
         return filteredUsers.filter(u => u.role === roleFilter);
     }, [filteredUsers, roleFilter]);
 
+    const isBirthdayToday = (dob) => {
+        if (!dob) return false;
+        const [year, month, day] = String(dob).split('T')[0].split('-');
+        if (!month || !day) return false;
+        const now = new Date();
+        return Number(month) === now.getMonth() + 1 && Number(day) === now.getDate();
+    };
+
+    const formatDob = (dob) => {
+        if (!dob) return '—';
+        const [year, month, day] = String(dob).split('T')[0].split('-');
+        if (!year || !month || !day) return '—';
+        return `${day}/${month}`;
+    };
+
+    const birthdayFilteredUsers = useMemo(() => {
+        if (!birthdayOnly) return roleFilteredUsers;
+        return roleFilteredUsers.filter(u => (u.role === 'customer' || !u.role) && isBirthdayToday(u.dob));
+    }, [roleFilteredUsers, birthdayOnly]);
+
     const staffAndAdmins = roleFilteredUsers.filter(u => u.role === 'admin' || u.role === 'staff');
-    const customersOnly = roleFilteredUsers.filter(u => !u.role || u.role === 'customer');
+    const customersOnly = birthdayFilteredUsers.filter(u => !u.role || u.role === 'customer');
 
     const openProfile = (user) => {
         if (user.role !== 'customer') return;
@@ -237,7 +258,14 @@ export default function Customers() {
                                 )}
                             </div>
                             <div>
-                                <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
+                                <div className="flex items-center gap-2">
+                                    <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
+                                    {isBirthdayToday(selectedUser.dob) && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                            <Sparkles size={12} /> Birthday
+                                        </span>
+                                    )}
+                                </div>
                                 <p className="text-sm text-gray-500 mt-1">{selectedUser.email || '—'}</p>
                                 <p className="text-sm text-gray-500">{selectedUser.mobile || '—'}</p>
                                 <p className="text-xs text-gray-400 mt-2">Role: {selectedUser.role || 'customer'}</p>
@@ -245,6 +273,10 @@ export default function Customers() {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 mb-6">
+                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                <p className="text-xs text-gray-400 font-bold uppercase">Date of Birth</p>
+                                <p className="text-sm text-gray-700 mt-2">{formatDob(selectedUser.dob)}</p>
+                            </div>
                             <div className="p-4 rounded-xl border border-gray-200 bg-white">
                                 <p className="text-xs text-gray-400 font-bold uppercase">Billing Address</p>
                                 <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.billingAddress)}</p>
@@ -305,6 +337,15 @@ export default function Customers() {
                             <option value="admin">Admins</option>
                         </select>
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => setBirthdayOnly((prev) => !prev)}
+                        className={`flex items-center gap-2 px-4 py-3 rounded-xl border shadow-sm text-sm font-semibold transition-all
+                            ${birthdayOnly ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-gray-200 text-gray-600 hover:border-accent'}`}
+                    >
+                        <Sparkles size={16} />
+                        Birthdays Today
+                    </button>
                     <div className="relative flex-1 md:w-64 lg:w-80">                        
                         <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <input 
@@ -404,7 +445,8 @@ export default function Customers() {
                                 <div 
                                     key={user.id} 
                                     onClick={() => openProfile(user)}
-                                    className="p-5 rounded-xl shadow-sm border relative cursor-pointer bg-white border-gray-100">
+                                    className={`p-5 rounded-xl shadow-sm border relative cursor-pointer
+                                    ${isBirthdayToday(user.dob) ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-100'}`}>
                                     
                                     <div className="flex items-start gap-4">
                                         <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 bg-primary/5 text-primary">
@@ -414,6 +456,11 @@ export default function Customers() {
                                         <div className="flex-1 overflow-hidden">
                                             <div className="flex items-center gap-2">
                                                 <h3 className="font-bold text-gray-800">{user.name}</h3>
+                                                {isBirthdayToday(user.dob) && (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                                        <Sparkles size={12} /> Birthday
+                                                    </span>
+                                                )}
                                             </div>
                                             <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Mail size={12}/> {user.email}</p>
                                             <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Phone size={12}/> {user.mobile}</p>
@@ -533,14 +580,21 @@ export default function Customers() {
                                     <tr 
                                         key={user.id} 
                                         onClick={() => openProfile(user)}
-                                        className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                                        className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''}`}
                                     >
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary">
                                                     {user.name.charAt(0)}
                                                 </div>
-                                                <span className="font-medium text-gray-900">{user.name}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-medium text-gray-900">{user.name}</span>
+                                                    {isBirthdayToday(user.dob) && (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                                            <Sparkles size={12} /> Birthday
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">

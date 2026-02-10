@@ -16,7 +16,14 @@ class User {
             ...row,
             address: parseJson(row.address),
             billingAddress: parseJson(row.billing_address),
-            profileImage: row.profile_image || null
+            profileImage: row.profile_image || null,
+            dob: row.dob
+                ? (row.dob instanceof Date
+                    ? `${row.dob.getFullYear()}-${String(row.dob.getMonth() + 1).padStart(2, '0')}-${String(row.dob.getDate()).padStart(2, '0')}`
+                    : String(row.dob).slice(0, 10))
+                : null,
+            dobLocked: row.dob_locked === 1 || row.dob_locked === true,
+            birthdayOfferClaimedYear: row.birthday_offer_claimed_year ?? null
         };
     }
     
@@ -104,16 +111,16 @@ class User {
         const randomPart = Math.random().toString(36).substring(2, 6);
         const uniqueId = `${timePart}${randomPart}`;
 
-        const query = `INSERT INTO users (id, name, email, mobile, password, role, address, billing_address, profile_image, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const query = `INSERT INTO users (id, name, email, mobile, password, role, dob, address, billing_address, profile_image, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         const addressJson = baseData.address ? JSON.stringify(baseData.address) : null;
         const billingJson = baseData.billingAddress ? JSON.stringify(baseData.billingAddress) : null;
         
         await db.execute(query, [
             uniqueId, baseData.name, baseData.email, baseData.mobile, 
-            baseData.password, baseData.role, addressJson, billingJson, baseData.profileImage || null, baseData.createdAt
+            baseData.password, baseData.role, baseData.dob || null, addressJson, billingJson, baseData.profileImage || null, baseData.createdAt
         ]);
         
-        return { id: uniqueId, ...baseData };
+        return { id: uniqueId, ...baseData, dobLocked: false, birthdayOfferClaimedYear: null };
     }
 
     // --- 5. DELETE USER (Transaction Safe) ---
@@ -181,6 +188,18 @@ class User {
         if (data.profileImage !== undefined) {
             updates.push('profile_image = ?');
             values.push(data.profileImage || null);
+        }
+        if (data.dob !== undefined) {
+            updates.push('dob = ?');
+            values.push(data.dob || null);
+        }
+        if (data.dobLocked !== undefined) {
+            updates.push('dob_locked = ?');
+            values.push(data.dobLocked ? 1 : 0);
+        }
+        if (data.birthdayOfferClaimedYear !== undefined) {
+            updates.push('birthday_offer_claimed_year = ?');
+            values.push(data.birthdayOfferClaimedYear || null);
         }
         if (data.password) {
             updates.push('password = ?');
