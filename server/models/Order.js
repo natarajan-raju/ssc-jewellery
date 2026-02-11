@@ -85,7 +85,8 @@ class Order {
                         p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
                         pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
                         pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
-                        pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg
+                        pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg,
+                        pv.variant_options
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
                  LEFT JOIN product_variants pv ON pv.id = ci.variant_id
@@ -171,7 +172,28 @@ class Order {
                     price,
                     lineTotal,
                     imageUrl,
-                    sku: row.variant_sku || row.product_sku || null
+                    sku: row.variant_sku || row.product_sku || null,
+                    snapshot: {
+                        productId: row.product_id,
+                        variantId: row.variant_id || '',
+                        title: row.product_title || '',
+                        variantTitle: row.variant_title || null,
+                        variantOptions: row.variant_options ? (
+                            typeof row.variant_options === 'string'
+                                ? (() => {
+                                    try { return JSON.parse(row.variant_options); } catch { return null; }
+                                })()
+                                : row.variant_options
+                        ) : null,
+                        quantity,
+                        unitPrice: price,
+                        lineTotal,
+                        imageUrl,
+                        sku: row.variant_sku || row.product_sku || null,
+                        weightKg: itemWeight,
+                        productStatus: row.product_status || 'active',
+                        capturedAt: new Date().toISOString()
+                    }
                 });
             }
 
@@ -219,11 +241,12 @@ class Order {
                     item.price,
                     item.lineTotal,
                     item.imageUrl,
-                    item.sku
+                    item.sku,
+                    JSON.stringify(item.snapshot || null)
                 ]));
                 await connection.query(
                     `INSERT INTO order_items 
-                    (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku)
+                    (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
                     VALUES ?`,
                     [values]
                 );
@@ -317,6 +340,16 @@ class Order {
             'SELECT * FROM order_items WHERE order_id = ? ORDER BY id ASC',
             [orderId]
         );
+        const normalizedItems = items.map((item) => {
+            if (item.item_snapshot && typeof item.item_snapshot === 'string') {
+                try {
+                    return { ...item, item_snapshot: JSON.parse(item.item_snapshot) };
+                } catch {
+                    return { ...item, item_snapshot: null };
+                }
+            }
+            return item;
+        });
         const [events] = await db.execute(
             'SELECT * FROM order_status_events WHERE order_id = ? ORDER BY created_at ASC',
             [orderId]
@@ -325,17 +358,54 @@ class Order {
             ...order,
             billing_address: normalizeAddress(order.billing_address),
             shipping_address: normalizeAddress(order.shipping_address),
-            items,
+            items: normalizedItems,
             events
         });
     }
 
     static async getByUser(userId) {
+        const result = await Order.getByUserPaginated({ userId, page: 1, limit: 500, duration: 'all' });
+        return result.orders;
+    }
+
+    static async getByUserPaginated({ userId, page = 1, limit = 10, duration = 'all' }) {
+        const offset = (Number(page) - 1) * Number(limit);
+        let where = 'WHERE o.user_id = ?';
+        const params = [userId];
+
+        if (duration && duration !== 'all') {
+            const days = Number(duration);
+            if (Number.isFinite(days) && days > 0) {
+                where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+                params.push(days);
+            }
+        }
+
         const [orders] = await db.execute(
-            'SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC',
-            [userId]
+            `SELECT o.*
+             FROM orders o
+             ${where}
+             ORDER BY o.created_at DESC
+             LIMIT ? OFFSET ?`,
+            [...params, Number(limit), Number(offset)]
         );
-        if (!orders.length) return [];
+
+        const [countRows] = await db.execute(
+            `SELECT COUNT(*) as total
+             FROM orders o
+             ${where}`,
+            params
+        );
+
+        const total = Number(countRows[0]?.total || 0);
+        if (!orders.length) {
+            return {
+                orders: [],
+                total,
+                totalPages: Math.ceil(total / Number(limit || 1))
+            };
+        }
+
         const orderIds = orders.map(o => o.id);
         const placeholders = orderIds.map(() => '?').join(',');
         const [items] = await db.execute(
@@ -347,6 +417,13 @@ class Order {
             orderIds
         );
         const itemsByOrder = items.reduce((acc, item) => {
+            if (item.item_snapshot && typeof item.item_snapshot === 'string') {
+                try {
+                    item.item_snapshot = JSON.parse(item.item_snapshot);
+                } catch {
+                    item.item_snapshot = null;
+                }
+            }
             acc[item.order_id] = acc[item.order_id] || [];
             acc[item.order_id].push(item);
             return acc;
@@ -356,13 +433,19 @@ class Order {
             acc[evt.order_id].push(evt);
             return acc;
         }, {});
-        return orders.map(order => applyDefaultPending({
+        const normalizedOrders = orders.map(order => applyDefaultPending({
             ...order,
             billing_address: normalizeAddress(order.billing_address),
             shipping_address: normalizeAddress(order.shipping_address),
             items: itemsByOrder[order.id] || [],
             events: eventsByOrder[order.id] || []
         }));
+
+        return {
+            orders: normalizedOrders,
+            total,
+            totalPages: Math.ceil(total / Number(limit || 1))
+        };
     }
 
     static async getMetrics() {

@@ -217,6 +217,20 @@ exports.googleLogin = async (req, res) => {
     }
 };
 
+exports.getProfile = async (req, res) => {
+    try {
+        // `protect` middleware already resolves the latest user from DB.
+        const user = req.user;
+        if (!user) {
+            return res.status(401).json({ message: 'Not authorized' });
+        }
+        delete user.password;
+        res.json({ user });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 exports.updateProfile = async (req, res) => {
     try {
         const userId = req.user.id; // From the JWT token

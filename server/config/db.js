@@ -186,10 +186,14 @@ const initDB = async () => {
                 line_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 image_url TEXT,
                 sku VARCHAR(50),
+                item_snapshot JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
             )
         `);
+        try {
+            await connection.query('ALTER TABLE order_items ADD COLUMN item_snapshot JSON');
+        } catch {}
 
         // 10. ORDER STATUS EVENTS (Timeline)
         await connection.query(`

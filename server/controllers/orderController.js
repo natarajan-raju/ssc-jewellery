@@ -45,8 +45,18 @@ const getAdminOrderById = async (req, res) => {
 
 const getMyOrders = async (req, res) => {
     try {
-        const orders = await Order.getByUser(req.user.id);
-        res.json({ orders });
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const duration = req.query.duration || 'all';
+        const result = await Order.getByUserPaginated({ userId: req.user.id, page, limit, duration });
+        res.json({
+            orders: result.orders,
+            pagination: {
+                currentPage: page,
+                totalPages: result.totalPages,
+                totalOrders: result.total
+            }
+        });
     } catch (error) {
         res.status(500).json({ message: 'Failed to load orders' });
     }
