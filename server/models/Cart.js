@@ -10,6 +10,15 @@ const parseMedia = (media) => {
     }
 };
 
+const parseCategories = (categories) => {
+    try {
+        const raw = typeof categories === 'string' ? JSON.parse(categories) : categories;
+        return Array.isArray(raw) ? raw.filter(Boolean) : [];
+    } catch {
+        return [];
+    }
+};
+
 const normalizeVariantId = (variantId) => (variantId ? String(variantId) : '');
 
 class Cart {
@@ -17,7 +26,7 @@ class Cart {
         const [rows] = await db.execute(
             `SELECT 
                 ci.user_id, ci.product_id, ci.variant_id, ci.quantity,
-                p.title, p.media, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg,
+                p.title, p.media, p.categories, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg,
                 pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg
              FROM cart_items ci
              JOIN products p ON p.id = ci.product_id
@@ -37,6 +46,7 @@ class Cart {
                 quantity: r.quantity,
                 title: r.title,
                 status: r.status,
+                categories: parseCategories(r.categories),
                 imageUrl,
                 price: Number(price),
                 compareAt: Number(r.variant_price || r.mrp || 0),

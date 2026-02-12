@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
@@ -6,17 +6,27 @@ import { useAuth } from '../context/AuthContext';
 import { useShipping } from '../context/ShippingContext';
 import { useSocket } from '../context/SocketContext';
 import { useToast } from '../context/ToastContext';
+import cartIllustration from '../assets/cart.svg';
+import { useCartRecommendations } from '../hooks/useCartRecommendations';
 
 export default function CartPage() {
-    const { items, itemCount, subtotal, updateQuantity, removeItem, isSyncing } = useCart();
+    const { items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
     const { user } = useAuth();
     const { zones } = useShipping();
     const { socket } = useSocket();
     const toast = useToast();
     const navigate = useNavigate();
+    const [showFreeShippingFx, setShowFreeShippingFx] = useState(false);
+    const [struckShippingFee, setStruckShippingFee] = useState(null);
+    const confettiLayerRef = useRef(null);
+    const prevSubtotalRef = useRef(null);
+    const prevHasFreeShippingRef = useRef(false);
+    const prevShippingFeeRef = useRef(0);
+    const freeFxTimerRef = useRef(null);
+    const { recommendations } = useCartRecommendations({ items, limit: 6 });
 
     useEffect(() => {
-        if (user && (user.role === 'admin' || user.role === 'staff')) {
+        if (user && user.role === 'admin') {
             navigate('/admin/dashboard', { replace: true });
         }
     }, [user, navigate]);
@@ -79,6 +89,15 @@ export default function CartPage() {
         if (!shippingPreview) return subtotal;
         return Number(subtotal || 0) + Number(shippingPreview.fee || 0);
     }, [subtotal, shippingPreview]);
+    const totalSavings = useMemo(() => {
+        return items.reduce((sum, item) => {
+            const mrp = Number(item.compareAt || 0);
+            const price = Number(item.price || 0);
+            const qty = Number(item.quantity || 0);
+            if (mrp <= price || qty <= 0) return sum;
+            return sum + (mrp - price) * qty;
+        }, 0);
+    }, [items]);
 
     const freeProgress = useMemo(() => {
         if (!shippingPreview?.freeThreshold) return null;
@@ -86,52 +105,144 @@ export default function CartPage() {
         const remaining = Math.max(0, shippingPreview.freeThreshold - subtotal);
         return { pct, remaining };
     }, [shippingPreview?.freeThreshold, subtotal]);
+    const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
+    const shouldShowProgress = !!freeProgress && !hasFreeShipping;
+
+    useEffect(() => {
+        const layer = confettiLayerRef.current;
+        if (!layer) return;
+
+        if (prevSubtotalRef.current == null) {
+            prevSubtotalRef.current = subtotal;
+            prevHasFreeShippingRef.current = hasFreeShipping;
+            prevShippingFeeRef.current = Number(shippingPreview?.fee || 0);
+            return;
+        }
+
+        const subtotalIncreased = subtotal > prevSubtotalRef.current;
+        const justUnlockedFree = !prevHasFreeShippingRef.current && hasFreeShipping;
+
+        if (user && subtotalIncreased && justUnlockedFree) {
+            const previousShippingFee = Number(prevShippingFeeRef.current || 0);
+            if (previousShippingFee > 0) setStruckShippingFee(previousShippingFee);
+            setShowFreeShippingFx(true);
+
+            const colors = ['#10b981', '#0ea5e9', '#f59e0b', '#ef4444', '#8b5cf6', '#22c55e'];
+            for (let i = 0; i < 32; i += 1) {
+                const piece = document.createElement('span');
+                piece.style.position = 'absolute';
+                piece.style.right = `${18 + Math.random() * 48}%`;
+                piece.style.top = `${8 + Math.random() * 20}%`;
+                piece.style.width = '7px';
+                piece.style.height = '11px';
+                piece.style.borderRadius = '2px';
+                piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                layer.appendChild(piece);
+
+                const dx = (Math.random() - 0.5) * 260;
+                const dy = 100 + Math.random() * 220;
+                const rotate = (Math.random() - 0.5) * 920;
+                piece.animate(
+                    [
+                        { transform: 'translate(0px, 0px) rotate(0deg)', opacity: 1 },
+                        { transform: `translate(${dx}px, ${dy}px) rotate(${rotate}deg)`, opacity: 0 }
+                    ],
+                    { duration: 950 + Math.random() * 280, easing: 'cubic-bezier(0.22, 0.61, 0.36, 1)', fill: 'forwards' }
+                );
+                setTimeout(() => piece.remove(), 1400);
+            }
+
+            if (freeFxTimerRef.current) clearTimeout(freeFxTimerRef.current);
+            freeFxTimerRef.current = setTimeout(() => setShowFreeShippingFx(false), 1500);
+        }
+
+        prevSubtotalRef.current = subtotal;
+        prevHasFreeShippingRef.current = hasFreeShipping;
+        prevShippingFeeRef.current = Number(shippingPreview?.fee || 0);
+    }, [hasFreeShipping, shippingPreview?.fee, subtotal, user]);
+
+    useEffect(() => {
+        return () => {
+            if (freeFxTimerRef.current) clearTimeout(freeFxTimerRef.current);
+        };
+    }, []);
 
     return (
         <div className="min-h-screen bg-secondary">
             <div className="max-w-6xl mx-auto px-4 md:px-8 py-10 md:py-12">
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
+                    <div className={`flex flex-col md:flex-row md:items-center gap-4 ${items.length === 0 ? 'justify-center text-center' : 'justify-start'}`}>
+                        <div className={`flex items-center gap-3 ${items.length === 0 ? 'justify-center' : ''}`}>
                             <div className="p-3 rounded-2xl bg-primary/10 text-primary">
                                 <ShoppingCart size={20} />
                             </div>
                             <div>
                                 <h1 className="text-2xl md:text-3xl font-serif text-primary">Shopping Cart</h1>
-                                <p className="text-sm text-gray-500 mt-1">{itemCount} items in your cart</p>
+                                <p className="text-sm text-gray-500 mt-0.5">{itemCount} items in your cart</p>
                             </div>
                         </div>
-                        <Link
-                            to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
-                            className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
-                        >
-                            Proceed to Checkout
-                        </Link>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_0.7fr] gap-6 mt-6">
+                <div className={`grid grid-cols-1 gap-6 mt-6 ${items.length > 0 ? 'lg:grid-cols-[1.5fr_0.7fr]' : ''}`}>
                     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                         {isSyncing && items.length === 0 && (
                             <div className="text-sm text-gray-400">Syncing your cart...</div>
                         )}
                         {items.length === 0 && !isSyncing && (
-                            <div className="text-center text-gray-400 py-16">
-                                Your cart is empty. <Link to="/shop" className="text-primary font-semibold">Browse the collection</Link>
+                            <div className="py-12 flex flex-col items-center text-center gap-6">
+                                <img src={cartIllustration} alt="Empty cart" className="w-52 md:w-64" />
+                                <div>
+                                    <h3 className="text-xl font-semibold text-gray-800">Your cart is empty</h3>
+                                    <p className="text-sm text-gray-500 mt-2">
+                                        Add pieces you love and we will keep them ready for checkout.
+                                    </p>
+                                </div>
+                                <Link
+                                    to="/store"
+                                    className="inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold px-6 py-3 hover:bg-primary/5 transition-colors"
+                                >
+                                    Explore collection
+                                </Link>
                             </div>
                         )}
                         <div className="space-y-6">
                             {items.map(item => (
-                                <div key={item.key} className="flex flex-col md:flex-row md:items-center gap-4 border-b border-gray-100 pb-6">
-                                    <div className="w-24 h-24 rounded-2xl bg-gray-100 border border-gray-200 overflow-hidden">
-                                        {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
+                                <div key={item.key} className="border-b border-gray-100 pb-6">
+                                    <div className="flex gap-4">
+                                        <div className="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-gray-100 border border-gray-200 overflow-hidden shrink-0">
+                                            {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            {(() => {
+                                                const price = Number(item.price || 0);
+                                                const mrp = Number(item.compareAt || 0);
+                                                const hasDiscount = mrp > price;
+                                                const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                                                return (
+                                                    <>
+                                                    <p className="text-base font-semibold text-gray-800 line-clamp-1">{item.title}</p>
+                                                    {item.variantTitle && <p className="text-sm text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                                        <p className="text-sm text-primary font-semibold">₹{price.toLocaleString()}</p>
+                                                        {hasDiscount && (
+                                                            <>
+                                                                <p className="text-xs text-gray-400 line-through">₹{mrp.toLocaleString()}</p>
+                                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
+                                                                    {discountPct}% OFF
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                        ₹{price.toLocaleString()} x {item.quantity} = ₹{(price * item.quantity).toLocaleString()}
+                                            </p>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-base font-semibold text-gray-800 line-clamp-1">{item.title}</p>
-                                        {item.variantTitle && <p className="text-sm text-gray-500 line-clamp-1">{item.variantTitle}</p>}
-                                        <p className="text-sm text-primary font-semibold mt-2">₹{Number(item.price || 0).toLocaleString()}</p>
-                                    </div>
-                                    <div className="flex items-center gap-3">
+                                    <div className="mt-3 flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-2 py-1">
                                             <button
                                                 onClick={() => updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity - 1 })}
@@ -147,23 +258,73 @@ export default function CartPage() {
                                                 <Plus size={14} />
                                             </button>
                                         </div>
-                                        <div className="text-right min-w-[90px]">
-                                            <p className="text-sm font-semibold text-gray-800">₹{(Number(item.price || 0) * item.quantity).toLocaleString()}</p>
-                                            <button
-                                                onClick={() => removeItem({ productId: item.productId, variantId: item.variantId })}
-                                                className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600 mt-2"
-                                            >
-                                                <Trash2 size={12} /> Remove
-                                            </button>
-                                        </div>
+                                        <button
+                                            onClick={() => removeItem({ productId: item.productId, variantId: item.variantId })}
+                                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                                        >
+                                            <Trash2 size={12} /> Remove
+                                        </button>
                                     </div>
                                 </div>
                             ))}
                         </div>
+                        {items.length > 0 && recommendations.length > 0 && (
+                            <div className="mt-8">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">
+                                    You may also like
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {recommendations.slice(0, 4).map((product) => {
+                                        const media = Array.isArray(product.media) ? product.media : [];
+                                        const imageUrl = media[0]?.url || media[0] || null;
+                                        const hasVariants = Array.isArray(product.variants) && product.variants.length > 0;
+                                        const price = hasVariants
+                                            ? Math.min(...product.variants.map((variant) => Number(variant.discount_price || variant.price || 0)))
+                                            : Number(product.discount_price || product.mrp || 0);
+                                        return (
+                                            <div key={product.id} className="rounded-xl border border-gray-100 bg-gray-50 p-3 flex items-center gap-3">
+                                                <Link to={`/product/${product.id}`} className="w-14 h-14 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden shrink-0">
+                                                    {imageUrl && <img src={imageUrl} alt={product.title} className="w-full h-full object-cover" />}
+                                                </Link>
+                                                <div className="flex-1 min-w-0">
+                                                    <Link to={`/product/${product.id}`} className="text-sm font-semibold text-gray-800 line-clamp-1 hover:text-primary">
+                                                        {product.title}
+                                                    </Link>
+                                                    <p className="text-xs text-primary font-semibold mt-1">₹{Number(price || 0).toLocaleString()}</p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (hasVariants) {
+                                                            openQuickAdd(product);
+                                                            return;
+                                                        }
+                                                        addItem({ product, quantity: 1 });
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-white"
+                                                >
+                                                    Add
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="mt-4 flex justify-center">
+                                    <Link
+                                        to="/store"
+                                        className="inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold px-5 py-2.5 hover:bg-primary/5 transition-colors"
+                                    >
+                                        Explore collection
+                                    </Link>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
+                    {items.length > 0 && (
                     <div className="space-y-6">
-                        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                        <div className="relative bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+                            <div ref={confettiLayerRef} className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl" />
                             <h2 className="text-lg font-semibold text-gray-800">Order Summary</h2>
                             <div className="mt-4 space-y-2 text-sm text-gray-500">
                                 <div className="flex items-center justify-between">
@@ -172,12 +333,25 @@ export default function CartPage() {
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <span>Shipping</span>
-                                    <span className="font-semibold text-gray-800">
-                                        {shippingPreview == null ? 'Add address to preview' : `₹${Number(shippingPreview.fee || 0).toLocaleString()}`}
-                                    </span>
+                                    {shippingPreview == null ? (
+                                        <span className="font-semibold text-gray-800">Calculated during checkout</span>
+                                    ) : hasFreeShipping ? (
+                                        <span className="inline-flex items-center gap-2 font-semibold">
+                                            {struckShippingFee != null && struckShippingFee > 0 && (
+                                                <span className={`text-gray-400 transition-all duration-500 ${showFreeShippingFx ? 'line-through opacity-100' : 'line-through opacity-70'}`}>
+                                                    ₹{struckShippingFee.toLocaleString()}
+                                                </span>
+                                            )}
+                                            <span className={`text-emerald-600 transition-all duration-300 ${showFreeShippingFx ? 'scale-110' : 'scale-100'}`}>
+                                                Free
+                                            </span>
+                                        </span>
+                                    ) : (
+                                        <span className="font-semibold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
+                                    )}
                                 </div>
                                 {freeProgress && (
-                                    <div>
+                                    <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
                                             <span>Free shipping progress</span>
                                             <span>₹{Math.max(0, freeProgress.remaining).toLocaleString()} to go</span>
@@ -185,12 +359,24 @@ export default function CartPage() {
                                         <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
                                             <div className="h-full bg-emerald-500" style={{ width: `${freeProgress.pct}%` }} />
                                         </div>
+                                        <Link
+                                            to="/store"
+                                            className="mt-3 inline-flex items-center justify-center w-full rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
+                                        >
+                                            Explore collection
+                                        </Link>
                                     </div>
                                 )}
                                 <div className="flex items-center justify-between">
                                     <span>Taxes</span>
                                     <span className="font-semibold text-gray-800">Included</span>
                                 </div>
+                                {totalSavings > 0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Total savings</span>
+                                        <span className="font-semibold">₹{totalSavings.toLocaleString()}</span>
+                                    </div>
+                                )}
                                 <div className="border-t border-gray-100 pt-3 flex items-center justify-between text-base font-semibold text-gray-800">
                                     <span>Total</span>
                                     <span>₹{cartTotal.toLocaleString()}</span>
@@ -214,6 +400,7 @@ export default function CartPage() {
                             </Link>
                         </div>
                     </div>
+                    )}
                 </div>
             </div>
         </div>

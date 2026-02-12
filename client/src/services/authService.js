@@ -59,6 +59,13 @@ export const authService = {
     });
     return res.json();
   },
+  getProfile: async () => {
+    const res = await fetch(`${API_URL}/profile`, {
+      method: 'GET',
+      headers: authService.getAuthHeader()
+    });
+    return res.json();
+  },
   updateProfile: async (payload) => {
     const res = await fetch(`${API_URL}/profile`, {
       method: 'PUT',

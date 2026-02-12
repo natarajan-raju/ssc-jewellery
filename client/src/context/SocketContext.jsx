@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { orderService } from '../services/orderService';
 
 const SocketContext = createContext(null);
 
@@ -40,6 +41,38 @@ export const SocketProvider = ({ children }) => {
             socket.emit('auth', { userId: user.id, role: user.role });
         }
     }, [socket, user]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const notifyApp = (payload) => {
+            if (typeof window === 'undefined') return;
+            window.dispatchEvent(new CustomEvent('orders:cache-updated', { detail: payload }));
+        };
+
+        const handleOrderUpdate = (payload = {}) => {
+            if (payload?.order) {
+                orderService.patchMyOrdersCache(payload.order);
+            }
+            orderService.clearAdminCache();
+            notifyApp(payload);
+        };
+
+        const handleOrderCreate = (payload = {}) => {
+            if (payload?.order) {
+                orderService.patchMyOrdersCache(payload.order);
+            }
+            orderService.clearAdminCache();
+            notifyApp(payload);
+        };
+
+        socket.on('order:update', handleOrderUpdate);
+        socket.on('order:create', handleOrderCreate);
+        return () => {
+            socket.off('order:update', handleOrderUpdate);
+            socket.off('order:create', handleOrderCreate);
+        };
+    }, [socket]);
 
     return (
         <SocketContext.Provider value={{ socket }}>

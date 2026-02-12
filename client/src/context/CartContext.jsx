@@ -7,7 +7,22 @@ import CartDrawer from '../components/CartDrawer';
 import QuickAddModal from '../components/QuickAddModal';
 import { useToast } from './ToastContext';
 
-const CartContext = createContext(null);
+const defaultCartContext = {
+    items: [],
+    itemCount: 0,
+    subtotal: 0,
+    isOpen: false,
+    isSyncing: false,
+    openCart: () => {},
+    closeCart: () => {},
+    addItem: async () => {},
+    updateQuantity: async () => {},
+    removeItem: async () => {},
+    clearCart: async () => {},
+    openQuickAdd: () => {}
+};
+
+const CartContext = createContext(defaultCartContext);
 const STORAGE_KEY = 'guest_cart_v1';
 
 const buildKey = (productId, variantId) => `${productId}__${variantId || ''}`;
@@ -36,6 +51,7 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
         quantity,
         title: product.title,
         status: product.status || 'active',
+        categories: Array.isArray(product.categories) ? product.categories : [],
         imageUrl,
         price,
         compareAt,
@@ -60,6 +76,11 @@ const saveGuestCart = (items) => {
     } catch {
         // ignore
     }
+};
+
+const notifyCartItemAdded = (productId) => {
+    if (typeof window === 'undefined' || !productId) return;
+    window.dispatchEvent(new CustomEvent('cart:item-added', { detail: { productId } }));
 };
 
 export const CartProvider = ({ children }) => {
@@ -111,6 +132,7 @@ export const CartProvider = ({ children }) => {
         if (user) {
             const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
             setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            notifyCartItemAdded(product.id);
         } else {
             setItems(prev => {
                 const key = buildKey(product.id, variant?.id || '');
@@ -120,6 +142,7 @@ export const CartProvider = ({ children }) => {
                 }
                 return [...prev, buildItemFromProduct(product, variant, quantity)];
             });
+            notifyCartItemAdded(product.id);
         }
     };
 
@@ -200,6 +223,7 @@ export const CartProvider = ({ children }) => {
                         ...item,
                         title: product.title || item.title,
                         status: product.status || item.status,
+                        categories: Array.isArray(product.categories) ? product.categories : (item.categories || []),
                         variantTitle: variant?.variant_title || item.variantTitle,
                         imageUrl,
                         price,
@@ -273,4 +297,4 @@ export const CartProvider = ({ children }) => {
     );
 };
 
-export const useCart = () => useContext(CartContext);
+export const useCart = () => useContext(CartContext) || defaultCartContext;

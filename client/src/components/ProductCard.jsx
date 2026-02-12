@@ -1,11 +1,14 @@
-import { useState } from 'react';
-import { Heart, ShoppingCart, Eye } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Heart, ShoppingCart, Check } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 
 export default function ProductCard({ product }) {
     const [isHovered, setIsHovered] = useState(false);
+    const [quickAddAdded, setQuickAddAdded] = useState(false);
+    const [hideQuickAddButton, setHideQuickAddButton] = useState(false);
+    const hideTimerRef = useRef(null);
     const { user } = useAuth();
     const { addItem, openQuickAdd } = useCart();
     const navigate = useNavigate();
@@ -78,6 +81,37 @@ export default function ProductCard({ product }) {
         console.log(`Add product ${product.id} to user ${user.id}'s wishlist`);
     };
 
+    useEffect(() => {
+        const handleAdded = (event) => {
+            const addedProductId = String(event?.detail?.productId || '');
+            if (!addedProductId || addedProductId !== String(product.id || '')) return;
+
+            setHideQuickAddButton(false);
+            setQuickAddAdded(true);
+            if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+            hideTimerRef.current = setTimeout(() => {
+                setHideQuickAddButton(true);
+                setQuickAddAdded(false);
+            }, 900);
+        };
+
+        window.addEventListener('cart:item-added', handleAdded);
+        return () => {
+            window.removeEventListener('cart:item-added', handleAdded);
+            if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        };
+    }, [product.id]);
+
+    const handleAddToCart = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (product.variants && product.variants.length > 0) {
+            openQuickAdd(product);
+            return;
+        }
+        await addItem({ product, quantity: 1 });
+    };
+
     return (
         <div className="group relative bg-white rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate"            
             onMouseEnter={() => setIsHovered(true)}
@@ -119,22 +153,21 @@ export default function ProductCard({ product }) {
                 />
                 
                 {/* Quick Add Overlay */}
-                <div className={`absolute inset-x-0 bottom-0 p-4 transition-all duration-300 ${isHovered ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`}>
-                    <button 
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            if (product.variants && product.variants.length > 0) {
-                                openQuickAdd(product);
-                            } else {
-                                addItem({ product, quantity: 1 });
-                            }
-                        }}
-                        className="w-full bg-white text-gray-900 font-bold py-2 rounded-lg shadow-lg hover:bg-primary hover:text-white transition-colors flex items-center justify-center gap-2"
-                    >
-                        <ShoppingCart size={18} /> Quick Add
-                    </button>
-                </div>
+                {!hideQuickAddButton && (
+                    <div className={`hidden md:block absolute inset-x-0 bottom-0 p-4 transition-all duration-300 ${(quickAddAdded || isHovered) ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`}>
+                        <button
+                            onClick={handleAddToCart}
+                            className={`w-full font-bold py-2 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2 ${
+                                quickAddAdded
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'bg-white text-gray-900 hover:bg-primary hover:text-white'
+                            }`}
+                        >
+                            {quickAddAdded ? <Check size={18} /> : <ShoppingCart size={18} />}
+                            {quickAddAdded ? 'Added' : 'Add to cart'}
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* --- INFO AREA --- */}
@@ -165,6 +198,19 @@ export default function ProductCard({ product }) {
                         </span>
                     )}
                 </div>
+                {!hideQuickAddButton && (
+                    <button
+                        onClick={handleAddToCart}
+                        className={`mt-3 w-full md:hidden font-bold py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${
+                            quickAddAdded
+                                ? 'bg-emerald-500 border-emerald-500 text-white'
+                                : 'bg-white border-gray-200 text-gray-900 hover:bg-primary hover:text-white hover:border-primary'
+                        }`}
+                    >
+                        {quickAddAdded ? <Check size={16} /> : <ShoppingCart size={16} />}
+                        {quickAddAdded ? 'Added' : 'Add to cart'}
+                    </button>
+                )}
             </div>
         </div>
     );

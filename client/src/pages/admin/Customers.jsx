@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
+import { formatAdminDate } from '../../utils/dateFormat';
 
 export default function Customers() {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
@@ -108,9 +109,7 @@ export default function Customers() {
 
     const formatDob = (dob) => {
         if (!dob) return '—';
-        const [year, month, day] = String(dob).split('T')[0].split('-');
-        if (!year || !month || !day) return '—';
-        return `${day}/${month}`;
+        return formatAdminDate(String(dob).split('T')[0]);
     };
 
     const birthdayFilteredUsers = useMemo(() => {

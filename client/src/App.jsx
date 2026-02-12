@@ -5,6 +5,7 @@ import { ProductProvider } from './context/ProductContext';
 import { CartProvider } from './context/CartContext';
 import { CustomerProvider } from './context/CustomerContext';
 import { ShippingProvider } from './context/ShippingContext';
+import { OrderProvider } from './context/OrderContext';
 import { useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import CategoryStore from './pages/CategoryStore';
@@ -56,9 +57,10 @@ function App() {
         <AuthProvider>
           <ProductProvider>
             <SocketProvider>
-              <CustomerProvider>
-                <ShippingProvider>
-                  <CartProvider>
+              <OrderProvider>
+                <CustomerProvider>
+                  <ShippingProvider>
+                    <CartProvider>
                   <Routes>
               
               {/* Public Routes */}
@@ -93,9 +95,10 @@ function App() {
 
               <Route path="*" element={<Navigate to="/" />} />
                   </Routes>
-                  </CartProvider>
-                </ShippingProvider>
-              </CustomerProvider>
+                    </CartProvider>
+                  </ShippingProvider>
+                </CustomerProvider>
+              </OrderProvider>
             </SocketProvider>
           </ProductProvider>
         </AuthProvider>

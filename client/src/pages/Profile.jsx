@@ -11,10 +11,12 @@ import {
     ShieldCheck,
     Sparkles,
     User,
+    Package,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
+import { useMyOrders } from '../context/OrderContext';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -37,12 +39,17 @@ export default function Profile() {
         address: { ...emptyAddress },
         billingAddress: { ...emptyAddress },
     });
+    const { orders: profileOrders, isLoading: ordersLoading } = useMyOrders({
+        page: 1,
+        limit: 10,
+        duration: 'all'
+    });
 
     useEffect(() => {
         if (!loading && !user) {
             navigate(`/login?redirect=${encodeURIComponent('/profile')}`, { replace: true });
         }
-        if (!loading && user && (user.role === 'admin' || user.role === 'staff')) {
+        if (!loading && user && user.role === 'admin') {
             navigate('/admin/dashboard', { replace: true });
         }
     }, [loading, user, navigate]);
@@ -154,6 +161,17 @@ export default function Profile() {
         const a = form.address;
         return [a.line1, a.city, a.state, a.zip].filter(Boolean).join(', ') || 'No address on file';
     }, [form.address]);
+
+    const formatDate = (value) => {
+        if (!value) return '—';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+        });
+    };
 
     if (!user) return null;
     const dobLocked = !!user.dobLocked;
@@ -439,18 +457,50 @@ export default function Profile() {
 
                             {activeTab === 'orders' && (
                                 <div className="mt-10">
-                                    <div className="flex flex-col items-center text-center gap-6">
-                                        <img src={ordersIllustration} alt="No orders" className="w-52 md:w-64" />
-                                        <div>
-                                            <h3 className="text-xl font-semibold text-gray-800">No orders found</h3>
-                                            <p className="text-sm text-gray-500 mt-2 max-w-md">
-                                                Check our latest collections to get started with something special crafted just for you.
-                                            </p>
+                                    {ordersLoading ? (
+                                        <div className="py-10 text-sm text-gray-400 text-center">Loading your orders...</div>
+                                    ) : profileOrders.length === 0 ? (
+                                        <div className="flex flex-col items-center text-center gap-6">
+                                            <img src={ordersIllustration} alt="No orders" className="w-52 md:w-64" />
+                                            <div>
+                                                <h3 className="text-xl font-semibold text-gray-800">No orders found</h3>
+                                                <p className="text-sm text-gray-500 mt-2 max-w-md">
+                                                    Check our latest collections to get started with something special crafted just for you.
+                                                </p>
+                                            </div>
+                                            <Link to="/shop" className="btn-primary px-6 py-3 rounded-xl">
+                                                Shop Now
+                                            </Link>
                                         </div>
-                                        <Link to="/shop" className="btn-primary px-6 py-3 rounded-xl">
-                                            Shop Now
-                                        </Link>
-                                    </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {profileOrders.map((order) => (
+                                                <div key={order.id} className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 overflow-hidden shrink-0">
+                                                            {order.items?.[0]?.image_url ? (
+                                                                <img src={order.items[0].image_url} alt={order.items?.[0]?.title || 'Order item'} className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <div className="w-full h-full flex items-center justify-center text-gray-300">
+                                                                    <Package size={16} />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="text-sm font-semibold text-gray-800 truncate">{order.order_ref}</p>
+                                                            <p className="text-xs text-gray-500">Placed on {formatDate(order.created_at)}</p>
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-sm font-semibold text-gray-800 shrink-0">₹{Number(order.total || 0).toLocaleString()}</p>
+                                                </div>
+                                            ))}
+                                            <div className="pt-2">
+                                                <Link to="/orders" className="text-sm font-semibold text-primary hover:underline">
+                                                    View all orders
+                                                </Link>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

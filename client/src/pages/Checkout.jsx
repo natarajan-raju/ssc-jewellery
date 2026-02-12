@@ -35,7 +35,7 @@ export default function Checkout() {
         if (!loading && !user) {
             navigate(`/login?redirect=${encodeURIComponent('/checkout')}`, { replace: true });
         }
-        if (!loading && user && (user.role === 'admin' || user.role === 'staff')) {
+        if (!loading && user && user.role === 'admin') {
             navigate('/admin/dashboard', { replace: true });
         }
     }, [loading, user, navigate]);
@@ -389,22 +389,40 @@ export default function Checkout() {
                                 )}
                                 {lineItems.length > 0 && (
                                     <div className="mt-5 space-y-4">
-                                        {lineItems.map(item => (
-                                            <div key={item.key} className="flex gap-4 items-center">
-                                                <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden">
-                                                    {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
+                                        {lineItems.map(item => {
+                                            const price = Number(item.price || 0);
+                                            const mrp = Number(item.compareAt || 0);
+                                            const hasDiscount = mrp > price;
+                                            const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                                            return (
+                                                <div key={item.key} className="flex gap-4 items-center">
+                                                    <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden">
+                                                        {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
+                                                        {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                                        <p className="text-xs text-gray-400 mt-1">
+                                                            ₹{price.toLocaleString()} x {item.quantity}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                                            <p className="text-sm font-semibold text-gray-800">₹{price.toLocaleString()}</p>
+                                                            {hasDiscount && (
+                                                                <>
+                                                                    <p className="text-[11px] text-gray-400 line-through">₹{mrp.toLocaleString()}</p>
+                                                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
+                                                                        {discountPct}% OFF
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-xs text-gray-400 mt-1">₹{item.lineTotal.toLocaleString()}</p>
+                                                    </div>
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
-                                                    {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>}
-                                                    <p className="text-xs text-gray-400 mt-1">Qty: {item.quantity}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-sm font-semibold text-gray-800">₹{Number(item.price || 0).toLocaleString()}</p>
-                                                    <p className="text-xs text-gray-400 mt-1">₹{item.lineTotal.toLocaleString()}</p>
-                                                </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
 
@@ -457,15 +475,28 @@ export default function Checkout() {
                                 </div>
                                 <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-gray-500">
                                     {[
-                                        { name: 'Visa', color: 'text-blue-700' },
-                                        { name: 'Mastercard', color: 'text-red-600' },
-                                        { name: 'RuPay', color: 'text-indigo-600' },
-                                        { name: 'UPI', color: 'text-emerald-600' },
-                                        { name: 'NetBanking', color: 'text-gray-700' },
-                                        { name: 'Wallets', color: 'text-amber-600' }
+                                        { name: 'Visa', logo: '/payment-logos/visa.svg' },
+                                        { name: 'Mastercard', logo: '/payment-logos/mastercard.svg' },
+                                        { name: 'Amex', logo: '/payment-logos/amex.svg' },
+                                        { name: 'RuPay', logo: '/payment-logos/rupay.svg' },
+                                        { name: 'UPI', logo: '/payment-logos/upi.svg' },
+                                        { name: 'EMI', logo: '/payment-logos/emi.svg' },
+                                        { name: 'NetBanking', logo: '/payment-logos/netbanking.svg' },
+                                        { name: 'Wallets', logo: '/payment-logos/wallets.svg' }
                                     ].map((method) => (
                                         <div key={method.name} className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50">
-                                            <span className={`text-xs font-bold tracking-widest ${method.color}`}>{method.name}</span>
+                                            <img
+                                                src={method.logo}
+                                                alt={method.name}
+                                                className="h-6 w-auto object-contain"
+                                                loading="lazy"
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none';
+                                                    const fallback = e.currentTarget.nextElementSibling;
+                                                    if (fallback) fallback.classList.remove('hidden');
+                                                }}
+                                            />
+                                            <span className="hidden text-xs font-bold tracking-widest text-gray-700">{method.name}</span>
                                         </div>
                                     ))}
                                 </div>

@@ -17,22 +17,25 @@ export const AuthProvider = ({ children }) => {
             const storedUser = localStorage.getItem('user');
 
             // [FIX] Strict check to ensure token is not the string "undefined" or "null"
-            if (token && storedUser && token !== "undefined" && token !== "null") {
+            if (token && token !== "undefined" && token !== "null") {
                 try {
-                    // [FIX] Wrap checks in try-catch to prevent app crash on bad tokens
                     if (!authService.isTokenExpired(token)) {
-                        // Valid Session found -> Restore User
-                        setUser(JSON.parse(storedUser));
+                        // Validate session and fetch latest user (role included) from server.
+                        const data = await authService.getProfile();
+                        if (data?.user) {
+                            localStorage.setItem('user', JSON.stringify(data.user));
+                            setUser(data.user);
+                        } else {
+                            await performLogout();
+                        }
                     } else {
-                        // Token expired -> Cleanup
                         await performLogout();
                     }
                 } catch (error) {
                     console.error("Session restoration failed:", error);
-                    await performLogout(); // Corrupt token? Clear it.
+                    await performLogout();
                 }
             } else {
-                // [FIX] If we have garbage data (like token="undefined"), clean it up
                 if (token || storedUser) {
                     await performLogout();
                 }

@@ -103,15 +103,33 @@ export default function ShippingSettings() {
         });
     };
 
-    const selectAllStates = () => {
-        if (!draftZone) return;
-        setDraftZone(prev => ({ ...prev, states: [...STATES] }));
-    };
-
     const clearStates = () => {
         if (!draftZone) return;
         setDraftZone(prev => ({ ...prev, states: [] }));
     };
+
+    const unavailableStates = useMemo(() => {
+        if (!draftZone) return new Set();
+        const currentZoneId = draftZone.id;
+        const blocked = new Set();
+        zones.forEach((zone) => {
+            if (String(zone.id) === String(currentZoneId)) return;
+            (zone.states || []).forEach((stateName) => blocked.add(stateName));
+        });
+        return blocked;
+    }, [draftZone, zones]);
+
+    const availableStates = useMemo(() => {
+        if (!draftZone) return [];
+        return STATES.filter((stateName) => {
+            if (draftZone.states.includes(stateName)) return true;
+            return !unavailableStates.has(stateName);
+        });
+    }, [draftZone, unavailableStates]);
+
+    const selectableStateCount = useMemo(() => {
+        return availableStates.length;
+    }, [availableStates]);
 
     const zoneRatesRange = (zone) => {
         if (!zone.options?.length) return '—';
@@ -169,8 +187,8 @@ export default function ShippingSettings() {
     const selectedStatesLabel = useMemo(() => {
         if (!draftZone) return '';
         if (draftZone.states.length === 0) return 'No states selected';
-        return `${draftZone.states.length} of ${STATES.length} states`;
-    }, [draftZone]);
+        return `${draftZone.states.length} of ${selectableStateCount} states`;
+    }, [draftZone, selectableStateCount]);
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -272,7 +290,14 @@ export default function ShippingSettings() {
                                     >
                                         {showStatePicker ? 'Close' : 'Select states'}
                                     </button>
-                                    <button type="button" onClick={selectAllStates} className="text-xs font-semibold text-gray-500 hover:text-primary">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!draftZone) return;
+                                            setDraftZone(prev => ({ ...prev, states: [...availableStates] }));
+                                        }}
+                                        className="text-xs font-semibold text-gray-500 hover:text-primary"
+                                    >
                                         Select all
                                     </button>
                                     <button type="button" onClick={clearStates} className="text-xs font-semibold text-gray-500 hover:text-primary">
@@ -282,8 +307,13 @@ export default function ShippingSettings() {
 
                                 {showStatePicker && (
                                     <div className="mt-4 rounded-2xl border border-gray-200 p-4 bg-white shadow-lg">
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-64 overflow-auto">
-                                            {STATES.map((stateName) => {
+                                        {availableStates.length === 0 ? (
+                                            <div className="text-sm text-gray-500 text-center py-6">
+                                                All states are already assigned to other zones.
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-64 overflow-auto">
+                                            {availableStates.map((stateName) => {
                                                 const selected = draftZone.states.includes(stateName);
                                                 return (
                                                     <button
@@ -300,7 +330,8 @@ export default function ShippingSettings() {
                                                     </button>
                                                 );
                                             })}
-                                        </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

@@ -72,6 +72,64 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
     return Number(eligible[0].rate || 0);
 };
 
+const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'all' } = {}) => {
+    const params = [];
+    let where = 'WHERE 1=1';
+    let latestLimit = null;
+
+    if (status && status !== 'all') {
+        where += ' AND o.status = ?';
+        params.push(status);
+    }
+
+    if (search) {
+        where += ' AND (o.order_ref LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)';
+        const term = `%${search}%`;
+        params.push(term, term, term);
+    }
+
+    switch (quickRange) {
+        case 'last_7_days':
+            where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
+            break;
+        case 'last_1_month':
+            where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)';
+            break;
+        case 'last_1_year':
+            where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)';
+            break;
+        case 'latest_10':
+            latestLimit = 10;
+            break;
+        default:
+            if (startDate) {
+                where += ' AND DATE(o.created_at) >= ?';
+                params.push(startDate);
+            }
+            if (endDate) {
+                where += ' AND DATE(o.created_at) <= ?';
+                params.push(endDate);
+            }
+            break;
+    }
+
+    return { where, params, latestLimit };
+};
+
+const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'all' } = {}) => {
+    if (quickRange === 'latest_10') return 'o.created_at DESC';
+    switch (sortBy) {
+        case 'oldest':
+            return 'o.created_at ASC';
+        case 'amount_high':
+            return 'o.total DESC, o.created_at DESC';
+        case 'amount_low':
+            return 'o.total ASC, o.created_at DESC';
+        default:
+            return 'o.created_at DESC';
+    }
+};
+
 class Order {
     static async createFromCart(userId, { billingAddress, shippingAddress }) {
         const connection = await db.getConnection();
@@ -113,6 +171,9 @@ class Order {
                 const hasVariant = !!row.variant_id;
                 const price = Number(
                     row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
+                );
+                const originalPrice = Number(
+                    row.variant_price || row.mrp || price
                 );
                 const lineTotal = price * quantity;
                 const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
@@ -187,6 +248,8 @@ class Order {
                         ) : null,
                         quantity,
                         unitPrice: price,
+                        originalPrice,
+                        discountValuePerUnit: Math.max(0, originalPrice - price),
                         lineTotal,
                         imageUrl,
                         sku: row.variant_sku || row.product_sku || null,
@@ -278,51 +341,73 @@ class Order {
         }
     }
 
-    static async getPaginated({ page = 1, limit = 20, status = 'all', search = '', startDate = '', endDate = '' }) {
-        const offset = (page - 1) * limit;
-        const params = [];
-        let where = 'WHERE 1=1';
-
-        if (status && status !== 'all') {
-            where += ' AND o.status = ?';
-            params.push(status);
-        }
-        if (search) {
-            where += ' AND (o.order_ref LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)';
-            const term = `%${search}%`;
-            params.push(term, term, term);
-        }
-        if (startDate) {
-            where += ' AND DATE(o.created_at) >= ?';
-            params.push(startDate);
-        }
-        if (endDate) {
-            where += ' AND DATE(o.created_at) <= ?';
-            params.push(endDate);
-        }
-
-        const [rows] = await db.execute(
-            `SELECT o.*, u.name as customer_name, u.mobile as customer_mobile
-             FROM orders o
-             LEFT JOIN users u ON u.id = o.user_id
-             ${where}
-             ORDER BY o.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [...params, Number(limit), Number(offset)]
-        );
-
+    static async getPaginated({
+        page = 1,
+        limit = 20,
+        status = 'all',
+        search = '',
+        startDate = '',
+        endDate = '',
+        quickRange = 'all',
+        sortBy = 'newest'
+    }) {
+        const safeLimit = Math.max(1, Number(limit) || 20);
+        const safePage = Math.max(1, Number(page) || 1);
+        const offset = (safePage - 1) * safeLimit;
+        const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange });
+        const orderBy = resolveAdminOrderSort({ sortBy, quickRange });
         const [countRows] = await db.execute(
             `SELECT COUNT(*) as total FROM orders o
              LEFT JOIN users u ON u.id = o.user_id
              ${where}`,
             params
         );
+        const totalRaw = Number(countRows[0]?.total || 0);
+        const total = latestLimit ? Math.min(totalRaw, latestLimit) : totalRaw;
+        if (total === 0 || offset >= total) {
+            return {
+                orders: [],
+                total,
+                totalPages: Math.ceil(total / safeLimit)
+            };
+        }
+
+        const queryLimit = Math.min(safeLimit, total - offset);
+        let rows = [];
+
+        if (latestLimit) {
+            const [latestRows] = await db.execute(
+                `SELECT * FROM (
+                    SELECT o.*, u.name as customer_name, u.mobile as customer_mobile
+                    FROM orders o
+                    LEFT JOIN users u ON u.id = o.user_id
+                    ${where}
+                    ORDER BY o.created_at DESC
+                    LIMIT ${latestLimit}
+                 ) latest_orders
+                 ORDER BY latest_orders.created_at DESC
+                 LIMIT ? OFFSET ?`,
+                [...params, Number(queryLimit), Number(offset)]
+            );
+            rows = latestRows;
+        } else {
+            const [normalRows] = await db.execute(
+                `SELECT o.*, u.name as customer_name, u.mobile as customer_mobile
+                 FROM orders o
+                 LEFT JOIN users u ON u.id = o.user_id
+                 ${where}
+                 ORDER BY ${orderBy}
+                 LIMIT ? OFFSET ?`,
+                [...params, Number(queryLimit), Number(offset)]
+            );
+            rows = normalRows;
+        }
 
         const normalized = rows.map(applyDefaultPending);
         return {
             orders: normalized,
-            total: countRows[0]?.total || 0,
-            totalPages: Math.ceil((countRows[0]?.total || 0) / limit)
+            total,
+            totalPages: Math.ceil(total / safeLimit)
         };
     }
 
@@ -448,31 +533,51 @@ class Order {
         };
     }
 
-    static async getMetrics() {
-        const [totals] = await db.execute(
-            `SELECT 
-                COUNT(*) as total_orders,
-                SUM(total) as total_revenue,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
-                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_orders
-             FROM orders`
-        );
-
-        const [today] = await db.execute(
-            `SELECT 
-                COUNT(*) as today_orders,
-                SUM(total) as today_revenue
-             FROM orders
-             WHERE DATE(created_at) = CURDATE()`
-        );
+    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'all' } = {}) {
+        const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange });
+        let summaryRows = [];
+        if (latestLimit) {
+            [summaryRows] = await db.execute(
+                `SELECT
+                    COUNT(*) as total_orders,
+                    SUM(scoped.total) as total_revenue,
+                    SUM(CASE WHEN scoped.status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN scoped.status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
+                    SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN scoped.total ELSE 0 END) as today_revenue
+                 FROM (
+                    SELECT o.total, o.status, o.created_at
+                    FROM orders o
+                    LEFT JOIN users u ON u.id = o.user_id
+                    ${where}
+                    ORDER BY o.created_at DESC
+                    LIMIT ${latestLimit}
+                 ) scoped`,
+                params
+            );
+        } else {
+            [summaryRows] = await db.execute(
+                `SELECT
+                    COUNT(*) as total_orders,
+                    SUM(o.total) as total_revenue,
+                    SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN o.status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
+                    SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN o.total ELSE 0 END) as today_revenue
+                 FROM orders o
+                 LEFT JOIN users u ON u.id = o.user_id
+                 ${where}`,
+                params
+            );
+        }
 
         return {
-            totalOrders: totals[0]?.total_orders || 0,
-            totalRevenue: Number(totals[0]?.total_revenue || 0),
-            pendingOrders: totals[0]?.pending_orders || 0,
-            confirmedOrders: totals[0]?.confirmed_orders || 0,
-            todayOrders: today[0]?.today_orders || 0,
-            todayRevenue: Number(today[0]?.today_revenue || 0)
+            totalOrders: summaryRows[0]?.total_orders || 0,
+            totalRevenue: Number(summaryRows[0]?.total_revenue || 0),
+            pendingOrders: summaryRows[0]?.pending_orders || 0,
+            confirmedOrders: summaryRows[0]?.confirmed_orders || 0,
+            todayOrders: summaryRows[0]?.today_orders || 0,
+            todayRevenue: Number(summaryRows[0]?.today_revenue || 0)
         };
     }
 

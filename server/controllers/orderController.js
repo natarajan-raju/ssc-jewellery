@@ -25,8 +25,11 @@ const getAdminOrders = async (req, res) => {
         const search = req.query.search || '';
         const startDate = req.query.startDate || '';
         const endDate = req.query.endDate || '';
-        const result = await Order.getPaginated({ page, limit, status, search, startDate, endDate });
-        const metrics = await Order.getMetrics();
+        const quickRange = req.query.quickRange || 'all';
+        const sortBy = req.query.sortBy || 'newest';
+        const filters = { status, search, startDate, endDate, quickRange, sortBy };
+        const result = await Order.getPaginated({ page, limit, ...filters });
+        const metrics = await Order.getMetrics(filters);
         res.json({ orders: result.orders, pagination: { currentPage: page, totalPages: result.totalPages, totalOrders: result.total }, metrics });
     } catch (error) {
         res.status(500).json({ message: 'Failed to load orders' });
