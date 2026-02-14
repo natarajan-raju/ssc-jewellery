@@ -23,6 +23,7 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const shippingRoutes = require('./routes/shippingRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const Order = require('./models/Order');
+const { PaymentAttempt } = require('./models/PaymentAttempt');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -51,7 +52,13 @@ app.set('io', io);
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+    verify: (req, _res, buf) => {
+        if (req.originalUrl?.startsWith('/api/orders/razorpay/webhook')) {
+            req.rawBody = buf.toString('utf8');
+        }
+    }
+}));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -88,3 +95,16 @@ const scheduleMidnightJob = () => {
 };
 
 scheduleMidnightJob();
+
+const schedulePaymentAttemptExpiryJob = () => {
+    const intervalMs = 5 * 60 * 1000;
+    setInterval(async () => {
+        try {
+            await PaymentAttempt.expireStaleAttempts({ ttlMinutes: 30 });
+        } catch (error) {
+            console.error('Payment attempt expiry job failed:', error);
+        }
+    }, intervalMs);
+};
+
+schedulePaymentAttemptExpiryJob();

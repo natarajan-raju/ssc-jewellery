@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { orderService } from '../services/orderService';
+import { useToast } from './ToastContext';
 
 const SocketContext = createContext(null);
 
@@ -15,10 +16,13 @@ const globalSocket = io(SOCKET_URL, {
     reconnectionAttempts: 5,
     autoConnect: false // We will connect manually when the app mounts
 });
+const ADMIN_PAYMENT_TOAST_DEDUPE_MS = 15000;
+const adminPaymentToastSeen = new Map();
 
 export const SocketProvider = ({ children }) => {
     const [socket, setSocket] = useState(globalSocket);
     const { user } = useAuth();
+    const toast = useToast();
 
     useEffect(() => {
         // Connect when the app loads
@@ -62,17 +66,49 @@ export const SocketProvider = ({ children }) => {
             if (payload?.order) {
                 orderService.patchMyOrdersCache(payload.order);
             }
+            if (user && (user.role === 'admin' || user.role === 'staff')) {
+                const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || ''}`;
+                toast.success(`New order received: ${orderRef}`);
+            }
+            orderService.clearAdminCache();
+            notifyApp(payload);
+        };
+
+        const handlePaymentUpdate = (payload = {}) => {
+            if (payload?.order) {
+                orderService.patchMyOrdersCache(payload.order);
+            }
+            if (user && (user.role === 'admin' || user.role === 'staff') && payload?.payment?.paymentStatus) {
+                const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || ''}`;
+                const status = String(payload.payment.paymentStatus);
+                const orderId = String(payload?.order?.id || payload?.orderId || '');
+                const key = `${orderId}::${status.toLowerCase()}`;
+                const now = Date.now();
+                const seenAt = adminPaymentToastSeen.get(key) || 0;
+                if (!seenAt || now - seenAt > ADMIN_PAYMENT_TOAST_DEDUPE_MS) {
+                    toast.success(`Payment ${status}: ${orderRef}`);
+                    adminPaymentToastSeen.set(key, now);
+                }
+                if (adminPaymentToastSeen.size > 300) {
+                    const cutoff = now - ADMIN_PAYMENT_TOAST_DEDUPE_MS;
+                    for (const [k, ts] of adminPaymentToastSeen.entries()) {
+                        if (ts < cutoff) adminPaymentToastSeen.delete(k);
+                    }
+                }
+            }
             orderService.clearAdminCache();
             notifyApp(payload);
         };
 
         socket.on('order:update', handleOrderUpdate);
         socket.on('order:create', handleOrderCreate);
+        socket.on('payment:update', handlePaymentUpdate);
         return () => {
             socket.off('order:update', handleOrderUpdate);
             socket.off('order:create', handleOrderCreate);
+            socket.off('payment:update', handlePaymentUpdate);
         };
-    }, [socket]);
+    }, [socket, toast, user]);
 
     return (
         <SocketContext.Provider value={{ socket }}>

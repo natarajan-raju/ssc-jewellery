@@ -27,6 +27,8 @@ import Profile from './pages/Profile';
 import Checkout from './pages/Checkout';
 import CartPage from './pages/CartPage';
 import Orders from './pages/Orders';
+import PaymentSuccess from './pages/PaymentSuccess';
+import PaymentFailed from './pages/PaymentFailed';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -73,6 +75,8 @@ function App() {
                 <Route path="/orders" element={<Orders />} />
                 <Route path="/cart" element={<CartPage />} />
                 <Route path="/checkout" element={<Checkout />} />
+                <Route path="/payment/success" element={<PaymentSuccess />} />
+                <Route path="/payment/failed" element={<PaymentFailed />} />
                 {/* Product Details Route */}
                 <Route path="/product/:id" element={<ProductPage />} />
               </Route>

@@ -31,7 +31,9 @@ export default function ProductPage() {
     const [zoomStyle, setZoomStyle] = useState({ display: 'none' });
     const [activeAccordion, setActiveAccordion] = useState(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
+    const [justAddedToCart, setJustAddedToCart] = useState(false);
     const shareRef = useRef(null);
+    const cartFeedbackTimerRef = useRef(null);
 
     // [FIX] Helper to normalize socket data (Strings -> Arrays)
     const normalizeSocketData = (data) => {
@@ -208,18 +210,24 @@ export default function ProductPage() {
         }
     };
 
-    const handleAddToCart = () => {
+    const handleAddToCart = async () => {
         if (!product) return;
-        if (product.variants && product.variants.length > 0) {
-            if (!activeVariant) {
-                toast.error('Please select a variant');
-                return;
+        try {
+            if (product.variants && product.variants.length > 0) {
+                if (!activeVariant) {
+                    toast.error('Please select a variant');
+                    return;
+                }
+                await addItem({ product, variant: activeVariant, quantity: 1 });
+            } else {
+                await addItem({ product, quantity: 1 });
             }
-            addItem({ product, variant: activeVariant, quantity: 1 });
-        } else {
-            addItem({ product, quantity: 1 });
+            setJustAddedToCart(true);
+            if (cartFeedbackTimerRef.current) clearTimeout(cartFeedbackTimerRef.current);
+            cartFeedbackTimerRef.current = setTimeout(() => setJustAddedToCart(false), 1200);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to add item to cart');
         }
-        toast.success('Added to cart');
     };
 
     // --- 1. Initial Fetch ---
@@ -464,6 +472,10 @@ export default function ProductPage() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isShareOpen]);
 
+    useEffect(() => () => {
+        if (cartFeedbackTimerRef.current) clearTimeout(cartFeedbackTimerRef.current);
+    }, []);
+
     // --- Render Helpers ---
     if (loading) return <div className="h-screen flex items-center justify-center"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
     if (!product) return null;
@@ -685,11 +697,11 @@ export default function ProductPage() {
                             <button 
                                 disabled={isOutOfStock}
                                 className={`flex-1 btn-primary py-4 text-lg flex items-center justify-center transition-all
-                                ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : 'hover:shadow-lg'}`}
+                                ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : justAddedToCart ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:shadow-lg'}`}
                                 onClick={() => !isOutOfStock && handleAddToCart()} 
                             >
-                                <ShoppingCart size={20} className="mr-2" />
-                                {isOutOfStock ? 'Sold out' : 'Add to Cart'}
+                                {justAddedToCart && !isOutOfStock ? <Check size={20} className="mr-2" /> : <ShoppingCart size={20} className="mr-2" />}
+                                {isOutOfStock ? 'Sold out' : justAddedToCart ? 'Added' : 'Add to Cart'}
                             </button>
                             <button 
                                 className="px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-colors"

@@ -9,6 +9,82 @@ import { orderService } from '../services/orderService';
 import { useShipping } from '../context/ShippingContext';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
+const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
+const RAZORPAY_SCRIPT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
+
+const ensureRazorpayScript = () => {
+    if (typeof window === 'undefined') return Promise.resolve(false);
+    if (window.Razorpay) return Promise.resolve(true);
+
+    const existing = document.getElementById(RAZORPAY_SCRIPT_ID);
+    if (existing) {
+        return new Promise((resolve) => {
+            existing.addEventListener('load', () => resolve(true), { once: true });
+            existing.addEventListener('error', () => resolve(false), { once: true });
+        });
+    }
+
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.id = RAZORPAY_SCRIPT_ID;
+        script.src = RAZORPAY_SCRIPT_SRC;
+        script.async = true;
+        script.onload = () => resolve(true);
+        script.onerror = () => resolve(false);
+        document.body.appendChild(script);
+    });
+};
+
+const burstConfetti = () => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const canvas = document.createElement('canvas');
+    canvas.style.position = 'fixed';
+    canvas.style.inset = '0';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.zIndex = '120';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        canvas.remove();
+        return;
+    }
+
+    const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#ec4899'];
+    const particles = Array.from({ length: 140 }).map(() => ({
+        x: canvas.width / 2,
+        y: canvas.height / 3,
+        vx: (Math.random() - 0.5) * 11,
+        vy: Math.random() * -10 - 3,
+        size: Math.random() * 4 + 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 90 + Math.random() * 25
+    }));
+
+    let frame = 0;
+    const tick = () => {
+        frame += 1;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        particles.forEach((p) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.17;
+            p.life -= 1;
+            if (p.life <= 0) return;
+            ctx.globalAlpha = Math.max(0, p.life / 115);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, p.size, p.size);
+        });
+        ctx.globalAlpha = 1;
+        if (frame < 120) {
+            requestAnimationFrame(tick);
+        } else {
+            canvas.remove();
+        }
+    };
+    requestAnimationFrame(tick);
+};
 
 export default function Checkout() {
     const { user, loading, updateUser } = useAuth();
@@ -23,6 +99,7 @@ export default function Checkout() {
     const [couponApplied, setCouponApplied] = useState(false);
     const [isPlacingOrder, setIsPlacingOrder] = useState(false);
     const [orderResult, setOrderResult] = useState(null);
+    const [activeAttemptId, setActiveAttemptId] = useState(null);
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -142,20 +219,96 @@ export default function Checkout() {
         if (isPlacingOrder) return;
         setIsPlacingOrder(true);
         try {
-            const res = await orderService.checkout({
-                billingAddress: form.billingAddress,
-                shippingAddress: form.address
-            });
-            if (res?.order) {
-                setOrderResult(res.order);
-                await clearCart();
-                toast.success('Order placed successfully');
-                setTimeout(() => navigate('/'), 3500);
-            } else {
-                toast.error(res?.message || 'Failed to place order');
+            const scriptLoaded = await ensureRazorpayScript();
+            if (!scriptLoaded || !window.Razorpay) {
+                throw new Error('Unable to load Razorpay checkout');
             }
+
+            const init = await orderService.createRazorpayOrder({
+                billingAddress: form.billingAddress,
+                shippingAddress: form.address,
+                notes: {
+                    source: 'web_checkout'
+                }
+            });
+            if (!init?.order?.id || !init?.keyId) {
+                throw new Error(init?.message || 'Failed to initialize payment');
+            }
+            setActiveAttemptId(init?.attempt?.id || null);
+
+            const prefillContact = form.mobile
+                ? (String(form.mobile).startsWith('+') ? String(form.mobile) : `+91${String(form.mobile).replace(/\D/g, '')}`)
+                : '';
+
+            const paidOrder = await new Promise((resolve, reject) => {
+                let settled = false;
+                const markSettled = () => { settled = true; };
+
+                const rzp = new window.Razorpay({
+                    key: init.keyId,
+                    amount: init.order.amount,
+                    currency: init.order.currency || 'INR',
+                    name: 'SSC Jewellery',
+                    description: `Order payment (${init.summary?.itemCount || itemCount} items)`,
+                    image: '/logo.webp',
+                    order_id: init.order.id,
+                    prefill: {
+                        name: form.name || '',
+                        email: form.email || '',
+                        contact: prefillContact
+                    },
+                    notes: {
+                        address: form.address?.line1 || ''
+                    },
+                    theme: {
+                        color: '#1F2937'
+                    },
+                    modal: {
+                        confirm_close: true,
+                        ondismiss: () => {
+                            if (!settled) {
+                                markSettled();
+                                reject(new Error('Payment cancelled'));
+                            }
+                        }
+                    },
+                    handler: async (response) => {
+                        try {
+                            const verification = await orderService.verifyRazorpayPayment(response);
+                            if (!verification?.order) {
+                                throw new Error('Payment verified but order was not created');
+                            }
+                            setOrderResult(verification.order);
+                            setActiveAttemptId(null);
+                            await clearCart();
+                            burstConfetti();
+                            toast.success('Payment successful, order placed');
+                            markSettled();
+                            resolve(verification.order);
+                        } catch (error) {
+                            markSettled();
+                            reject(error);
+                        }
+                    }
+                });
+
+                rzp.on('payment.failed', (response) => {
+                    if (settled) return;
+                    markSettled();
+                    const message = response?.error?.description || 'Payment failed. Please retry.';
+                    reject(new Error(message));
+                });
+
+                rzp.open();
+            });
+            void paidOrder;
         } catch (error) {
-            toast.error(error?.message || 'Failed to place order');
+            const message = error?.message || 'Failed to complete payment';
+            toast.error(message === 'Payment cancelled' ? 'Payment cancelled. You can retry the payment.' : message);
+            const params = new URLSearchParams();
+            params.set('reason', message);
+            if (activeAttemptId) params.set('attemptId', String(activeAttemptId));
+            navigate(`/payment/failed?${params.toString()}`);
         } finally {
             setIsPlacingOrder(false);
         }
@@ -454,7 +607,7 @@ export default function Checkout() {
                                     <CreditCard size={18} /> {isPlacingOrder ? 'Processing...' : 'Pay Now'}
                                 </button>
                                 <p className="text-[11px] text-gray-400 text-center mt-2">
-                                    Orders are confirmed instantly for now.
+                                    Payment powered by Razorpay.
                                 </p>
                                 <div className="mt-3 flex items-center justify-center gap-3 text-[11px] text-gray-500">
                                     <Link to="/shipping" className="text-primary font-semibold">Shipping Policy</Link>
@@ -516,15 +669,15 @@ export default function Checkout() {
                         <div className="mt-4 rounded-xl border border-gray-200 p-4 bg-gray-50">
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-gray-500">Order Ref</span>
-                                <span className="font-semibold text-gray-800">{orderResult.orderRef}</span>
+                                <span className="font-semibold text-gray-800">{orderResult.orderRef || orderResult.order_ref}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm mt-2">
                                 <span className="text-gray-500">Subtotal</span>
-                                <span className="font-semibold text-gray-800">₹{Number(orderResult.subtotal || 0).toLocaleString()}</span>
+                                <span className="font-semibold text-gray-800">₹{Number(orderResult.subtotal || orderResult.sub_total || 0).toLocaleString()}</span>
                             </div>
                             <div className="flex items-center justify-between text-sm mt-2">
                                 <span className="text-gray-500">Shipping</span>
-                                <span className="font-semibold text-gray-800">₹{Number(orderResult.shippingFee || 0).toLocaleString()}</span>
+                                <span className="font-semibold text-gray-800">₹{Number(orderResult.shippingFee || orderResult.shipping_fee || 0).toLocaleString()}</span>
                             </div>
                             <div className="flex items-center justify-between text-base font-semibold mt-3 text-gray-800">
                                 <span>Total</span>
@@ -538,7 +691,7 @@ export default function Checkout() {
                                 <Link to="/refund" className="text-primary font-semibold">Refund Policy</Link>
                             </div>
                         </div>
-                        <p className="text-[11px] text-gray-400 mt-4">Redirecting to home page...</p>
+                        <p className="text-[11px] text-gray-400 mt-4">View your order in the Orders page.</p>
                     </div>
                 </div>
             )}

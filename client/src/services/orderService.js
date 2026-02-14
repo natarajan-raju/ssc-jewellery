@@ -76,6 +76,7 @@ myOrdersCache = readMyOrdersCache();
 
 const durationMatches = (createdAt, duration) => {
     if (!duration || duration === 'all') return true;
+    if (duration === 'latest_10') return true;
     const days = Number(duration);
     if (!Number.isFinite(days) || days <= 0) return true;
     const created = new Date(createdAt);
@@ -104,6 +105,13 @@ const normalizeOrderForCache = (order) => {
         order_ref: order.order_ref || order.orderRef || '',
         created_at: createdAt,
         user_id: order.user_id || order.userId || null,
+        payment_status: order.payment_status || order.paymentStatus || '',
+        payment_gateway: order.payment_gateway || order.paymentGateway || '',
+        razorpay_order_id: order.razorpay_order_id || order.razorpayOrderId || '',
+        razorpay_payment_id: order.razorpay_payment_id || order.razorpayPaymentId || '',
+        refund_reference: order.refund_reference || order.refundReference || '',
+        refund_amount: Number(order.refund_amount ?? order.refundAmount ?? 0),
+        refund_status: order.refund_status || order.refundStatus || '',
         subtotal: Number(order.subtotal ?? order.subTotal ?? 0),
         shipping_fee: Number(order.shipping_fee ?? order.shippingFee ?? 0),
         discount_total: Number(order.discount_total ?? order.discountTotal ?? 0),
@@ -113,6 +121,34 @@ const normalizeOrderForCache = (order) => {
 };
 
 export const orderService = {
+    createRazorpayOrder: async ({ billingAddress, shippingAddress, notes } = {}) => {
+        const res = await fetch(`${API_URL}/razorpay/order`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ billingAddress, shippingAddress, notes })
+        });
+        return handleResponse(res);
+    },
+    retryRazorpayOrder: async ({ attemptId } = {}) => {
+        const res = await fetch(`${API_URL}/razorpay/retry`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ attemptId })
+        });
+        return handleResponse(res);
+    },
+    verifyRazorpayPayment: async (payload) => {
+        const res = await fetch(`${API_URL}/razorpay/verify`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        const data = await handleResponse(res);
+        if (data?.order) {
+            orderService.patchMyOrdersCache(data.order);
+        }
+        return data;
+    },
     checkout: async ({ billingAddress, shippingAddress }) => {
         const res = await fetch(`${API_URL}/checkout`, {
             method: 'POST',
@@ -159,7 +195,7 @@ export const orderService = {
         adminOrdersCache = {};
         return handleResponse(res);
     },
-    getMyOrders: async ({ page = 1, limit = 10, duration = 'all', force = false } = {}) => {
+    getMyOrders: async ({ page = 1, limit = 10, duration = 'latest_10', force = false } = {}) => {
         const userId = getCurrentUserId();
         const cacheKey = buildMyOrdersCacheKey({ userId, page, limit, duration });
         const cached = myOrdersCache[cacheKey];
@@ -174,7 +210,7 @@ export const orderService = {
         writeMyOrdersCache();
         return data;
     },
-    getCachedMyOrders: ({ page = 1, limit = 10, duration = 'all' } = {}) => {
+    getCachedMyOrders: ({ page = 1, limit = 10, duration = 'latest_10' } = {}) => {
         const userId = getCurrentUserId();
         const cacheKey = buildMyOrdersCacheKey({ userId, page, limit, duration });
         const cached = myOrdersCache[cacheKey];

@@ -21,24 +21,43 @@ export default function Orders() {
     const [metrics, setMetrics] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('all');
+    const [draftStatusFilter, setDraftStatusFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [quickRange, setQuickRange] = useState('all');
+    const [draftQuickRange, setDraftQuickRange] = useState('all');
+    const [draftStartDate, setDraftStartDate] = useState('');
+    const [draftEndDate, setDraftEndDate] = useState('');
     const [sortBy, setSortBy] = useState('newest');
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState(null);
+    const [pendingStatus, setPendingStatus] = useState('');
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const getPaymentMethodLabel = (order) => {
+        const method = String(order?.payment_gateway || order?.paymentGateway || 'razorpay').toLowerCase();
+        if (method === 'razorpay') return 'Razorpay';
+        if (method === 'cod') return 'Online Payment';
+        return method ? method.toUpperCase() : '—';
+    };
+    const getPaymentReference = (order) => order?.razorpay_payment_id || order?.razorpayPaymentId || '—';
+    const getPaymentStatusLabel = (order) => {
+        const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
+        if (!status) return '—';
+        return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
+    };
+    const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
+    const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
 
     const fetchOrders = useCallback(async () => {
         setIsLoading(true);
         try {
-            const data = await orderService.getAdminOrders({
+            const listParams = {
                 page,
                 status: statusFilter,
                 search,
@@ -47,10 +66,28 @@ export default function Orders() {
                 quickRange,
                 sortBy,
                 limit: quickRange === 'latest_10' ? 10 : 12
-            });
-            setOrders(data.orders || []);
-            setMetrics(data.metrics || null);
-            setTotalPages(data.pagination?.totalPages || 1);
+            };
+            const metricsParams = {
+                page: 1,
+                limit: 1,
+                status: 'all',
+                search,
+                startDate,
+                endDate,
+                quickRange,
+                sortBy
+            };
+
+            const [listData, metricsData] = await Promise.all([
+                orderService.getAdminOrders(listParams),
+                statusFilter === 'all'
+                    ? Promise.resolve(null)
+                    : orderService.getAdminOrders(metricsParams)
+            ]);
+
+            setOrders(listData.orders || []);
+            setMetrics((statusFilter === 'all' ? listData.metrics : metricsData?.metrics) || null);
+            setTotalPages(listData.pagination?.totalPages || 1);
         } catch (error) {
             toast.error(error.message || 'Failed to load orders');
         } finally {
@@ -63,18 +100,28 @@ export default function Orders() {
     }, [fetchOrders]);
 
     useEffect(() => {
+        if (!selectedOrder) return;
+        setPendingStatus(selectedOrder.status || 'confirmed');
+    }, [selectedOrder?.id, selectedOrder?.status]);
+
+    useEffect(() => {
         if (!socket) return;
-        const handleUpdate = () => {
+        const handleUpdate = (payload = {}) => {
+            if (payload?.order && selectedOrder?.id && String(payload.order.id) === String(selectedOrder.id)) {
+                setSelectedOrder((prev) => ({ ...prev, ...payload.order }));
+            }
             orderService.clearAdminCache();
             fetchOrders();
         };
         socket.on('order:create', handleUpdate);
         socket.on('order:update', handleUpdate);
+        socket.on('payment:update', handleUpdate);
         return () => {
             socket.off('order:create', handleUpdate);
             socket.off('order:update', handleUpdate);
+            socket.off('payment:update', handleUpdate);
         };
-    }, [fetchOrders, socket]);
+    }, [fetchOrders, selectedOrder?.id, socket]);
 
     const handleSearch = (e) => {
         e.preventDefault();
@@ -90,6 +137,43 @@ export default function Orders() {
             return;
         }
         fetchOrders();
+    };
+
+    const handleStatusFilterChange = (nextStatus) => {
+        setDraftStatusFilter(nextStatus);
+        if (statusFilter !== nextStatus) {
+            setStatusFilter(nextStatus);
+            if (page !== 1) {
+                setPage(1);
+                return;
+            }
+            fetchOrders();
+        }
+    };
+
+    const handleApplyFilters = () => {
+        const nextQuickRange = draftQuickRange;
+        const nextStartDate = nextQuickRange === 'custom' ? draftStartDate : '';
+        const nextEndDate = nextQuickRange === 'custom' ? draftEndDate : '';
+        const hasChanges = (
+            statusFilter !== draftStatusFilter ||
+            quickRange !== nextQuickRange ||
+            startDate !== nextStartDate ||
+            endDate !== nextEndDate
+        );
+
+        setStatusFilter(draftStatusFilter);
+        setQuickRange(nextQuickRange);
+        setStartDate(nextStartDate);
+        setEndDate(nextEndDate);
+
+        if (page !== 1) {
+            setPage(1);
+            return;
+        }
+        if (!hasChanges) {
+            fetchOrders();
+        }
     };
 
     const toCsvCell = (value) => {
@@ -171,6 +255,7 @@ export default function Orders() {
         try {
             const data = await orderService.getAdminOrder(orderId);
             setSelectedOrder(data.order || null);
+            setPendingStatus(data.order?.status || 'confirmed');
         } catch (error) {
             toast.error(error.message || 'Failed to load order details');
         } finally {
@@ -178,11 +263,11 @@ export default function Orders() {
         }
     };
 
-    const handleStatusUpdate = async (status) => {
-        if (!selectedOrder || !status) return;
+    const handleStatusUpdate = async () => {
+        if (!selectedOrder || !pendingStatus) return;
         setIsUpdatingStatus(true);
         try {
-            const data = await orderService.updateAdminOrderStatus(selectedOrder.id, status);
+            const data = await orderService.updateAdminOrderStatus(selectedOrder.id, pendingStatus);
             if (data?.order) {
                 setSelectedOrder(data.order);
                 await fetchOrders();
@@ -207,6 +292,32 @@ export default function Orders() {
         }
         return [address.line1, address.city, address.state, address.zip].filter(Boolean).join(', ') || '—';
     };
+    const getPendingDurationLabel = (createdAt) => {
+        if (!createdAt) return '';
+        const created = new Date(createdAt);
+        if (Number.isNaN(created.getTime())) return '';
+        const now = new Date();
+        const diffMs = Math.max(0, now.getTime() - created.getTime());
+        const hourMs = 60 * 60 * 1000;
+        const dayMs = 24 * hourMs;
+        const weekMs = 7 * dayMs;
+        const monthMs = 30 * dayMs;
+
+        if (diffMs < dayMs) {
+            const hours = Math.max(1, Math.floor(diffMs / hourMs));
+            return `${hours}h pending`;
+        }
+        if (diffMs < weekMs) {
+            const days = Math.floor(diffMs / dayMs);
+            return `${days}d pending`;
+        }
+        if (diffMs < monthMs) {
+            const weeks = Math.floor(diffMs / weekMs);
+            return `${weeks}w pending`;
+        }
+        const months = Math.floor(diffMs / monthMs);
+        return `${months}mo pending`;
+    };
 
     const cards = useMemo(() => ([
         { label: 'Total Orders', value: metrics?.totalOrders || 0, icon: Package, color: 'text-blue-600 bg-blue-50 border-blue-100' },
@@ -222,38 +333,19 @@ export default function Orders() {
                     <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
                     <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
                 </div>
-                <div className="flex flex-col gap-2 w-full md:w-auto">
-                    <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-                    <div className="relative w-full md:w-auto">
+                <div className="w-full">
+                    <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center gap-2 w-full md:w-auto">
+                    <div className="relative w-full md:w-auto order-1">
                         <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <select
-                            value={statusFilter}
-                            onChange={(e) => {
-                                setStatusFilter(e.target.value);
-                                setPage(1);
-                            }}
-                            className="w-full md:w-auto pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
-                        >
-                            <option value="all">All Status</option>
-                            <option value="confirmed">Confirmed</option>
-                            <option value="pending">Pending</option>
-                            <option value="shipped">Shipped</option>
-                            <option value="completed">Completed</option>
-                            <option value="cancelled">Cancelled</option>
-                        </select>
-                    </div>
-                    <div className="relative w-full md:w-auto">
-                        <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
-                        <select
-                            value={quickRange}
+                            value={draftQuickRange}
                             onChange={(e) => {
                                 const next = e.target.value;
-                                setQuickRange(next);
+                                setDraftQuickRange(next);
                                 if (next !== 'custom') {
-                                    setStartDate('');
-                                    setEndDate('');
+                                    setDraftStartDate('');
+                                    setDraftEndDate('');
                                 }
-                                setPage(1);
                             }}
                             className="w-full md:w-auto pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
                         >
@@ -262,44 +354,41 @@ export default function Orders() {
                             ))}
                         </select>
                     </div>
-                    <div className="relative w-full md:w-auto">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setPage(1);
-                                fetchOrders();
-                            }}
-                            className="w-full md:w-auto px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
-                        >
-                            Apply Filters
-                        </button>
+                    <div className="grid grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
+                        <input
+                            type="date"
+                            value={draftStartDate}
+                            onChange={(e) => setDraftStartDate(e.target.value)}
+                            disabled={draftQuickRange !== 'custom'}
+                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                        />
+                        <input
+                            type="date"
+                            value={draftEndDate}
+                            onChange={(e) => setDraftEndDate(e.target.value)}
+                            disabled={draftQuickRange !== 'custom'}
+                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+                        />
                     </div>
                     <button
                         type="button"
                         onClick={handleExport}
                         disabled={isExporting || isLoading}
-                        className="w-full md:w-auto px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                        className="w-full md:w-auto px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2 order-3 md:order-3"
                     >
                         <Download size={16} />
                         {isExporting ? 'Exporting...' : 'Export Report'}
                     </button>
+                    <div className="relative w-full md:w-auto order-4 md:order-4">
+                        <button
+                            type="button"
+                            onClick={handleApplyFilters}
+                            className="w-full md:w-auto px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                        >
+                            Apply Filters
+                        </button>
                     </div>
-                    {quickRange === 'custom' && (
-                        <div className="flex flex-col md:flex-row gap-2">
-                            <input
-                                type="date"
-                                value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
-                                className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600"
-                            />
-                            <input
-                                type="date"
-                                value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
-                                className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600"
-                            />
-                        </div>
-                    )}
+                    </div>
                 </div>
             </div>
 
@@ -321,6 +410,21 @@ export default function Orders() {
                 <div className="px-6 py-4 border-b border-gray-100 md:flex md:items-center md:justify-between">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">Orders</h3>
                     <div className="mt-3 md:mt-0 flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                        <div className="relative w-full md:w-auto">
+                            <Filter className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+                            <select
+                                value={draftStatusFilter}
+                                onChange={(e) => handleStatusFilterChange(e.target.value)}
+                                className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
+                            >
+                                <option value="all">All Status</option>
+                                <option value="confirmed">Confirmed</option>
+                                <option value="pending">Pending</option>
+                                <option value="shipped">Shipped</option>
+                                <option value="completed">Completed</option>
+                                <option value="cancelled">Cancelled</option>
+                            </select>
+                        </div>
                         <form onSubmit={handleSearch} className="relative w-full md:w-auto">
                             <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
                             <input
@@ -367,10 +471,9 @@ export default function Orders() {
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {orders.map((order) => {
-                                        const createdAt = order.created_at ? new Date(order.created_at) : null;
-                                        const isStale = createdAt && !Number.isNaN(createdAt.getTime())
-                                            ? (['confirmed', 'pending'].includes(order.status) && createdAt.toDateString() !== new Date().toDateString())
-                                            : false;
+                                        const pendingDurationLabel = order.status === 'pending'
+                                            ? getPendingDurationLabel(order.created_at)
+                                            : '';
                                         return (
                                         <tr key={order.id} onClick={() => openDetails(order.id)} className="hover:bg-gray-50/50 transition-colors cursor-pointer">
                                             <td className="px-6 py-4 text-sm font-semibold text-gray-800">{order.order_ref}</td>
@@ -391,9 +494,9 @@ export default function Orders() {
                                                     }`}>
                                                         {order.status || 'pending'}
                                                     </span>
-                                                    {isStale && (
-                                                        <span className="text-[10px] uppercase tracking-widest font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-                                                            SLA
+                                                    {!!pendingDurationLabel && (
+                                                        <span className="text-[10px] uppercase tracking-widest font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                                                            {pendingDurationLabel}
                                                         </span>
                                                     )}
                                                 </div>
@@ -490,8 +593,8 @@ export default function Orders() {
                                 <div className="mt-4">
                                     <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
                                     <select
-                                        value={selectedOrder.status || 'confirmed'}
-                                        onChange={(e) => handleStatusUpdate(e.target.value)}
+                                        value={pendingStatus || selectedOrder.status || 'confirmed'}
+                                        onChange={(e) => setPendingStatus(e.target.value)}
                                         disabled={isUpdatingStatus}
                                         className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
                                     >
@@ -501,6 +604,19 @@ export default function Orders() {
                                         <option value="completed">Completed</option>
                                         <option value="cancelled">Cancelled</option>
                                     </select>
+                                    <button
+                                        type="button"
+                                        onClick={handleStatusUpdate}
+                                        disabled={
+                                            isUpdatingStatus ||
+                                            !selectedOrder ||
+                                            !pendingStatus ||
+                                            pendingStatus === (selectedOrder.status || 'confirmed')
+                                        }
+                                        className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
+                                    >
+                                        {isUpdatingStatus ? 'Updating...' : 'Update Status'}
+                                    </button>
                                 </div>
 
                                 <div className="mt-5 grid grid-cols-1 gap-4">
@@ -511,6 +627,23 @@ export default function Orders() {
                                     <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                                         <p className="text-xs text-gray-400 font-semibold uppercase">Billing Address</p>
                                         <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedOrder.billing_address)}</p>
+                                    </div>
+                                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                        <p className="text-xs text-gray-400 font-semibold uppercase">Payment Details</p>
+                                        <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                            <p><span className="text-gray-500">Method:</span> {getPaymentMethodLabel(selectedOrder)}</p>
+                                            <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
+                                            <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
+                                            {getRefundAmount(selectedOrder) > 0 && (
+                                                <>
+                                                    <p><span className="text-gray-500">Refund Amount:</span> ₹{getRefundAmount(selectedOrder).toLocaleString()}</p>
+                                                    <p><span className="text-gray-500">Refund Ref:</span> <span className="font-mono text-xs">{getRefundReference(selectedOrder) || '—'}</span></p>
+                                                </>
+                                            )}
+                                            {selectedOrder.status === 'pending' && (
+                                                <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 

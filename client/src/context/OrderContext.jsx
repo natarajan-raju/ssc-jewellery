@@ -13,7 +13,7 @@ const parseQueryKey = (key) => {
     return {
         page: Number(pageRaw || 1),
         limit: Number(limitRaw || 10),
-        duration: durationRaw || 'all'
+        duration: durationRaw || 'latest_10'
     };
 };
 
@@ -48,7 +48,7 @@ export const OrderProvider = ({ children }) => {
     const loadMyOrders = useCallback(async ({
         page = 1,
         limit = 10,
-        duration = 'all',
+        duration = 'latest_10',
         force = false
     } = {}) => {
         if (!user) return null;
@@ -189,7 +189,7 @@ export const useOrder = () => {
 export const useMyOrders = ({
     page = 1,
     limit = 10,
-    duration = 'all',
+    duration = 'latest_10',
     autoLoad = true
 } = {}) => {
     const { user } = useAuth();

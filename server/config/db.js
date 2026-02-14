@@ -158,7 +158,14 @@ const initDB = async () => {
                 order_ref VARCHAR(30) UNIQUE,
                 user_id VARCHAR(50) NOT NULL,
                 status VARCHAR(20) DEFAULT 'confirmed',
-                payment_status VARCHAR(20) DEFAULT 'paid',
+                payment_status VARCHAR(20) DEFAULT 'created',
+                payment_gateway VARCHAR(30) DEFAULT 'razorpay',
+                razorpay_order_id VARCHAR(64),
+                razorpay_payment_id VARCHAR(64),
+                razorpay_signature VARCHAR(255),
+                refund_reference VARCHAR(64),
+                refund_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                refund_status VARCHAR(20),
                 subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 shipping_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -171,6 +178,148 @@ const initDB = async () => {
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         `);
+        try {
+            await connection.query("ALTER TABLE orders ADD COLUMN payment_gateway VARCHAR(30) DEFAULT 'razorpay'");
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE orders ALTER COLUMN payment_gateway SET DEFAULT 'razorpay'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN razorpay_order_id VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN razorpay_payment_id VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN razorpay_signature VARCHAR(255)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_reference VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_amount DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_status VARCHAR(20)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS payment_attempts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                razorpay_order_id VARCHAR(64) NOT NULL UNIQUE,
+                amount_subunits INT NOT NULL,
+                currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+                status VARCHAR(20) NOT NULL DEFAULT 'created',
+                expires_at TIMESTAMP NULL DEFAULT NULL,
+                verify_started_at TIMESTAMP NULL DEFAULT NULL,
+                billing_address JSON,
+                shipping_address JSON,
+                notes JSON,
+                razorpay_payment_id VARCHAR(64),
+                razorpay_signature VARCHAR(255),
+                failure_reason VARCHAR(500),
+                local_order_id INT NULL,
+                verified_at TIMESTAMP NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (local_order_id) REFERENCES orders(id) ON DELETE SET NULL
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN billing_address JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN shipping_address JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN notes JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN razorpay_payment_id VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN razorpay_signature VARCHAR(255)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN failure_reason VARCHAR(500)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN local_order_id INT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN verified_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN verify_started_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD UNIQUE KEY uniq_payment_attempt_local_order (local_order_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD UNIQUE KEY uniq_payment_attempt_payment_id (razorpay_payment_id)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS payment_item_reservations (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                attempt_id INT NOT NULL,
+                user_id VARCHAR(50) NOT NULL,
+                product_id VARCHAR(50) NOT NULL,
+                variant_id VARCHAR(50) NOT NULL DEFAULT '',
+                quantity INT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'reserved',
+                expires_at TIMESTAMP NULL DEFAULT NULL,
+                released_reason VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (attempt_id) REFERENCES payment_attempts(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE payment_item_reservations ADD COLUMN expires_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_item_reservations ADD COLUMN released_reason VARCHAR(100)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_item_reservations ADD INDEX idx_res_attempt_status (attempt_id, status)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_item_reservations ADD INDEX idx_res_product (product_id, variant_id)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS razorpay_webhook_events (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                event_id VARCHAR(120) NOT NULL UNIQUE,
+                event_type VARCHAR(80) NOT NULL,
+                signature VARCHAR(255),
+                status VARCHAR(20) NOT NULL DEFAULT 'received',
+                process_note VARCHAR(500),
+                payload_raw LONGTEXT,
+                payload_json JSON,
+                received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP NULL DEFAULT NULL
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN process_note VARCHAR(500)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN payload_raw LONGTEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN payload_json JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN processed_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
 
         // 9. ORDER ITEMS TABLE
         await connection.query(`

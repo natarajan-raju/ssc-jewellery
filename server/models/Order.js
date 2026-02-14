@@ -131,7 +131,68 @@ const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'all' } = {}) =
 };
 
 class Order {
-    static async createFromCart(userId, { billingAddress, shippingAddress }) {
+    static async getCheckoutSummary(userId, { shippingAddress } = {}) {
+        const connection = await db.getConnection();
+        try {
+            const [cartRows] = await connection.execute(
+                `SELECT ci.quantity,
+                        p.status as product_status, p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
+                        pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg
+                 FROM cart_items ci
+                 JOIN products p ON p.id = ci.product_id
+                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+                 WHERE ci.user_id = ?`,
+                [userId]
+            );
+
+            if (!cartRows.length) {
+                throw new Error('Cart is empty');
+            }
+
+            let subtotal = 0;
+            let totalWeightKg = 0;
+            let itemCount = 0;
+
+            for (const row of cartRows) {
+                const quantity = Number(row.quantity || 0);
+                if (quantity <= 0) continue;
+
+                if (row.product_status && row.product_status !== 'active') {
+                    throw new Error('Some items are no longer available');
+                }
+
+                const unitPrice = Number(
+                    row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
+                );
+                const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+
+                subtotal += unitPrice * quantity;
+                totalWeightKg += itemWeight * quantity;
+                itemCount += quantity;
+            }
+
+            if (!itemCount) {
+                throw new Error('Cart is empty');
+            }
+
+            const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
+            const discountTotal = 0;
+            const total = subtotal + shippingFee - discountTotal;
+
+            return {
+                itemCount,
+                subtotal,
+                shippingFee,
+                discountTotal,
+                total,
+                currency: 'INR'
+            };
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async createFromCart(userId, { billingAddress, shippingAddress, payment = null, skipStockDeduction = false }) {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
@@ -179,37 +240,39 @@ class Order {
                 const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
                 totalWeightKg += itemWeight * quantity;
 
-                if (hasVariant) {
-                    const [variantRows] = await connection.execute(
-                        'SELECT quantity, track_quantity FROM product_variants WHERE id = ? FOR UPDATE',
-                        [row.variant_id]
-                    );
-                    const variant = variantRows[0];
-                    if (!variant) throw new Error('Variant not found');
-                    if (Number(variant.track_quantity) === 1 && Number(variant.quantity) < quantity) {
-                        throw new Error('Insufficient stock for some items');
-                    }
-                    if (Number(variant.track_quantity) === 1) {
-                        await connection.execute(
-                            'UPDATE product_variants SET quantity = quantity - ? WHERE id = ?',
-                            [quantity, row.variant_id]
+                if (!skipStockDeduction) {
+                    if (hasVariant) {
+                        const [variantRows] = await connection.execute(
+                            'SELECT quantity, track_quantity FROM product_variants WHERE id = ? FOR UPDATE',
+                            [row.variant_id]
                         );
-                    }
-                } else {
-                    const [productRows] = await connection.execute(
-                        'SELECT quantity, track_quantity FROM products WHERE id = ? FOR UPDATE',
-                        [row.product_id]
-                    );
-                    const product = productRows[0];
-                    if (!product) throw new Error('Product not found');
-                    if (Number(product.track_quantity) === 1 && Number(product.quantity) < quantity) {
-                        throw new Error('Insufficient stock for some items');
-                    }
-                    if (Number(product.track_quantity) === 1) {
-                        await connection.execute(
-                            'UPDATE products SET quantity = quantity - ? WHERE id = ?',
-                            [quantity, row.product_id]
+                        const variant = variantRows[0];
+                        if (!variant) throw new Error('Variant not found');
+                        if (Number(variant.track_quantity) === 1 && Number(variant.quantity) < quantity) {
+                            throw new Error('Insufficient stock for some items');
+                        }
+                        if (Number(variant.track_quantity) === 1) {
+                            await connection.execute(
+                                'UPDATE product_variants SET quantity = quantity - ? WHERE id = ?',
+                                [quantity, row.variant_id]
+                            );
+                        }
+                    } else {
+                        const [productRows] = await connection.execute(
+                            'SELECT quantity, track_quantity FROM products WHERE id = ? FOR UPDATE',
+                            [row.product_id]
                         );
+                        const product = productRows[0];
+                        if (!product) throw new Error('Product not found');
+                        if (Number(product.track_quantity) === 1 && Number(product.quantity) < quantity) {
+                            throw new Error('Insufficient stock for some items');
+                        }
+                        if (Number(product.track_quantity) === 1) {
+                            await connection.execute(
+                                'UPDATE products SET quantity = quantity - ? WHERE id = ?',
+                                [quantity, row.product_id]
+                            );
+                        }
                     }
                 }
 
@@ -268,16 +331,25 @@ class Order {
             const discountTotal = 0;
             const total = subtotal + shippingFee - discountTotal;
             const orderRef = buildOrderRef();
+            const paymentStatus = payment?.paymentStatus || 'created';
+            const paymentGateway = payment?.gateway || 'razorpay';
+            const razorpayOrderId = payment?.razorpayOrderId || null;
+            const razorpayPaymentId = payment?.razorpayPaymentId || null;
+            const razorpaySignature = payment?.razorpaySignature || null;
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
                     'confirmed',
-                    'paid',
+                    paymentStatus,
+                    paymentGateway,
+                    razorpayOrderId,
+                    razorpayPaymentId,
+                    razorpaySignature,
                     subtotal,
                     shippingFee,
                     discountTotal,
@@ -324,6 +396,10 @@ class Order {
                 orderRef,
                 userId,
                 status: 'confirmed',
+                paymentStatus,
+                paymentGateway,
+                razorpayOrderId,
+                razorpayPaymentId,
                 subtotal,
                 shippingFee,
                 discountTotal,
@@ -339,6 +415,40 @@ class Order {
         } finally {
             connection.release();
         }
+    }
+
+    static async getByRazorpayOrderId(razorpayOrderId) {
+        const [rows] = await db.execute(
+            'SELECT id FROM orders WHERE razorpay_order_id = ? ORDER BY id DESC LIMIT 1',
+            [razorpayOrderId]
+        );
+        if (!rows.length) return null;
+        return Order.getById(rows[0].id);
+    }
+
+    static async updatePaymentByRazorpayOrderId({
+        razorpayOrderId,
+        paymentStatus,
+        razorpayPaymentId = null,
+        razorpaySignature = null,
+        refundReference = null,
+        refundAmount = null,
+        refundStatus = null
+    }) {
+        const [result] = await db.execute(
+            `UPDATE orders
+             SET payment_status = ?,
+                 payment_gateway = 'razorpay',
+                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
+                 razorpay_signature = COALESCE(?, razorpay_signature),
+                 refund_reference = COALESCE(?, refund_reference),
+                 refund_amount = COALESCE(?, refund_amount),
+                 refund_status = COALESCE(?, refund_status),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE razorpay_order_id = ?`,
+            [paymentStatus, razorpayPaymentId, razorpaySignature, refundReference, refundAmount, refundStatus, razorpayOrderId]
+        );
+        return Number(result?.affectedRows || 0);
     }
 
     static async getPaginated({
@@ -454,26 +564,22 @@ class Order {
     }
 
     static async getByUserPaginated({ userId, page = 1, limit = 10, duration = 'all' }) {
-        const offset = (Number(page) - 1) * Number(limit);
+        const safeLimit = Math.max(1, Number(limit) || 10);
+        const safePage = Math.max(1, Number(page) || 1);
+        const offset = (safePage - 1) * safeLimit;
+        let latestLimit = null;
         let where = 'WHERE o.user_id = ?';
         const params = [userId];
 
-        if (duration && duration !== 'all') {
+        if (duration === 'latest_10') {
+            latestLimit = 10;
+        } else if (duration && duration !== 'all') {
             const days = Number(duration);
             if (Number.isFinite(days) && days > 0) {
                 where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
                 params.push(days);
             }
         }
-
-        const [orders] = await db.execute(
-            `SELECT o.*
-             FROM orders o
-             ${where}
-             ORDER BY o.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [...params, Number(limit), Number(offset)]
-        );
 
         const [countRows] = await db.execute(
             `SELECT COUNT(*) as total
@@ -482,12 +588,49 @@ class Order {
             params
         );
 
-        const total = Number(countRows[0]?.total || 0);
+        const totalRaw = Number(countRows[0]?.total || 0);
+        const total = latestLimit ? Math.min(totalRaw, latestLimit) : totalRaw;
+        if (total === 0 || offset >= total) {
+            return {
+                orders: [],
+                total,
+                totalPages: Math.ceil(total / safeLimit)
+            };
+        }
+
+        const queryLimit = Math.min(safeLimit, total - offset);
+        let orders = [];
+        if (latestLimit) {
+            const [latestRows] = await db.execute(
+                `SELECT * FROM (
+                    SELECT o.*
+                    FROM orders o
+                    ${where}
+                    ORDER BY o.created_at DESC
+                    LIMIT ${latestLimit}
+                ) latest_orders
+                ORDER BY latest_orders.created_at DESC
+                LIMIT ? OFFSET ?`,
+                [...params, Number(queryLimit), Number(offset)]
+            );
+            orders = latestRows;
+        } else {
+            const [normalRows] = await db.execute(
+                `SELECT o.*
+                 FROM orders o
+                 ${where}
+                 ORDER BY o.created_at DESC
+                 LIMIT ? OFFSET ?`,
+                [...params, Number(queryLimit), Number(offset)]
+            );
+            orders = normalRows;
+        }
+
         if (!orders.length) {
             return {
                 orders: [],
                 total,
-                totalPages: Math.ceil(total / Number(limit || 1))
+                totalPages: Math.ceil(total / safeLimit)
             };
         }
 
@@ -529,7 +672,7 @@ class Order {
         return {
             orders: normalizedOrders,
             total,
-            totalPages: Math.ceil(total / Number(limit || 1))
+            totalPages: Math.ceil(total / safeLimit)
         };
     }
 

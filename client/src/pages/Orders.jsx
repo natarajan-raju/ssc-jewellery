@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Package, ChevronRight } from 'lucide-react';
+import { Package, ChevronRight, MessageCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMyOrders } from '../context/OrderContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useNavigate } from 'react-router-dom';
+import { orderService } from '../services/orderService';
 import ordersIllustration from '../assets/orders.svg';
 
 const formatDate = (value) => {
@@ -120,6 +121,31 @@ const getClientTimeline = (order) => {
     if (status === 'pending') return events;
     return events.filter((evt) => normalizeStatus(evt?.status) !== 'pending');
 };
+const getPaymentMethodLabel = (order) => {
+    const method = String(order?.payment_gateway || order?.paymentGateway || 'razorpay').toLowerCase();
+    if (method === 'razorpay') return 'Razorpay';
+    if (method === 'cod') return 'Online Payment';
+    return method ? method.toUpperCase() : '—';
+};
+const getPaymentReference = (order) => {
+    return order?.razorpay_payment_id || order?.razorpayPaymentId || '—';
+};
+const getPaymentStatusLabel = (order) => {
+    const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
+    if (!status) return '—';
+    return status.charAt(0).toUpperCase() + status.slice(1);
+};
+const isRetryablePaymentStatus = (order) => {
+    const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
+    return status === 'failed' || status === 'expired';
+};
+const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
+const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
+const getOrderSupportLink = (order) => {
+    const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
+    const text = `Hi, I need support for my order ${orderRef}. I have a query regarding this order.`;
+    return `https://wa.me/919500941350?text=${encodeURIComponent(text)}`;
+};
 
 export default function Orders() {
     const { user, loading } = useAuth();
@@ -127,8 +153,9 @@ export default function Orders() {
     const navigate = useNavigate();
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [detailsOpen, setDetailsOpen] = useState(false);
-    const [duration, setDuration] = useState('all');
+    const [duration, setDuration] = useState('latest_10');
     const [page, setPage] = useState(1);
+    const [isRetryingPayment, setIsRetryingPayment] = useState(false);
     const limit = 10;
     const selectedOrderId = selectedOrder?.id;
     const { orders, isLoading, pagination, error, lastOrderEvent } = useMyOrders({ page, limit, duration });
@@ -155,6 +182,9 @@ export default function Orders() {
                 prev.status === next.status &&
                 prev.updated_at === next.updated_at &&
                 prev.total === next.total &&
+                prev.payment_status === next.payment_status &&
+                prev.payment_gateway === next.payment_gateway &&
+                prev.razorpay_payment_id === next.razorpay_payment_id &&
                 (prev.events?.length || 0) === (next.events?.length || 0);
             return isSame ? prev : next;
         });
@@ -207,6 +237,7 @@ export default function Orders() {
                                 }}
                                 className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 bg-white"
                             >
+                                <option value="latest_10">Latest Orders (10)</option>
                                 <option value="all">All time</option>
                                 <option value="7">Last 7 days</option>
                                 <option value="30">Last 30 days</option>
@@ -376,6 +407,65 @@ export default function Orders() {
                                 ))}
                             </div>
                             <div className="mt-4 space-y-2 text-sm">
+                                <div className="flex justify-center">
+                                    <a
+                                        href={getOrderSupportLink(selectedOrder)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100"
+                                    >
+                                        <MessageCircle size={14} />
+                                        Need Support
+                                    </a>
+                                </div>
+                                {isRetryablePaymentStatus(selectedOrder) && (
+                                    <div className="flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                if (isRetryingPayment) return;
+                                                setIsRetryingPayment(true);
+                                                try {
+                                                    await orderService.retryRazorpayOrder({});
+                                                    toast.success('New payment session created. Redirecting to checkout...');
+                                                    navigate('/checkout');
+                                                } catch (error) {
+                                                    toast.error(error?.message || 'Unable to retry payment');
+                                                } finally {
+                                                    setIsRetryingPayment(false);
+                                                }
+                                            }}
+                                            className="px-3 py-1.5 rounded-lg bg-primary text-accent text-xs font-semibold disabled:opacity-60"
+                                            disabled={isRetryingPayment}
+                                        >
+                                            {isRetryingPayment ? 'Retrying...' : 'Retry Payment'}
+                                        </button>
+                                    </div>
+                                )}
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Payment Method</span>
+                                    <span>{getPaymentMethodLabel(selectedOrder)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Payment Status</span>
+                                    <span>{getPaymentStatusLabel(selectedOrder)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Payment Ref</span>
+                                    <span className="font-mono text-xs text-gray-700">{getPaymentReference(selectedOrder)}</span>
+                                </div>
+                                {getRefundAmount(selectedOrder) > 0 && (
+                                    <>
+                                        <div className="flex items-center justify-between text-gray-600">
+                                            <span>Refund Amount</span>
+                                            <span>₹{getRefundAmount(selectedOrder).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-gray-600">
+                                            <span>Refund Ref</span>
+                                            <span className="font-mono text-xs text-gray-700">{getRefundReference(selectedOrder) || '—'}</span>
+                                        </div>
+                                    </>
+                                )}
                                 <div className="flex items-center justify-between text-gray-600">
                                     <span>Subtotal</span>
                                     <span>₹{toNumber(selectedOrder.subtotal).toLocaleString()}</span>
