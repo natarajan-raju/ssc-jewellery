@@ -11,9 +11,22 @@ import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate } from '../../utils/dateFormat';
 
+const CUSTOMER_PAGE_SIZE = 20;
+const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+    const safeTotal = Math.max(1, Number(totalPages || 1));
+    const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
+    if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
+    const half = Math.floor(windowSize / 2);
+    let start = Math.max(1, safeCurrent - half);
+    let end = Math.min(safeTotal, start + windowSize - 1);
+    if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
+    return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
+};
+
 export default function Customers() {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
     const [searchTerm, setSearchTerm] = useState('');
+    const [page, setPage] = useState(1);
 
     const [roleFilter, setRoleFilter] = useState('all');
     const [birthdayOnly, setBirthdayOnly] = useState(false);
@@ -119,6 +132,26 @@ export default function Customers() {
 
     const staffAndAdmins = roleFilteredUsers.filter(u => u.role === 'admin' || u.role === 'staff');
     const customersOnly = birthdayFilteredUsers.filter(u => !u.role || u.role === 'customer');
+    const customerTotalPages = useMemo(
+        () => Math.max(1, Math.ceil(customersOnly.length / CUSTOMER_PAGE_SIZE)),
+        [customersOnly.length]
+    );
+    const paginatedCustomersOnly = useMemo(() => {
+        const start = (Math.max(1, Number(page || 1)) - 1) * CUSTOMER_PAGE_SIZE;
+        return customersOnly.slice(start, start + CUSTOMER_PAGE_SIZE);
+    }, [customersOnly, page]);
+    const visiblePages = useMemo(
+        () => buildVisiblePages(page, customerTotalPages, 5),
+        [customerTotalPages, page]
+    );
+
+    useEffect(() => {
+        setPage(1);
+    }, [searchTerm, roleFilter, birthdayOnly]);
+
+    useEffect(() => {
+        setPage((prev) => Math.min(Math.max(1, Number(prev || 1)), customerTotalPages));
+    }, [customerTotalPages]);
 
     const openProfile = (user) => {
         if (user.role !== 'customer') return;
@@ -440,7 +473,7 @@ export default function Customers() {
                     <div className="md:hidden space-y-3 mt-8">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Customers</h3>
                         <div className="grid grid-cols-1 gap-4">
-                            {customersOnly.map((user) => (
+                            {paginatedCustomersOnly.map((user) => (
                                 <div 
                                     key={user.id} 
                                     onClick={() => openProfile(user)}
@@ -575,7 +608,7 @@ export default function Customers() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {customersOnly.map((user) => (
+                                {paginatedCustomersOnly.map((user) => (
                                     <tr 
                                         key={user.id} 
                                         onClick={() => openProfile(user)}
@@ -630,6 +663,44 @@ export default function Customers() {
                             </tbody>
                         </table>
                     </div>
+
+                    {customersOnly.length > 0 && customerTotalPages > 1 && (
+                        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm mt-6 p-4 flex flex-col md:flex-row items-center justify-between gap-3">
+                            <p className="text-xs text-gray-500">Page {page} of {customerTotalPages}</p>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                                    disabled={page <= 1}
+                                    className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                    Previous
+                                </button>
+                                {visiblePages.map((pageNo) => (
+                                    <button
+                                        key={pageNo}
+                                        type="button"
+                                        onClick={() => setPage(pageNo)}
+                                        className={`px-3 py-1.5 rounded-md border text-xs font-semibold ${
+                                            pageNo === page
+                                                ? 'border-primary bg-primary text-accent'
+                                                : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        {pageNo}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => setPage((prev) => Math.min(customerTotalPages, prev + 1))}
+                                    disabled={page >= customerTotalPages}
+                                    className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     {/* --- EMPTY STATE ILLUSTRATION (Only Admins Visible) --- */}
                     {!isLoading && roleFilteredUsers.length > 0 && roleFilteredUsers.every(u => u.role === 'admin') && (

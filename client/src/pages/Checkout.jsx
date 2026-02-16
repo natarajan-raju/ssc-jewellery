@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, Ticket } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -7,6 +7,8 @@ import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
 import { orderService } from '../services/orderService';
 import { useShipping } from '../context/ShippingContext';
+import logo from '../assets/logo.webp';
+import cartIllustration from '../assets/cart.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -86,20 +88,38 @@ const burstConfetti = () => {
     requestAnimationFrame(tick);
 };
 
+const hasCompleteAddress = (address = null) => {
+    const value = address || {};
+    return Boolean(
+        String(value?.line1 || '').trim()
+        && String(value?.city || '').trim()
+        && String(value?.state || '').trim()
+        && String(value?.zip || '').trim()
+    );
+};
+
+const normalizeStateKey = (value) => String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
 export default function Checkout() {
     const { user, loading, updateUser } = useAuth();
     const { items, subtotal, itemCount, clearCart } = useCart();
     const { zones } = useShipping();
     const toast = useToast();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const [editing, setEditing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [coupon, setCoupon] = useState('');
-    const [couponApplied, setCouponApplied] = useState(false);
+    const [appliedCoupon, setAppliedCoupon] = useState(null);
+    const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
     const [isPlacingOrder, setIsPlacingOrder] = useState(false);
     const [orderResult, setOrderResult] = useState(null);
     const [activeAttemptId, setActiveAttemptId] = useState(null);
+    const autoCouponAttemptsRef = useRef(new Set());
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -107,6 +127,10 @@ export default function Checkout() {
         address: { ...emptyAddress },
         billingAddress: { ...emptyAddress }
     });
+    const couponFromQuery = useMemo(() => {
+        const raw = new URLSearchParams(location.search).get('coupon');
+        return String(raw || '').trim().toUpperCase();
+    }, [location.search]);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -127,6 +151,43 @@ export default function Checkout() {
             billingAddress: { ...emptyAddress, ...(user.billingAddress || user.address || {}) }
         });
     }, [user]);
+
+    useEffect(() => {
+        if (!user || !couponFromQuery) return;
+        if (itemCount <= 0) {
+            setIsApplyingCoupon(false);
+            return;
+        }
+        if (appliedCoupon?.code === couponFromQuery) {
+            setCoupon(couponFromQuery);
+            setIsApplyingCoupon(false);
+            return;
+        }
+        if (autoCouponAttemptsRef.current.has(couponFromQuery)) {
+            setIsApplyingCoupon(false);
+            return;
+        }
+        autoCouponAttemptsRef.current.add(couponFromQuery);
+
+        setIsApplyingCoupon(true);
+        orderService.validateRecoveryCoupon({
+            code: couponFromQuery,
+            shippingAddress: user?.address || null
+        }).then((data) => {
+            setCoupon(couponFromQuery);
+            setAppliedCoupon({
+                code: couponFromQuery,
+                discountTotal: Number(data?.discountTotal || 0),
+                coupon: data?.coupon || null
+            });
+            toast.success(`Coupon applied: ${couponFromQuery}`);
+        }).catch((error) => {
+            toast.error(error?.message || 'Coupon is invalid or expired');
+            setAppliedCoupon(null);
+        }).finally(() => {
+            setIsApplyingCoupon(false);
+        });
+    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount]);
 
     const handleFieldChange = (e) => {
         const { name, value } = e.target;
@@ -166,13 +227,30 @@ export default function Checkout() {
     };
 
     const handleApplyCoupon = () => {
-        if (!coupon.trim()) return toast.error('Enter a coupon code');
-        setCouponApplied(true);
-        toast.success('Coupon applied (preview)');
+        const code = String(coupon || '').trim().toUpperCase();
+        if (!code) return toast.error('Enter a coupon code');
+        setIsApplyingCoupon(true);
+        orderService.validateRecoveryCoupon({
+            code,
+            shippingAddress: form.address
+        }).then((data) => {
+            setCoupon(code);
+            setAppliedCoupon({
+                code,
+                discountTotal: Number(data?.discountTotal || 0),
+                coupon: data?.coupon || null
+            });
+            toast.success(`Coupon applied: ${code}`);
+        }).catch((error) => {
+            toast.error(error?.message || 'Coupon is invalid or expired');
+            setAppliedCoupon(null);
+        }).finally(() => {
+            setIsApplyingCoupon(false);
+        });
     };
 
     const handleRemoveCoupon = () => {
-        setCouponApplied(false);
+        setAppliedCoupon(null);
         setCoupon('');
     };
 
@@ -182,15 +260,23 @@ export default function Checkout() {
         weightKg: Number(item.weightKg || 0)
     })), [items]);
 
+    const getOrderResultItemImage = (item) => (
+        item?.image_url
+        || item?.imageUrl
+        || item?.item_snapshot?.imageUrl
+        || item?.snapshot?.imageUrl
+        || null
+    );
+
     const totalWeightKg = useMemo(() => lineItems.reduce((sum, item) => {
         return sum + (Number(item.weightKg || 0) * Number(item.quantity || 0));
     }, 0), [lineItems]);
 
     const shippingFee = useMemo(() => {
         if (!zones || zones.length === 0) return 0;
-        const state = (form.address?.state || '').trim().toLowerCase();
+        const state = normalizeStateKey(form.address?.state);
         if (!state) return 0;
-        const zone = zones.find(z => Array.isArray(z.states) && z.states.some(s => String(s).trim().toLowerCase() === state));
+        const zone = zones.find(z => Array.isArray(z.states) && z.states.some(s => normalizeStateKey(s) === state));
         if (!zone || !Array.isArray(zone.options)) return 0;
         const eligible = zone.options.filter(opt => {
             const min = opt.min == null ? null : Number(opt.min);
@@ -212,13 +298,44 @@ export default function Checkout() {
         return Number(eligible[0].rate || 0);
     }, [zones, form.address?.state, subtotal, totalWeightKg]);
 
-    const grandTotal = useMemo(() => Number(subtotal || 0) + Number(shippingFee || 0), [subtotal, shippingFee]);
+    const couponDiscount = useMemo(() => Number(appliedCoupon?.discountTotal || 0), [appliedCoupon?.discountTotal]);
+    const grandTotal = useMemo(() => {
+        const gross = Number(subtotal || 0) + Number(shippingFee || 0);
+        return Math.max(0, gross - Number(couponDiscount || 0));
+    }, [subtotal, shippingFee, couponDiscount]);
+    const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
+    const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
+    const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
+    const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment);
 
     const handlePayNow = async () => {
         if (lineItems.length === 0) return toast.error('Your cart is empty');
         if (isPlacingOrder) return;
+        if (isMobileMissingOnProfile && !hasMobileForPayment) return toast.error('Please add mobile number before payment');
+        if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
+        if (!hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
         setIsPlacingOrder(true);
         try {
+            const profileNeedsAddressSync = (
+                !hasCompleteAddress(user?.address)
+                || !hasCompleteAddress(user?.billingAddress)
+                || (isMobileMissingOnProfile && hasMobileForPayment)
+            );
+            const checkoutHasAddress = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
+            if (profileNeedsAddressSync && checkoutHasAddress && (!isMobileMissingOnProfile || hasMobileForPayment)) {
+                const profileRes = await authService.updateProfile({
+                    name: form.name,
+                    email: form.email,
+                    mobile: form.mobile,
+                    address: form.address,
+                    billingAddress: form.billingAddress
+                });
+                if (profileRes?.user) {
+                    updateUser(profileRes.user);
+                    toast.success('Address saved to profile');
+                }
+            }
+
             const scriptLoaded = await ensureRazorpayScript();
             if (!scriptLoaded || !window.Razorpay) {
                 throw new Error('Unable to load Razorpay checkout');
@@ -227,6 +344,7 @@ export default function Checkout() {
             const init = await orderService.createRazorpayOrder({
                 billingAddress: form.billingAddress,
                 shippingAddress: form.address,
+                couponCode: appliedCoupon?.code || null,
                 notes: {
                     source: 'web_checkout'
                 }
@@ -355,6 +473,24 @@ export default function Checkout() {
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6">
+                        {lineItems.length === 0 ? (
+                            <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-8 md:p-10">
+                                <div className="flex flex-col items-center text-center">
+                                    <img src={cartIllustration} alt="Empty cart" className="w-48 md:w-56" />
+                                    <h2 className="mt-5 text-xl md:text-2xl font-semibold text-gray-800">Your checkout is empty</h2>
+                                    <p className="mt-2 text-sm text-gray-500 max-w-md">
+                                        It looks like there are no items in your cart right now. Explore products and add your favourites to continue.
+                                    </p>
+                                    <Link
+                                        to="/shop"
+                                        className="mt-6 inline-flex items-center justify-center px-6 py-3 rounded-xl bg-primary text-accent font-semibold hover:bg-primary-light"
+                                    >
+                                        Explore Products
+                                    </Link>
+                                </div>
+                            </div>
+                        ) : (
+                        <>
                         <div className="space-y-6">
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                                 <div className="flex items-center justify-between gap-4">
@@ -417,6 +553,9 @@ export default function Checkout() {
                                             />
                                             <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
+                                        {isMobileMissingOnProfile && !hasMobileForPayment && (
+                                            <p className="text-[11px] text-amber-700">Mobile is required to place this order.</p>
+                                        )}
                                     </div>
                                 </div>
 
@@ -513,18 +652,18 @@ export default function Checkout() {
                                         placeholder="Enter coupon code"
                                         className="input-field flex-1"
                                     />
-                                    {couponApplied ? (
+                                    {appliedCoupon ? (
                                         <button onClick={handleRemoveCoupon} className="px-6 py-3 rounded-xl border border-gray-200 font-semibold text-gray-500 hover:bg-gray-50">
                                             Remove
                                         </button>
                                     ) : (
-                                        <button onClick={handleApplyCoupon} className="px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light">
-                                            Apply
+                                        <button onClick={handleApplyCoupon} disabled={isApplyingCoupon} className="px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60">
+                                            {isApplyingCoupon ? 'Applying...' : 'Apply'}
                                         </button>
                                     )}
                                 </div>
-                                {couponApplied && (
-                                    <p className="text-xs text-emerald-600 mt-3">Coupon applied. Discounts will reflect in the final step.</p>
+                                {appliedCoupon && (
+                                    <p className="text-xs text-emerald-600 mt-3">Coupon {appliedCoupon.code} applied. Discount: ₹{Number(appliedCoupon.discountTotal || 0).toLocaleString()}.</p>
                                 )}
                             </div>
                         </div>
@@ -588,6 +727,12 @@ export default function Checkout() {
                                         <span>Shipping</span>
                                         <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
                                     </div>
+                                    {couponDiscount > 0 && (
+                                        <div className="flex items-center justify-between text-emerald-700">
+                                            <span>Coupon ({appliedCoupon?.code || 'Applied'})</span>
+                                            <span className="font-semibold">- ₹{Number(couponDiscount || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-gray-500">
                                         <span>Taxes</span>
                                         <span className="font-semibold text-gray-800">Included</span>
@@ -601,11 +746,21 @@ export default function Checkout() {
                                 <button
                                     type="button"
                                     onClick={handlePayNow}
-                                    disabled={isPlacingOrder}
+                                    disabled={isPlacingOrder || !isReadyForPayment}
                                     className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all disabled:opacity-60"
                                 >
                                     <CreditCard size={18} /> {isPlacingOrder ? 'Processing...' : 'Pay Now'}
                                 </button>
+                                {isMobileMissingOnProfile && !hasMobileForPayment && (
+                                    <p className="text-[11px] text-amber-700 text-center mt-2">
+                                        Mobile number is required to continue payment.
+                                    </p>
+                                )}
+                                {!isAddressReadyForPayment && (
+                                    <p className="text-[11px] text-amber-700 text-center mt-2">
+                                        Complete shipping and billing address to continue payment.
+                                    </p>
+                                )}
                                 <p className="text-[11px] text-gray-400 text-center mt-2">
                                     Payment powered by Razorpay.
                                 </p>
@@ -655,6 +810,8 @@ export default function Checkout() {
                                 </div>
                             </div>
                         </div>
+                        </>
+                        )}
                     </div>
                 </div>
             </div>
@@ -662,6 +819,7 @@ export default function Checkout() {
             {orderResult && (
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
                     <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 animate-fade-in border border-gray-100">
+                        <img src={logo} alt="SSC Jewellery" className="h-10 w-auto mb-3" />
                         <h3 className="text-xl font-serif text-primary">Order Confirmed</h3>
                         <p className="text-sm text-gray-500 mt-2">
                             Thank you for shopping with us. Your order is confirmed and will be processed shortly.
@@ -679,17 +837,52 @@ export default function Checkout() {
                                 <span className="text-gray-500">Shipping</span>
                                 <span className="font-semibold text-gray-800">₹{Number(orderResult.shippingFee || orderResult.shipping_fee || 0).toLocaleString()}</span>
                             </div>
+                            {Number(orderResult.discountTotal || orderResult.discount_total || 0) > 0 && (
+                                <div className="flex items-center justify-between text-sm mt-2">
+                                    <span className="text-gray-500">Discount{orderResult.couponCode || orderResult.coupon_code ? ` (${orderResult.couponCode || orderResult.coupon_code})` : ''}</span>
+                                    <span className="font-semibold text-emerald-700">-₹{Number(orderResult.discountTotal || orderResult.discount_total || 0).toLocaleString()}</span>
+                                </div>
+                            )}
                             <div className="flex items-center justify-between text-base font-semibold mt-3 text-gray-800">
                                 <span>Total</span>
                                 <span>₹{Number(orderResult.total || 0).toLocaleString()}</span>
                             </div>
+                            {Array.isArray(orderResult.items) && orderResult.items.length > 0 && (
+                                <div className="mt-4 pt-3 border-t border-gray-200 space-y-2">
+                                    {orderResult.items.slice(0, 3).map((item, idx) => (
+                                        <div key={item.id || `${item.product_id || 'item'}-${item.variant_id || ''}-${idx}`} className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <div className="w-10 h-10 rounded-lg border border-gray-200 bg-white overflow-hidden shrink-0">
+                                                    {getOrderResultItemImage(item) ? (
+                                                        <img src={getOrderResultItemImage(item)} alt={item.title || 'Item'} className="w-full h-full object-cover" />
+                                                    ) : null}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="text-sm text-gray-700 truncate">{item.title}</p>
+                                                    <p className="text-xs text-gray-500">Qty: {Number(item.quantity || 0)}</p>
+                                                </div>
+                                            </div>
+                                            <p className="text-sm font-semibold text-gray-800">₹{Number(item.line_total || item.lineTotal || 0).toLocaleString()}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
+                        <p className="text-sm text-gray-600 mt-3">Your items will be shipped in 2-3 working days.</p>
                         <div className="mt-4 text-xs text-gray-500 space-y-1">
                             <p>By placing this order you agree to our policies:</p>
                             <div className="flex gap-3 flex-wrap">
                                 <Link to="/shipping" className="text-primary font-semibold">Shipping Policy</Link>
                                 <Link to="/refund" className="text-primary font-semibold">Refund Policy</Link>
                             </div>
+                        </div>
+                        <div className="mt-5 flex items-center justify-end gap-2">
+                            <Link to="/" className="px-4 py-2 rounded-lg bg-primary text-accent font-semibold">
+                                Home
+                            </Link>
+                            <Link to="/shop" className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50">
+                                Explore
+                            </Link>
                         </div>
                         <p className="text-[11px] text-gray-400 mt-4">View your order in the Orders page.</p>
                     </div>

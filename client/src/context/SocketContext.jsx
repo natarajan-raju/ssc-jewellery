@@ -18,6 +18,8 @@ const globalSocket = io(SOCKET_URL, {
 });
 const ADMIN_PAYMENT_TOAST_DEDUPE_MS = 15000;
 const adminPaymentToastSeen = new Map();
+const ADMIN_ORDER_TOAST_DEDUPE_MS = 8000;
+const adminOrderToastSeen = new Map();
 
 export const SocketProvider = ({ children }) => {
     const [socket, setSocket] = useState(globalSocket);
@@ -58,7 +60,24 @@ export const SocketProvider = ({ children }) => {
             if (payload?.order) {
                 orderService.patchMyOrdersCache(payload.order);
             }
-            orderService.clearAdminCache();
+            if (!payload?.silent && user && (user.role === 'admin' || user.role === 'staff')) {
+                const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || payload?.orderId || ''}`;
+                const status = String(payload?.status || payload?.order?.status || '').toLowerCase();
+                if (status) {
+                    const key = `${payload?.orderId || payload?.order?.id || ''}::${status}`;
+                    const now = Date.now();
+                    const seenAt = adminOrderToastSeen.get(key) || 0;
+                    if (!seenAt || now - seenAt > ADMIN_ORDER_TOAST_DEDUPE_MS) {
+                        if (payload?.deleted || status === 'deleted') {
+                            toast.warning(`Order removed: ${orderRef}`);
+                        } else {
+                            toast.info(`Order ${status}: ${orderRef}`);
+                        }
+                        adminOrderToastSeen.set(key, now);
+                    }
+                }
+            }
+            orderService.clearAdminListCache();
             notifyApp(payload);
         };
 
@@ -69,8 +88,11 @@ export const SocketProvider = ({ children }) => {
             if (user && (user.role === 'admin' || user.role === 'staff')) {
                 const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || ''}`;
                 toast.success(`New order received: ${orderRef}`);
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('admin:new-order', { detail: payload.order || null }));
+                }
             }
-            orderService.clearAdminCache();
+            orderService.clearAdminListCache();
             notifyApp(payload);
         };
 
@@ -78,15 +100,47 @@ export const SocketProvider = ({ children }) => {
             if (payload?.order) {
                 orderService.patchMyOrdersCache(payload.order);
             }
-            if (user && (user.role === 'admin' || user.role === 'staff') && payload?.payment?.paymentStatus) {
+            if (!payload?.silent && user && (user.role === 'admin' || user.role === 'staff')) {
                 const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || ''}`;
-                const status = String(payload.payment.paymentStatus);
-                const orderId = String(payload?.order?.id || payload?.orderId || '');
-                const key = `${orderId}::${status.toLowerCase()}`;
+                const paymentStatus = payload?.payment?.paymentStatus;
+                const settlementStatus = payload?.payment?.settlementStatus
+                    || payload?.settlement?.status
+                    || payload?.order?.settlement_snapshot?.status
+                    || null;
+                const settlementId = payload?.payment?.settlementId
+                    || payload?.settlementId
+                    || payload?.settlement?.id
+                    || payload?.order?.settlement_id
+                    || null;
+                const status = String(paymentStatus || settlementStatus || '').toLowerCase();
+                const orderId = String(payload?.order?.id || payload?.orderId || settlementId || '');
+                const key = `${orderId}::${status || payload?.eventType || payload?.payment?.event || 'payment_update'}`;
                 const now = Date.now();
                 const seenAt = adminPaymentToastSeen.get(key) || 0;
                 if (!seenAt || now - seenAt > ADMIN_PAYMENT_TOAST_DEDUPE_MS) {
-                    toast.success(`Payment ${status}: ${orderRef}`);
+                    if (paymentStatus) {
+                        const lower = String(paymentStatus).toLowerCase();
+                        if (['failed', 'expired'].includes(lower)) {
+                            toast.warning(`Payment ${paymentStatus}: ${orderRef}`);
+                        } else if (lower === 'refunded') {
+                            toast.info(`Refund update: ${orderRef}`);
+                        } else {
+                            toast.success(`Payment ${paymentStatus}: ${orderRef}`);
+                        }
+                    }
+
+                    if (settlementStatus) {
+                        const label = settlementId ? `${settlementStatus} (${settlementId})` : settlementStatus;
+                        if (String(settlementStatus).toLowerCase() === 'failed') {
+                            toast.warning(`Settlement ${label}`);
+                        } else {
+                            toast.info(`Settlement ${label}`);
+                        }
+                    }
+
+                    if (payload?.payment?.refundReference || payload?.order?.refund_reference) {
+                        toast.info(`Refund reference updated: ${orderRef}`);
+                    }
                     adminPaymentToastSeen.set(key, now);
                 }
                 if (adminPaymentToastSeen.size > 300) {
@@ -96,7 +150,7 @@ export const SocketProvider = ({ children }) => {
                     }
                 }
             }
-            orderService.clearAdminCache();
+            orderService.clearAdminListCache();
             notifyApp(payload);
         };
 

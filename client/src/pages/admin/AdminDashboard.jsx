@@ -1,25 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
-import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart } from 'lucide-react';
+import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart, Settings, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../../assets/logo_light.webp'; 
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
 import ShippingSettings from './ShippingSettings';
 import Orders from './Orders';
+import AbandonedCarts from './AbandonedCarts';
+import CompanyInfo from './CompanyInfo';
+import { AdminKPIProvider } from '../../context/AdminKPIContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
-import shippingIllustration from '../../assets/shipping.svg';
-import cartIllustration from '../../assets/cart.svg';
+import orderIllustration from '../../assets/order.svg';
+import { orderService } from '../../services/orderService';
+import { useToast } from '../../context/ToastContext';
+
+const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
     const [expandedMenu, setExpandedMenu] = useState('products'); // Default open for demo
+    const [focusOrderId, setFocusOrderId] = useState(null);
+    const [incomingOrders, setIncomingOrders] = useState([]);
+    const [incomingModalOpen, setIncomingModalOpen] = useState(false);
     const navigate = useNavigate();
-    const { logout } = useAuth();
+    const toast = useToast();
+    const { logout, user } = useAuth();
     const { isDownloading, progress } = useProducts();
     
     
@@ -65,7 +75,96 @@ export default function AdminDashboard() {
         </div>
     );
 
+    const markOrdersSeen = (orders = []) => {
+        const maxTs = orders.reduce((max, order) => {
+            const ts = new Date(order?.created_at || order?.createdAt || 0).getTime();
+            if (!Number.isFinite(ts) || ts <= 0) return max;
+            return Math.max(max, ts);
+        }, Date.now());
+        localStorage.setItem(ADMIN_LAST_SEEN_ORDER_TS_KEY, String(maxTs));
+    };
+
+    useEffect(() => {
+        if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
+        let cancelled = false;
+        const loadMissedOrders = async () => {
+            try {
+                const data = await orderService.getAdminOrders({
+                    page: 1,
+                    limit: 10,
+                    status: 'all',
+                    quickRange: 'latest_10',
+                    sortBy: 'newest'
+                });
+                if (cancelled) return;
+                const rows = (Array.isArray(data?.orders) ? data.orders : [])
+                    .filter((order) => String(order?.entity_type || 'order').toLowerCase() !== 'attempt');
+                const lastSeenTs = Number(localStorage.getItem(ADMIN_LAST_SEEN_ORDER_TS_KEY) || 0);
+                const missed = rows.filter((order) => {
+                    const ts = new Date(order?.created_at || order?.createdAt || 0).getTime();
+                    return Number.isFinite(ts) && ts > lastSeenTs;
+                });
+                if (missed.length > 0) {
+                    setIncomingOrders(missed);
+                    setIncomingModalOpen(true);
+                    toast.info(
+                        missed.length === 1
+                            ? `You have 1 new order while you were away`
+                            : `You have ${missed.length} new orders while you were away`
+                    );
+                }
+                markOrdersSeen(rows);
+            } catch {
+                // Ignore initial fetch errors here
+            }
+        };
+        loadMissedOrders();
+        return () => {
+            cancelled = true;
+        };
+    }, [toast, user]);
+
+    useEffect(() => {
+        if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
+        const handleNewOrder = (event) => {
+            const order = event?.detail;
+            if (!order?.id) return;
+            setIncomingOrders((prev) => {
+                if (prev.some((entry) => String(entry.id) === String(order.id))) return prev;
+                return [order, ...prev];
+            });
+            setIncomingModalOpen(true);
+        };
+        window.addEventListener('admin:new-order', handleNewOrder);
+        return () => window.removeEventListener('admin:new-order', handleNewOrder);
+    }, [user]);
+
+    const incomingSummary = useMemo(() => {
+        const count = incomingOrders.length;
+        const totalValue = incomingOrders.reduce((sum, order) => sum + Number(order?.total || 0), 0);
+        return { count, totalValue };
+    }, [incomingOrders]);
+
+    const openOrdersFromModal = (orderId = null) => {
+        setActiveTab('orders');
+        if (orderId) {
+            setFocusOrderId(orderId);
+        } else {
+            setFocusOrderId(null);
+        }
+        markOrdersSeen(incomingOrders);
+        setIncomingOrders([]);
+        setIncomingModalOpen(false);
+    };
+
+    const dismissIncomingModal = () => {
+        markOrdersSeen(incomingOrders);
+        setIncomingOrders([]);
+        setIncomingModalOpen(false);
+    };
+
     return (
+        <AdminKPIProvider>
         <div className="bg-gray-50 min-h-screen flex">
             
             {/* --- DESKTOP SIDEBAR --- */}
@@ -108,6 +207,7 @@ export default function AdminDashboard() {
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
                     <NavItem icon={Truck} label="Shipping" id="shipping" />
                     <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" />
+                    <NavItem icon={Settings} label="Company Info" id="companyInfo" />
                     <div className="pt-2 mt-2 border-t border-white/10">
                         <NavItem icon={Images} label="Hero CMS" id="cms" />
                     </div>
@@ -162,14 +262,9 @@ export default function AdminDashboard() {
                             message="We’re preparing analytics for sales, customers, and inventory trends."
                         />
                     )}
-                    {activeTab === 'orders' && <Orders />}
-                    {activeTab === 'abandoned' && (
-                        <EmptyState
-                            illustration={cartIllustration}
-                            title="Abandoned cart recovery"
-                            message="Recover sales automatically. This module is coming soon."
-                        />
-                    )}
+                    {activeTab === 'orders' && <Orders focusOrderId={focusOrderId} onFocusHandled={() => setFocusOrderId(null)} />}
+                    {activeTab === 'abandoned' && <AbandonedCarts />}
+                    {activeTab === 'companyInfo' && <CompanyInfo />}
                 </div>
 
                 {/* Mobile Footer Credit (Visible only on mobile at bottom of content) */}
@@ -191,7 +286,69 @@ export default function AdminDashboard() {
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
                 <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} onClick={() => setActiveTab('abandoned')} />
             </div>
+
+            {incomingModalOpen && incomingSummary.count > 0 && (
+                <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4">
+                    <div className="w-full max-w-lg rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-900">New Order Alert</h3>
+                            <button onClick={dismissIncomingModal} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="p-5">
+                            <div className="flex items-start gap-4">
+                                <img src={orderIllustration} alt="New order" className="w-24 h-24 object-contain" />
+                                <div className="flex-1">
+                                    {incomingSummary.count === 1 ? (
+                                        <>
+                                            <p className="text-sm text-gray-500">A new order has been received.</p>
+                                            <p className="mt-1 text-base font-semibold text-gray-900">
+                                                {incomingOrders[0]?.order_ref || `Order #${incomingOrders[0]?.id || ''}`}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Customer: {incomingOrders[0]?.customer_name || 'Guest'} {incomingOrders[0]?.customer_mobile ? `(${incomingOrders[0].customer_mobile})` : ''}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Total: ₹{Number(incomingOrders[0]?.total || 0).toLocaleString()}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Payment: {String(incomingOrders[0]?.payment_status || 'pending').toUpperCase()}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className="text-sm text-gray-500">Multiple orders received while you were offline.</p>
+                                            <p className="mt-1 text-2xl font-bold text-gray-900">{incomingSummary.count} orders</p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Combined value: ₹{incomingSummary.totalValue.toLocaleString()}
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="mt-5 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={dismissIncomingModal}
+                                    className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                >
+                                    Dismiss
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => openOrdersFromModal(incomingSummary.count === 1 ? incomingOrders[0]?.id : null)}
+                                    className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
+                                >
+                                    {incomingSummary.count === 1 ? 'Open Order Details' : 'Go to Orders'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
+        </AdminKPIProvider>
     );
 }
 

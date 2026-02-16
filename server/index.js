@@ -24,6 +24,11 @@ const shippingRoutes = require('./routes/shippingRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const Order = require('./models/Order');
 const { PaymentAttempt } = require('./models/PaymentAttempt');
+const {
+    startAbandonedCartRecoveryScheduler,
+    startAbandonedCartMaintenanceScheduler,
+    setKnownPublicOriginFromRequest
+} = require('./services/abandonedCartRecoveryService');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -43,6 +48,10 @@ io.on('connection', (socket) => {
         if (userId) {
             socket.join(`user:${userId}`);
         }
+        const role = String(payload.role || '').toLowerCase();
+        if (role === 'admin' || role === 'staff') {
+            socket.join('admin');
+        }
     });
 });
 
@@ -52,6 +61,10 @@ app.set('io', io);
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
+app.use((req, _res, next) => {
+    setKnownPublicOriginFromRequest(req);
+    next();
+});
 app.use(express.json({
     verify: (req, _res, buf) => {
         if (req.originalUrl?.startsWith('/api/orders/razorpay/webhook')) {
@@ -108,3 +121,19 @@ const schedulePaymentAttemptExpiryJob = () => {
 };
 
 schedulePaymentAttemptExpiryJob();
+startAbandonedCartRecoveryScheduler({
+    onJourneyUpdate: (payload = {}) => {
+        io.to('admin').emit('abandoned_cart:journey:update', {
+            ...payload,
+            ts: new Date().toISOString()
+        });
+    }
+});
+startAbandonedCartMaintenanceScheduler({
+    onJourneyUpdate: (payload = {}) => {
+        io.to('admin').emit('abandoned_cart:journey:update', {
+            ...payload,
+            ts: new Date().toISOString()
+        });
+    }
+});

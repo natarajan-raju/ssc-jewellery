@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { protect, admin } = require('../middleware/authMiddleware');
-const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory, createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts, deleteSlide, reorderSlides, updateSlide } = require('../controllers/cmsController');
+const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, getCompanyInfo, createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory, createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts, deleteSlide, reorderSlides, updateSlide } = require('../controllers/cmsController');
 
 // --- MULTER STORAGE FOR HERO IMAGES ---
 const storage = multer.diskStorage({
@@ -41,6 +41,7 @@ router.get('/hero-texts', getHeroTexts);
 router.get('/banner', getBanner);
 router.get('/banner-secondary', getSecondaryBanner);
 router.get('/featured-category', getFeaturedCategory);
+router.get('/company-info', getCompanyInfo);
 
 // Admin: Manage Slides
 router.post('/hero', protect, admin, upload.single('image'), createSlide);

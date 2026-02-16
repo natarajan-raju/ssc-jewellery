@@ -1,6 +1,11 @@
 const User = require('../models/User');
 const Cart = require('../models/Cart');
 const bcrypt = require('bcryptjs');
+const CompanyProfile = require('../models/CompanyProfile');
+const {
+    verifyEmailTransport,
+    sendEmailCommunication
+} = require('../services/communications/communicationService');
 
 // --- 1. GET ALL USERS (PAGINATED) ---
 const getUsers = async (req, res) => {
@@ -147,4 +152,76 @@ const getUserCart = async (req, res) => {
     }
 };
 
-module.exports = { getUsers, createUser, deleteUser, resetUserPassword, getUserCart };
+const verifyEmailChannel = async (_req, res) => {
+    try {
+        const result = await verifyEmailTransport();
+        return res.json({ ok: true, channel: 'email', ...result });
+    } catch (error) {
+        return res.status(400).json({ ok: false, channel: 'email', message: error?.message || 'Email verification failed' });
+    }
+};
+
+const sendTestEmail = async (req, res) => {
+    try {
+        const {
+            to,
+            subject = 'SSC Jewellery - Test Email',
+            message = 'This is a test email from SSC Jewellery communications module.'
+        } = req.body || {};
+
+        if (!to) {
+            return res.status(400).json({ message: 'Recipient email is required' });
+        }
+
+        const safeMessage = String(message || '').trim() || 'This is a test email from SSC Jewellery communications module.';
+        const result = await sendEmailCommunication({
+            to,
+            subject,
+            text: safeMessage,
+            html: `<p>${safeMessage}</p>`
+        });
+
+        return res.json({
+            ok: true,
+            channel: 'email',
+            result
+        });
+    } catch (error) {
+        return res.status(400).json({ ok: false, channel: 'email', message: error?.message || 'Failed to send test email' });
+    }
+};
+
+const getCompanyInfo = async (_req, res) => {
+    try {
+        const company = await CompanyProfile.get();
+        return res.json({ company });
+    } catch (error) {
+        return res.status(500).json({ message: 'Failed to fetch company info' });
+    }
+};
+
+const updateCompanyInfo = async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const company = await CompanyProfile.update(payload);
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('company:info_update', { company });
+        }
+        return res.json({ company });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to update company info' });
+    }
+};
+
+module.exports = {
+    getUsers,
+    createUser,
+    deleteUser,
+    resetUserPassword,
+    getUserCart,
+    verifyEmailChannel,
+    sendTestEmail,
+    getCompanyInfo,
+    updateCompanyInfo
+};

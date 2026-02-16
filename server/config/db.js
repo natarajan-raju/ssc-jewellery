@@ -8,6 +8,7 @@ const pool = mysql.createPool({
     password: process.env.DB_PASSWORD, // 2. FIXED: Changed DB_PASSWORD to DB_PASS
     database: process.env.DB_NAME,
     dateStrings: true,
+    timezone: 'Z',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -166,6 +167,13 @@ const initDB = async () => {
                 refund_reference VARCHAR(64),
                 refund_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 refund_status VARCHAR(20),
+                coupon_code VARCHAR(40),
+                coupon_type VARCHAR(30),
+                coupon_discount_value DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                coupon_meta JSON,
+                source_channel VARCHAR(30),
+                is_abandoned_recovery TINYINT(1) NOT NULL DEFAULT 0,
+                abandoned_journey_id BIGINT NULL,
                 subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 shipping_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -173,6 +181,9 @@ const initDB = async () => {
                 currency VARCHAR(10) DEFAULT 'INR',
                 billing_address JSON,
                 shipping_address JSON,
+                company_snapshot JSON,
+                settlement_id VARCHAR(64),
+                settlement_snapshot JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -201,6 +212,42 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN refund_status VARCHAR(20)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN coupon_code VARCHAR(40)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN coupon_type VARCHAR(30)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN coupon_discount_value DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN coupon_meta JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN source_channel VARCHAR(30)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN is_abandoned_recovery TINYINT(1) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN abandoned_journey_id BIGINT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN company_snapshot JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN settlement_id VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN settlement_snapshot JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD INDEX idx_orders_settlement_id (settlement_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD INDEX idx_orders_user_created_payment (user_id, created_at, payment_status)');
         } catch {}
 
         await connection.query(`
@@ -321,6 +368,127 @@ const initDB = async () => {
             await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN processed_at TIMESTAMP NULL DEFAULT NULL');
         } catch {}
 
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS abandoned_cart_campaigns (
+                id INT PRIMARY KEY,
+                enabled TINYINT(1) NOT NULL DEFAULT 1,
+                inactivity_minutes INT NOT NULL DEFAULT 30,
+                max_attempts INT NOT NULL DEFAULT 4,
+                attempt_delays_json JSON,
+                discount_ladder_json JSON,
+                max_discount_percent INT NOT NULL DEFAULT 25,
+                min_discount_cart_subunits INT NOT NULL DEFAULT 0,
+                recovery_window_hours INT NOT NULL DEFAULT 72,
+                send_email TINYINT(1) NOT NULL DEFAULT 1,
+                send_whatsapp TINYINT(1) NOT NULL DEFAULT 1,
+                send_payment_link TINYINT(1) NOT NULL DEFAULT 1,
+                reminder_enable TINYINT(1) NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE abandoned_cart_campaigns ADD COLUMN min_discount_cart_subunits INT NOT NULL DEFAULT 0');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS abandoned_cart_journeys (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                cart_item_count INT NOT NULL DEFAULT 0,
+                cart_total_subunits INT NOT NULL DEFAULT 0,
+                currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+                cart_snapshot_json JSON,
+                last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_attempt_no INT NOT NULL DEFAULT 0,
+                next_attempt_at TIMESTAMP NULL DEFAULT NULL,
+                expires_at TIMESTAMP NULL DEFAULT NULL,
+                recovered_order_id INT NULL,
+                recovered_at TIMESTAMP NULL DEFAULT NULL,
+                recovery_reason VARCHAR(200),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_acj_user_status (user_id, status),
+                INDEX idx_acj_due (status, next_attempt_at),
+                INDEX idx_acj_user_status_created (user_id, status, created_at),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (recovered_order_id) REFERENCES orders(id) ON DELETE SET NULL
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS abandoned_cart_candidates (
+                user_id VARCHAR(50) PRIMARY KEY,
+                cart_item_count INT NOT NULL DEFAULT 0,
+                cart_total_subunits INT NOT NULL DEFAULT 0,
+                currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+                last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_acc_last_activity (last_activity_at),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        try {
+            await connection.query('ALTER TABLE abandoned_cart_journeys ADD INDEX idx_acj_user_status_created (user_id, status, created_at)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS abandoned_cart_attempts (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                journey_id BIGINT NOT NULL,
+                attempt_no INT NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'queued',
+                channels_json JSON,
+                discount_code VARCHAR(40),
+                discount_percent INT DEFAULT 0,
+                payment_link_id VARCHAR(64),
+                payment_link_url TEXT,
+                payload_json JSON,
+                response_json JSON,
+                error_message VARCHAR(500),
+                scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sent_at TIMESTAMP NULL DEFAULT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_ac_attempt (journey_id, attempt_no),
+                FOREIGN KEY (journey_id) REFERENCES abandoned_cart_journeys(id) ON DELETE CASCADE
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS abandoned_cart_discounts (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                journey_id BIGINT NOT NULL,
+                user_id VARCHAR(50) NOT NULL,
+                attempt_no INT NOT NULL,
+                code VARCHAR(40) NOT NULL UNIQUE,
+                discount_type VARCHAR(20) NOT NULL DEFAULT 'percent',
+                discount_percent INT DEFAULT 0,
+                discount_value_subunits INT DEFAULT NULL,
+                max_discount_subunits INT DEFAULT NULL,
+                min_cart_subunits INT DEFAULT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                expires_at TIMESTAMP NULL DEFAULT NULL,
+                redeemed_order_id INT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_acd_user_status (user_id, status),
+                FOREIGN KEY (journey_id) REFERENCES abandoned_cart_journeys(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (redeemed_order_id) REFERENCES orders(id) ON DELETE SET NULL
+            )
+        `);
+
+        await connection.execute(
+            `INSERT INTO abandoned_cart_campaigns
+                (id, enabled, inactivity_minutes, max_attempts, attempt_delays_json, discount_ladder_json, max_discount_percent, min_discount_cart_subunits, recovery_window_hours, send_email, send_whatsapp, send_payment_link, reminder_enable)
+             VALUES (1, 1, 30, 4, ?, ?, 25, 0, 72, 1, 1, 1, 1)
+             ON DUPLICATE KEY UPDATE id = id`,
+            [JSON.stringify([30, 360, 1440, 2880]), JSON.stringify([0, 0, 5, 10])]
+        );
+
         // 9. ORDER ITEMS TABLE
         await connection.query(`
             CREATE TABLE IF NOT EXISTS order_items (
@@ -437,6 +605,20 @@ const initDB = async () => {
                 FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
             )
         `);
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS company_profile (
+                id INT PRIMARY KEY,
+                display_name VARCHAR(255) NOT NULL DEFAULT 'SSC Jewellery',
+                contact_number VARCHAR(40),
+                support_email VARCHAR(255),
+                address TEXT,
+                instagram_url VARCHAR(255),
+                youtube_url VARCHAR(255),
+                facebook_url VARCHAR(255),
+                whatsapp_number VARCHAR(40),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
         // Ensure singleton rows exist (Primary + Secondary)
         const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id IN (1, 2)');
         const existingIds = new Set(bannerRows.map(r => r.id));
@@ -460,6 +642,15 @@ const initDB = async () => {
             await connection.execute(
                 'INSERT INTO home_featured_category (id, category_id, title, subtitle) VALUES (?, ?, ?, ?)',
                 [1, defaultCatId, '', '']
+            );
+        }
+        const [companyRows] = await connection.execute('SELECT id FROM company_profile WHERE id = 1 LIMIT 1');
+        if (companyRows.length === 0) {
+            await connection.execute(
+                `INSERT INTO company_profile
+                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', '', '', '', '', '', '', '']
             );
         }
         // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)

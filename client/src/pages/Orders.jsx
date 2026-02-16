@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Package, ChevronRight, MessageCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Package, ChevronRight, MessageCircle, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMyOrders } from '../context/OrderContext';
 import { useToast } from '../context/ToastContext';
@@ -130,6 +130,10 @@ const getPaymentMethodLabel = (order) => {
 const getPaymentReference = (order) => {
     return order?.razorpay_payment_id || order?.razorpayPaymentId || '—';
 };
+const getInvoiceNumber = (order) => {
+    const ref = order?.order_ref || order?.orderRef || order?.id || 'N/A';
+    return `INV-${ref}`;
+};
 const getPaymentStatusLabel = (order) => {
     const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
     if (!status) return '—';
@@ -141,10 +145,33 @@ const isRetryablePaymentStatus = (order) => {
 };
 const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
 const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
+const getRefundStatus = (order) => String(order?.refund_status || order?.refundStatus || '').trim();
+const hasRefundInitiated = (order) => Boolean(
+    getRefundReference(order)
+    || getRefundStatus(order)
+    || String(order?.payment_status || order?.paymentStatus || '').toLowerCase() === 'refunded'
+    || getRefundAmount(order) > 0
+);
+const canCheckRefundStatus = (order) => hasRefundInitiated(order)
+    && Boolean(order?.razorpay_order_id || order?.razorpayOrderId || order?.razorpay_payment_id || order?.razorpayPaymentId);
+const isCancelledWithoutRefund = (order) => String(order?.status || '').toLowerCase() === 'cancelled' && !hasRefundInitiated(order);
 const getOrderSupportLink = (order) => {
     const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
     const text = `Hi, I need support for my order ${orderRef}. I have a query regarding this order.`;
     return `https://wa.me/919500941350?text=${encodeURIComponent(text)}`;
+};
+
+const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+    const safeTotal = Math.max(1, Number(totalPages || 1));
+    const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
+    if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
+    const half = Math.floor(windowSize / 2);
+    let start = Math.max(1, safeCurrent - half);
+    let end = Math.min(safeTotal, start + windowSize - 1);
+    if (end - start + 1 < windowSize) {
+        start = Math.max(1, end - windowSize + 1);
+    }
+    return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 
 export default function Orders() {
@@ -156,9 +183,15 @@ export default function Orders() {
     const [duration, setDuration] = useState('latest_10');
     const [page, setPage] = useState(1);
     const [isRetryingPayment, setIsRetryingPayment] = useState(false);
+    const [isCheckingRefundStatus, setIsCheckingRefundStatus] = useState(false);
+    const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
     const limit = 10;
     const selectedOrderId = selectedOrder?.id;
     const { orders, isLoading, pagination, error, lastOrderEvent } = useMyOrders({ page, limit, duration });
+    const visiblePages = useMemo(
+        () => buildVisiblePages(page, pagination.totalPages, 5),
+        [page, pagination.totalPages]
+    );
 
     useEffect(() => {
         if (!loading && !user) {
@@ -196,6 +229,45 @@ export default function Orders() {
         setSelectedOrder((prev) => ({ ...prev, ...lastOrderEvent }));
     }, [lastOrderEvent, selectedOrderId]);
 
+    useEffect(() => {
+        const totalPages = Number(pagination?.totalPages || 1);
+        if (page > totalPages) {
+            setPage(Math.max(1, totalPages));
+        }
+    }, [page, pagination?.totalPages]);
+
+    const canDownloadInvoice = (order) => {
+        const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
+        return status === 'paid' || status === 'refunded';
+    };
+    const handleCheckRefundStatus = async (order) => {
+        if (!order?.id || !canCheckRefundStatus(order) || isCheckingRefundStatus) return;
+        setIsCheckingRefundStatus(true);
+        try {
+            const data = await orderService.fetchMyPaymentStatus({ orderId: order.id });
+            if (data?.order) {
+                setSelectedOrder((prev) => (prev && String(prev.id) === String(data.order.id) ? { ...prev, ...data.order } : prev));
+            }
+            toast.success(`Refund status synced: ${data?.order?.refund_status || data?.paymentStatus || 'updated'}`);
+        } catch (error) {
+            toast.error(error.message || 'Failed to fetch refund status');
+        } finally {
+            setIsCheckingRefundStatus(false);
+        }
+    };
+    const handleDownloadInvoice = async (order) => {
+        if (!canDownloadInvoice(order)) return;
+        const targetId = order?.id;
+        setDownloadingInvoiceId(targetId);
+        try {
+            await orderService.downloadMyInvoice(targetId);
+        } catch (error) {
+            toast.error(error.message || 'Unable to generate invoice');
+        } finally {
+            setDownloadingInvoiceId(null);
+        }
+    };
+
     if (!user) return null;
 
     return (
@@ -218,12 +290,23 @@ export default function Orders() {
 
                 {isLoading ? (
                     <div className="py-16 text-center text-gray-400">Loading orders...</div>
-                ) : orders.length === 0 ? (
+                ) : orders.length === 0 && Number(pagination?.totalOrders || 0) === 0 ? (
                     <div className="py-10 flex flex-col items-center text-center gap-6">
                         <img src={ordersIllustration} alt="No orders" className="w-52 md:w-64" />
                         <div className="text-gray-400">
                             No orders yet. <Link to="/shop" className="text-primary font-semibold">Start shopping</Link>
                         </div>
+                    </div>
+                ) : orders.length === 0 ? (
+                    <div className="py-14 text-center">
+                        <p className="text-gray-500 text-sm">No orders on this page.</p>
+                        <button
+                            type="button"
+                            onClick={() => setPage(1)}
+                            className="mt-3 px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                            Go to Page 1
+                        </button>
                     </div>
                 ) : (
                     <div className="space-y-4">
@@ -265,7 +348,7 @@ export default function Orders() {
                                         </span>
                                         </div>
                                     </div>
-                                        <div className="text-sm text-gray-600">
+                                        <div className="text-sm text-gray-600 md:min-w-[220px]">
                                             <div className="flex items-center gap-2">
                                                 <Package size={16} className="text-primary" />
                                                 <span>{order.items?.length || 0} items</span>
@@ -277,37 +360,64 @@ export default function Orders() {
                                                 </span>
                                             )}
                                     </div>
-                                        <button
-                                            onClick={() => {
-                                                setSelectedOrder(order);
-                                                setDetailsOpen(true);
-                                            }}
-                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50"
-                                        >
-                                            View Details <ChevronRight size={16} />
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            {canDownloadInvoice(order) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDownloadInvoice(order)}
+                                                    disabled={downloadingInvoiceId === order.id}
+                                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-200 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                                                >
+                                                    <Download size={15} />
+                                                    {downloadingInvoiceId === order.id ? 'Generating...' : 'Invoice'}
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => {
+                                                    setSelectedOrder(order);
+                                                    setDetailsOpen(true);
+                                                }}
+                                                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                                            >
+                                                View Details <ChevronRight size={16} />
+                                            </button>
+                                        </div>
                                 </div>
                             </div>
                         ))}
-                        {pagination.totalPages > 1 && (
-                            <div className="flex items-center justify-between bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                                <p className="text-sm text-gray-500">
-                                    Showing page {pagination.currentPage} of {pagination.totalPages}
+                        {Number(pagination.totalPages || 1) >= 1 && (
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                                <p className="text-sm text-gray-600">
+                                    Showing page {Number(pagination.currentPage || page)} of {Number(pagination.totalPages || 1)}
                                 </p>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                     <button
                                         type="button"
                                         onClick={() => setPage((prev) => Math.max(1, prev - 1))}
                                         disabled={page <= 1}
-                                        className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-600 disabled:opacity-50"
+                                        className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 disabled:opacity-50"
                                     >
                                         Previous
                                     </button>
+                                    {visiblePages.map((pageNo) => (
+                                        <button
+                                            key={pageNo}
+                                            type="button"
+                                            onClick={() => setPage(pageNo)}
+                                            className={`min-w-9 px-3 py-2 rounded-lg border text-sm font-semibold ${
+                                                pageNo === page
+                                                    ? 'border-primary bg-primary text-accent'
+                                                    : 'border-gray-300 bg-white text-gray-800 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            {pageNo}
+                                        </button>
+                                    ))}
                                     <button
                                         type="button"
-                                        onClick={() => setPage((prev) => Math.min(pagination.totalPages, prev + 1))}
-                                        disabled={page >= pagination.totalPages}
-                                        className="px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-600 disabled:opacity-50"
+                                        onClick={() => setPage((prev) => Math.min(Number(pagination.totalPages || 1), prev + 1))}
+                                        disabled={page >= Number(pagination.totalPages || 1)}
+                                        className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 disabled:opacity-50"
                                     >
                                         Next
                                     </button>
@@ -324,6 +434,7 @@ export default function Orders() {
                                 <button onClick={() => setDetailsOpen(false)} className="text-gray-400 hover:text-gray-600">Close</button>
                             </div>
                             <p className="text-sm text-gray-500 mt-1">Placed on {formatDate(selectedOrder.created_at)}</p>
+                            <p className="text-xs text-gray-500 mt-1">Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
 
                             <div className="mt-5">
                                 <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Track Order</p>
@@ -418,6 +529,37 @@ export default function Orders() {
                                         Need Support
                                     </a>
                                 </div>
+                                {isCancelledWithoutRefund(selectedOrder) && (
+                                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                        Refund was not initiated for this cancelled order. Please contact admin for refund via WhatsApp support.
+                                    </div>
+                                )}
+                                {canDownloadInvoice(selectedOrder) && (
+                                    <div className="flex justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDownloadInvoice(selectedOrder)}
+                                            disabled={downloadingInvoiceId === selectedOrder.id}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-60"
+                                        >
+                                            <Download size={14} />
+                                            {downloadingInvoiceId === selectedOrder.id ? 'Generating...' : 'Download Invoice'}
+                                        </button>
+                                    </div>
+                                )}
+                                {canCheckRefundStatus(selectedOrder) && (
+                                    <div className="flex justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCheckRefundStatus(selectedOrder)}
+                                            disabled={isCheckingRefundStatus}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60"
+                                        >
+                                            <RefreshCw size={14} className={isCheckingRefundStatus ? 'animate-spin' : ''} />
+                                            {isCheckingRefundStatus ? 'Checking...' : 'Check Refund Status'}
+                                        </button>
+                                    </div>
+                                )}
                                 {isRetryablePaymentStatus(selectedOrder) && (
                                     <div className="flex justify-end">
                                         <button
@@ -454,15 +596,27 @@ export default function Orders() {
                                     <span>Payment Ref</span>
                                     <span className="font-mono text-xs text-gray-700">{getPaymentReference(selectedOrder)}</span>
                                 </div>
-                                {getRefundAmount(selectedOrder) > 0 && (
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Invoice No</span>
+                                    <span className="font-mono text-xs text-gray-700">{getInvoiceNumber(selectedOrder)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Coupon</span>
+                                    <span>{selectedOrder.coupon_code || '—'}</span>
+                                </div>
+                                {hasRefundInitiated(selectedOrder) && (
                                     <>
                                         <div className="flex items-center justify-between text-gray-600">
                                             <span>Refund Amount</span>
-                                            <span>₹{getRefundAmount(selectedOrder).toLocaleString()}</span>
+                                            <span>{getRefundAmount(selectedOrder) > 0 ? `₹${getRefundAmount(selectedOrder).toLocaleString()}` : '—'}</span>
                                         </div>
                                         <div className="flex items-center justify-between text-gray-600">
                                             <span>Refund Ref</span>
                                             <span className="font-mono text-xs text-gray-700">{getRefundReference(selectedOrder) || '—'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-gray-600">
+                                            <span>Refund Status</span>
+                                            <span>{getRefundStatus(selectedOrder) || '—'}</span>
                                         </div>
                                     </>
                                 )}

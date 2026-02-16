@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2 } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
 import { useSocket } from '../../context/SocketContext';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
+import Modal from '../../components/Modal';
+import { useAdminKPI } from '../../context/AdminKPIContext';
 
 const QUICK_RANGES = [
     { value: 'all', label: 'All Time' },
@@ -14,7 +16,18 @@ const QUICK_RANGES = [
     { value: 'custom', label: 'Custom Range' }
 ];
 
-export default function Orders() {
+const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+    const safeTotal = Math.max(1, Number(totalPages || 1));
+    const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
+    if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
+    const half = Math.floor(windowSize / 2);
+    let start = Math.max(1, safeCurrent - half);
+    let end = Math.min(safeTotal, start + windowSize - 1);
+    if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
+    return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
+};
+
+export default function Orders({ focusOrderId = null, onFocusHandled = () => {} }) {
     const toast = useToast();
     const { socket } = useSocket();
     const [orders, setOrders] = useState([]);
@@ -37,8 +50,43 @@ export default function Orders() {
     const [pendingStatus, setPendingStatus] = useState('');
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+    const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+    const [processRefundOnCancel, setProcessRefundOnCancel] = useState(false);
+    const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
+    const [deletingOrderId, setDeletingOrderId] = useState(null);
+    const [selectedRowKeys, setSelectedRowKeys] = useState([]);
+    const [bulkStatus, setBulkStatus] = useState('pending');
+    const [isBulkUpdating, setIsBulkUpdating] = useState(false);
+    const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
+    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
+    const [confirmModal, setConfirmModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        confirmText: 'Confirm',
+        type: 'delete',
+        action: null
+    });
+    const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
+    const {
+        orderMetricsByKey,
+        registerOrderMetricsQuery,
+        setOrderMetricsSnapshot,
+        markOrderMetricsDirty,
+        fetchOrderMetrics,
+        toOrderMetricsKey
+    } = useAdminKPI();
+    const metricsQuery = useMemo(() => ({
+        search,
+        startDate,
+        endDate,
+        quickRange
+    }), [endDate, quickRange, search, startDate]);
+    const metricsKey = toOrderMetricsKey(metricsQuery);
+    const sharedMetrics = orderMetricsByKey[metricsKey]?.metrics || null;
     const getPaymentMethodLabel = (order) => {
         const method = String(order?.payment_gateway || order?.paymentGateway || 'razorpay').toLowerCase();
         if (method === 'razorpay') return 'Razorpay';
@@ -46,13 +94,108 @@ export default function Orders() {
         return method ? method.toUpperCase() : '—';
     };
     const getPaymentReference = (order) => order?.razorpay_payment_id || order?.razorpayPaymentId || '—';
+    const getInvoiceNumber = (order) => {
+        const ref = order?.order_ref || order?.orderRef || order?.id || 'N/A';
+        return `INV-${ref}`;
+    };
     const getPaymentStatusLabel = (order) => {
         const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
         if (!status) return '—';
         return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
     };
+    const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
+    const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
+    const isFailedRow = (order) => String(order?.status || '').toLowerCase() === 'failed';
+    const getRowKey = (order) => {
+        if (isAttemptEntry(order)) return `attempt:${order?.attempt_id || order?.id}`;
+        return `order:${order?.order_id || order?.id}`;
+    };
+    const isPaidPayment = (order) => String(order?.payment_status || '').toLowerCase() === 'paid';
+    const isRazorpayPaidOrder = (order) => {
+        const gateway = String(order?.payment_gateway || order?.paymentGateway || '').toLowerCase();
+        const paid = isPaidPayment(order);
+        const hasRazorpayRef = Boolean(order?.razorpay_payment_id || order?.razorpay_order_id);
+        return paid && (gateway === 'razorpay' || hasRazorpayRef);
+    };
+    const canDeleteRow = (order) => !isPaidPayment(order);
+    const canDownloadInvoice = (order) => {
+        if (isAttemptEntry(order)) return false;
+        const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
+        return status === 'paid' || status === 'refunded';
+    };
+    const needsSettlementSync = (order) => {
+        if (!order || isAttemptEntry(order)) return false;
+        const paymentStatus = String(order?.payment_status || '').toLowerCase();
+        return paymentStatus === 'paid'
+            && Boolean(order?.razorpay_order_id || order?.razorpay_payment_id)
+            && !order?.settlement_snapshot;
+    };
+    const canFetchPaymentStatus = (order) => {
+        if (!order?.razorpay_order_id && !order?.razorpay_payment_id) return false;
+        const paymentStatus = String(order?.payment_status || '').toLowerCase();
+        if (['pending', 'created', 'attempted'].includes(paymentStatus)) return true;
+        return paymentStatus === 'paid' && needsSettlementSync(order);
+    };
     const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
     const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
+    const hasRefundInitiated = (order) => Boolean(
+        getRefundReference(order)
+        || String(order?.refund_status || '').trim()
+        || String(order?.payment_status || '').toLowerCase() === 'refunded'
+        || getRefundAmount(order) > 0
+    );
+    const isRefundLockedOrder = (order) => (
+        String(order?.status || '').toLowerCase() === 'cancelled'
+        && hasRefundInitiated(order)
+    );
+    const canCheckRefundStatus = (order) => {
+        if (!order || isAttemptEntry(order)) return false;
+        if (!hasRefundInitiated(order)) return false;
+        return Boolean(order?.razorpay_order_id || order?.razorpay_payment_id);
+    };
+    const formatSettlementAmount = (value) => `₹${(Number(value || 0) / 100).toLocaleString('en-IN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    })}`;
+    const patchOrderRow = useCallback((nextOrder) => {
+        if (!nextOrder?.id) return;
+        setOrders((prev) => {
+            const idx = prev.findIndex((row) =>
+                !isAttemptEntry(row) && String(row.order_id || row.id) === String(nextOrder.id)
+            );
+            if (idx >= 0) {
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx], ...nextOrder };
+                return copy;
+            }
+            if (page === 1) {
+                return [{ ...nextOrder, entity_type: 'order', order_id: nextOrder.id }, ...prev];
+            }
+            return prev;
+        });
+    }, [page]);
+    const patchAttemptRow = useCallback((attempt) => {
+        if (!attempt?.id) return;
+        setOrders((prev) => {
+            const idx = prev.findIndex((row) => String(row.attempt_id || row.id) === String(attempt.id));
+            if (idx < 0) return prev;
+            const copy = [...prev];
+            copy[idx] = {
+                ...copy[idx],
+                payment_status: attempt.status || copy[idx].payment_status,
+                razorpay_payment_id: attempt.razorpay_payment_id || copy[idx].razorpay_payment_id,
+                failure_reason: attempt.failure_reason || copy[idx].failure_reason
+            };
+            return copy;
+        });
+    }, []);
+    const removeRow = useCallback((id, type = 'order') => {
+        if (!id) return;
+        setOrders((prev) => prev.filter((row) => {
+            if (type === 'attempt') return String(row.attempt_id || row.id) !== String(id);
+            return String(row.order_id || row.id) !== String(id);
+        }));
+    }, []);
 
     const fetchOrders = useCallback(async () => {
         setIsLoading(true);
@@ -86,14 +229,23 @@ export default function Orders() {
             ]);
 
             setOrders(listData.orders || []);
-            setMetrics((statusFilter === 'all' ? listData.metrics : metricsData?.metrics) || null);
+            const resolvedMetrics = (statusFilter === 'all' ? listData.metrics : metricsData?.metrics) || null;
+            setMetrics(resolvedMetrics);
+            if (resolvedMetrics) {
+                setOrderMetricsSnapshot(metricsQuery, resolvedMetrics);
+            }
             setTotalPages(listData.pagination?.totalPages || 1);
         } catch (error) {
             toast.error(error.message || 'Failed to load orders');
         } finally {
             setIsLoading(false);
         }
-    }, [endDate, page, quickRange, search, sortBy, startDate, statusFilter, toast]);
+    }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, startDate, statusFilter, toast]);
+
+    useEffect(() => {
+        registerOrderMetricsQuery(metricsQuery);
+        fetchOrderMetrics(metricsQuery).catch(() => {});
+    }, [fetchOrderMetrics, metricsQuery, registerOrderMetricsQuery]);
 
     useEffect(() => {
         fetchOrders();
@@ -102,16 +254,33 @@ export default function Orders() {
     useEffect(() => {
         if (!selectedOrder) return;
         setPendingStatus(selectedOrder.status || 'confirmed');
+        setProcessRefundOnCancel(false);
     }, [selectedOrder?.id, selectedOrder?.status]);
+
+    useEffect(() => {
+        const visibleKeys = new Set((orders || []).map((order) => getRowKey(order)));
+        setSelectedRowKeys((prev) => prev.filter((key) => visibleKeys.has(key)));
+    }, [orders]);
 
     useEffect(() => {
         if (!socket) return;
         const handleUpdate = (payload = {}) => {
+            if (payload?.deleted && payload?.orderId) {
+                removeRow(payload.orderId, 'order');
+                orderService.removeAdminEntityCache({ id: payload.orderId, entityType: 'order' });
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+                return;
+            }
             if (payload?.order && selectedOrder?.id && String(payload.order.id) === String(selectedOrder.id)) {
                 setSelectedOrder((prev) => ({ ...prev, ...payload.order }));
             }
-            orderService.clearAdminCache();
-            fetchOrders();
+            if (payload?.order) {
+                orderService.patchAdminOrderCache(payload.order);
+                patchOrderRow(payload.order);
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+            }
         };
         socket.on('order:create', handleUpdate);
         socket.on('order:update', handleUpdate);
@@ -121,23 +290,16 @@ export default function Orders() {
             socket.off('order:update', handleUpdate);
             socket.off('payment:update', handleUpdate);
         };
-    }, [fetchOrders, selectedOrder?.id, socket]);
+    }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, removeRow, selectedOrder?.id, socket]);
 
-    const handleSearch = (e) => {
-        e.preventDefault();
-        if (search !== searchInput) {
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (search === searchInput) return;
             setSearch(searchInput);
-            if (page !== 1) {
-                setPage(1);
-            }
-            return;
-        }
-        if (page !== 1) {
             setPage(1);
-            return;
-        }
-        fetchOrders();
-    };
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [search, searchInput]);
 
     const handleStatusFilterChange = (nextStatus) => {
         setDraftStatusFilter(nextStatus);
@@ -249,13 +411,61 @@ export default function Orders() {
         }
     };
 
-    const openDetails = async (orderId) => {
-        setIsDetailsOpen(true);
-        setIsDetailsLoading(true);
+    const handleDownloadInvoice = async (order, e = null) => {
+        if (e) e.stopPropagation();
+        if (!order || isAttemptEntry(order) || !canDownloadInvoice(order)) return;
+        const targetId = order.order_id || order.id;
+        setDownloadingInvoiceId(targetId);
         try {
-            const data = await orderService.getAdminOrder(orderId);
-            setSelectedOrder(data.order || null);
-            setPendingStatus(data.order?.status || 'confirmed');
+            await orderService.downloadAdminInvoice(targetId);
+        } catch (error) {
+            toast.error(error.message || 'Unable to generate invoice');
+        } finally {
+            setDownloadingInvoiceId(null);
+        }
+    };
+
+    const openDetails = async (order) => {
+        setIsDetailsOpen(true);
+        const hasSeedData = Boolean(order && !isAttemptEntry(order));
+        setIsDetailsLoading(!hasSeedData);
+        if (order) {
+            setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
+            setPendingStatus(order.status || 'confirmed');
+            setDetailsLastSyncedAt(new Date().toISOString());
+        }
+        try {
+            if (isAttemptEntry(order)) {
+                const attemptOrder = {
+                    ...order,
+                    items: Array.isArray(order?.items) ? order.items : [],
+                    events: Array.isArray(order?.events) ? order.events : []
+                };
+                setSelectedOrder(attemptOrder);
+                setPendingStatus(attemptOrder.status || 'failed');
+                setDetailsLastSyncedAt(new Date().toISOString());
+                return;
+            }
+            const data = await orderService.getAdminOrder(order?.order_id || order?.id);
+            const nextOrder = data.order || null;
+            setSelectedOrder(nextOrder);
+            setPendingStatus(nextOrder?.status || 'confirmed');
+            setDetailsLastSyncedAt(new Date().toISOString());
+            if (nextOrder && needsSettlementSync(nextOrder)) {
+                try {
+                    const sync = await orderService.fetchAdminPaymentStatus({
+                        orderId: nextOrder.order_id || nextOrder.id,
+                        attemptId: null,
+                        razorpayOrderId: nextOrder.razorpay_order_id || '',
+                        razorpayPaymentId: nextOrder.razorpay_payment_id || ''
+                    });
+                    if (sync?.order) {
+                        setSelectedOrder(sync.order);
+                        patchOrderRow(sync.order);
+                        setDetailsLastSyncedAt(new Date().toISOString());
+                    }
+                } catch {}
+            }
         } catch (error) {
             toast.error(error.message || 'Failed to load order details');
         } finally {
@@ -263,20 +473,274 @@ export default function Orders() {
         }
     };
 
-    const handleStatusUpdate = async () => {
+    const handleStatusUpdate = useCallback(async () => {
         if (!selectedOrder || !pendingStatus) return;
         setIsUpdatingStatus(true);
         try {
-            const data = await orderService.updateAdminOrderStatus(selectedOrder.id, pendingStatus);
+            const shouldProcessRefund = (
+                pendingStatus === 'cancelled'
+                && processRefundOnCancel
+                && isRazorpayPaidOrder(selectedOrder)
+                && Boolean(selectedOrder?.razorpay_payment_id || selectedOrder?.razorpay_order_id)
+            );
+            const data = await orderService.updateAdminOrderStatus(
+                selectedOrder.order_id || selectedOrder.id,
+                pendingStatus,
+                { processRefund: shouldProcessRefund }
+            );
             if (data?.order) {
                 setSelectedOrder(data.order);
-                await fetchOrders();
-                toast.success('Order status updated');
+                patchOrderRow(data.order);
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+                if (shouldProcessRefund && data?.refund?.id) {
+                    toast.success(`Order cancelled and refund initiated (${data.refund.id})`);
+                } else {
+                    toast.success('Order status updated');
+                }
             }
         } catch (error) {
             toast.error(error.message || 'Failed to update status');
         } finally {
             setIsUpdatingStatus(false);
+        }
+    }, [fetchOrderMetrics, isRazorpayPaidOrder, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, processRefundOnCancel, selectedOrder, toast]);
+
+    const handleFetchPaymentStatus = async ({ reason = 'payment' } = {}) => {
+        if (!selectedOrder) return;
+        setIsFetchingPaymentStatus(true);
+        try {
+            const data = await orderService.fetchAdminPaymentStatus({
+                orderId: isAttemptEntry(selectedOrder) ? null : (selectedOrder.order_id || selectedOrder.id),
+                attemptId: selectedOrder.attempt_id || null,
+                razorpayOrderId: selectedOrder.razorpay_order_id || '',
+                razorpayPaymentId: selectedOrder.razorpay_payment_id || ''
+            });
+
+            if (data?.order) {
+                setSelectedOrder(data.order);
+                patchOrderRow(data.order);
+                setDetailsLastSyncedAt(new Date().toISOString());
+            } else if (data?.attempt) {
+                patchAttemptRow(data.attempt);
+                setSelectedOrder((prev) => ({
+                    ...(prev || {}),
+                    payment_status: data.attempt.status || prev?.payment_status || '',
+                    razorpay_payment_id: data.attempt.razorpay_payment_id || prev?.razorpay_payment_id || '',
+                    failure_reason: data.attempt.failure_reason || prev?.failure_reason || ''
+                }));
+                setDetailsLastSyncedAt(new Date().toISOString());
+            } else if (data?.paymentStatus) {
+                setSelectedOrder((prev) => ({ ...(prev || {}), payment_status: data.paymentStatus }));
+                setDetailsLastSyncedAt(new Date().toISOString());
+            }
+            if (reason === 'refund') {
+                toast.success(`Refund status synced: ${data?.order?.refund_status || data?.paymentStatus || 'updated'}`);
+            } else {
+                toast.success(`Payment status synced: ${data?.paymentStatus || 'updated'}`);
+            }
+        } catch (error) {
+            toast.error(error.message || (reason === 'refund' ? 'Failed to fetch refund status' : 'Failed to fetch payment status'));
+        } finally {
+            setIsFetchingPaymentStatus(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!focusOrderId) return;
+        if (isLoading) return;
+        const hit = (orders || []).find((row) => !isAttemptEntry(row) && String(row.order_id || row.id) === String(focusOrderId));
+        if (hit) {
+            openDetails(hit);
+            onFocusHandled();
+            return;
+        }
+        const loadDirect = async () => {
+            try {
+                setIsDetailsOpen(true);
+                setIsDetailsLoading(true);
+                const data = await orderService.getAdminOrder(focusOrderId);
+                const target = data?.order || null;
+                if (target) {
+                    setSelectedOrder(target);
+                    setPendingStatus(target.status || 'confirmed');
+                    setDetailsLastSyncedAt(new Date().toISOString());
+                }
+            } catch (error) {
+                toast.error(error.message || 'Failed to open focused order');
+            } finally {
+                setIsDetailsLoading(false);
+                onFocusHandled();
+            }
+        };
+        loadDirect();
+    }, [focusOrderId, isLoading, onFocusHandled, orders, toast]);
+
+    const handleDeleteOrder = async (e, order) => {
+        e.stopPropagation();
+        if (!order || !canDeleteRow(order)) return;
+        const targetId = isAttemptEntry(order)
+            ? (order.attempt_id || order.id)
+            : (order.order_id || order.id);
+        if (!targetId) return;
+        setConfirmModal({
+            isOpen: true,
+            type: 'delete',
+            title: 'Delete Order',
+            message: `Delete order ${order.order_ref || targetId}? This cannot be undone.`,
+            confirmText: 'Delete',
+            action: { type: 'delete_single', order }
+        });
+    };
+
+    const toggleRowSelection = (order, checked) => {
+        const key = getRowKey(order);
+        setSelectedRowKeys((prev) => {
+            if (checked) return prev.includes(key) ? prev : [...prev, key];
+            return prev.filter((item) => item !== key);
+        });
+    };
+
+    const toggleSelectAll = (checked) => {
+        if (!checked) {
+            setSelectedRowKeys([]);
+            return;
+        }
+        setSelectedRowKeys((orders || []).map((order) => getRowKey(order)));
+    };
+
+    const selectedRows = useMemo(() => {
+        const selectedSet = new Set(selectedRowKeys);
+        return (orders || []).filter((order) => selectedSet.has(getRowKey(order)));
+    }, [orders, selectedRowKeys]);
+
+    const allOnPageSelected = useMemo(() => {
+        if (!orders.length) return false;
+        const selectedSet = new Set(selectedRowKeys);
+        return orders.every((order) => selectedSet.has(getRowKey(order)));
+    }, [orders, selectedRowKeys]);
+
+    const selectedOrderRows = useMemo(
+        () => selectedRows.filter((row) => !isAttemptEntry(row)),
+        [selectedRows]
+    );
+
+    const selectedDeletableRows = useMemo(
+        () => selectedRows.filter((row) => canDeleteRow(row)),
+        [selectedRows]
+    );
+
+    const selectedNonDeletableCount = useMemo(
+        () => Math.max(0, selectedRows.length - selectedDeletableRows.length),
+        [selectedRows, selectedDeletableRows]
+    );
+
+    const handleBulkStatusUpdate = async () => {
+        if (!bulkStatus || selectedOrderRows.length === 0) return;
+        setConfirmModal({
+            isOpen: true,
+            type: 'default',
+            title: 'Update Selected Orders',
+            message: `Update status to "${bulkStatus}" for ${selectedOrderRows.length} selected order(s)?`,
+            confirmText: 'Update',
+            action: { type: 'bulk_status_update' }
+        });
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedDeletableRows.length === 0) return;
+        setConfirmModal({
+            isOpen: true,
+            type: 'delete',
+            title: 'Delete Selected Rows',
+            message: `Delete ${selectedDeletableRows.length} selected row(s)? This cannot be undone.`,
+            confirmText: 'Delete Selected',
+            action: { type: 'bulk_delete' }
+        });
+    };
+
+    const handleConfirmModalClose = () => {
+        if (isConfirmProcessing) return;
+        setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
+    };
+
+    const handleConfirmAction = async () => {
+        const actionType = confirmModal?.action?.type;
+        if (!actionType) {
+            handleConfirmModalClose();
+            return;
+        }
+
+        setIsConfirmProcessing(true);
+        try {
+            if (actionType === 'delete_single') {
+                const row = confirmModal.action.order;
+                const targetId = isAttemptEntry(row) ? (row.attempt_id || row.id) : (row.order_id || row.id);
+                setDeletingOrderId(targetId);
+                if (isAttemptEntry(row)) {
+                    await orderService.deleteAdminPaymentAttempt(targetId);
+                    removeRow(targetId, 'attempt');
+                } else {
+                    await orderService.deleteAdminOrder(targetId);
+                    removeRow(targetId, 'order');
+                }
+                if (selectedOrder && String(selectedOrder.id || selectedOrder.order_id || selectedOrder.attempt_id) === String(targetId)) {
+                    setIsDetailsOpen(false);
+                    setSelectedOrder(null);
+                }
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+                toast.success('Order deleted');
+            } else if (actionType === 'bulk_status_update') {
+                setIsBulkUpdating(true);
+                const results = await Promise.all(
+                    selectedOrderRows.map((row) => orderService.updateAdminOrderStatus(row.order_id || row.id, bulkStatus))
+                );
+                results.forEach((res) => {
+                    if (res?.order) patchOrderRow(res.order);
+                });
+                setSelectedRowKeys([]);
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+                toast.success('Bulk status update completed');
+            } else if (actionType === 'bulk_delete') {
+                setIsBulkDeleting(true);
+                await Promise.all(
+                    selectedDeletableRows.map((row) => {
+                        if (isAttemptEntry(row)) {
+                            return orderService.deleteAdminPaymentAttempt(row.attempt_id || row.id);
+                        }
+                        return orderService.deleteAdminOrder(row.order_id || row.id);
+                    })
+                );
+                selectedDeletableRows.forEach((row) => {
+                    if (isAttemptEntry(row)) {
+                        removeRow(row.attempt_id || row.id, 'attempt');
+                    } else {
+                        removeRow(row.order_id || row.id, 'order');
+                    }
+                });
+                setSelectedRowKeys([]);
+                if (isDetailsOpen) {
+                    const selectedKeysSet = new Set(selectedDeletableRows.map((row) => String(row.id || row.order_id || row.attempt_id)));
+                    const openedKey = String(selectedOrder?.id || selectedOrder?.order_id || selectedOrder?.attempt_id || '');
+                    if (selectedKeysSet.has(openedKey)) {
+                        setIsDetailsOpen(false);
+                        setSelectedOrder(null);
+                    }
+                }
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+                toast.success('Selected rows deleted');
+            }
+        } catch (error) {
+            toast.error(error.message || 'Action failed');
+        } finally {
+            setDeletingOrderId(null);
+            setIsBulkUpdating(false);
+            setIsBulkDeleting(false);
+            setIsConfirmProcessing(false);
+            setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
         }
     };
 
@@ -319,12 +783,13 @@ export default function Orders() {
         return `${months}mo pending`;
     };
 
+    const effectiveMetrics = sharedMetrics || metrics;
     const cards = useMemo(() => ([
-        { label: 'Total Orders', value: metrics?.totalOrders || 0, icon: Package, color: 'text-blue-600 bg-blue-50 border-blue-100' },
-        { label: 'Total Revenue', value: `₹${Number(metrics?.totalRevenue || 0).toLocaleString()}`, icon: IndianRupee, color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-        { label: 'Pending', value: metrics?.pendingOrders || 0, icon: Clock3, color: 'text-amber-600 bg-amber-50 border-amber-100' },
-        { label: 'Confirmed', value: metrics?.confirmedOrders || 0, icon: CheckCircle2, color: 'text-purple-600 bg-purple-50 border-purple-100' }
-    ]), [metrics]);
+        { label: 'Total Orders', value: effectiveMetrics?.totalOrders || 0, icon: Package, color: 'text-blue-600 bg-blue-50 border-blue-100' },
+        { label: 'Total Revenue', value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`, icon: IndianRupee, color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+        { label: 'Pending', value: effectiveMetrics?.pendingOrders || 0, icon: Clock3, color: 'text-amber-600 bg-amber-50 border-amber-100' },
+        { label: 'Confirmed', value: effectiveMetrics?.confirmedOrders || 0, icon: CheckCircle2, color: 'text-purple-600 bg-purple-50 border-purple-100' }
+    ]), [effectiveMetrics]);
 
     return (
         <div className="animate-fade-in">
@@ -407,10 +872,43 @@ export default function Orders() {
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 md:flex md:items-center md:justify-between">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">Orders</h3>
-                    <div className="mt-3 md:mt-0 flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-                        <div className="relative w-full md:w-auto">
+                <div className="px-6 py-4 border-b border-gray-100 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
+                        {selectedRowKeys.length > 0 && (
+                            <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
+                                <span className="text-xs text-gray-500 whitespace-nowrap">{selectedRowKeys.length} selected</span>
+                                <select
+                                    value={bulkStatus}
+                                    onChange={(e) => setBulkStatus(e.target.value)}
+                                    className="px-2 py-1.5 rounded-md border border-gray-200 text-xs bg-white min-w-[120px]"
+                                >
+                                    <option value="pending">Pending</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="shipped">Shipped</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                                <button
+                                    type="button"
+                                    onClick={handleBulkStatusUpdate}
+                                    disabled={isBulkUpdating || selectedOrderRows.length === 0}
+                                    className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                >
+                                    {isBulkUpdating ? 'Updating...' : 'Update Status'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleBulkDelete}
+                                    disabled={isBulkDeleting || selectedDeletableRows.length === 0}
+                                    className="px-3 py-1.5 rounded-md border border-red-200 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                                >
+                                    {isBulkDeleting ? 'Deleting...' : 'Delete Selected'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full xl:w-auto">
+                        <div className="relative w-full md:w-auto order-1">
                             <Filter className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
                             <select
                                 value={draftStatusFilter}
@@ -423,18 +921,10 @@ export default function Orders() {
                                 <option value="shipped">Shipped</option>
                                 <option value="completed">Completed</option>
                                 <option value="cancelled">Cancelled</option>
+                                <option value="failed">Failed</option>
                             </select>
                         </div>
-                        <form onSubmit={handleSearch} className="relative w-full md:w-auto">
-                            <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
-                            <input
-                                placeholder="Search order / customer"
-                                className="w-full md:w-64 pl-9 pr-3 py-2.5 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none"
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                            />
-                        </form>
-                        <div className="relative w-full md:w-auto">
+                        <div className="relative w-full md:w-auto order-2 md:order-3">
                             <ArrowUpDown className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
                             <select
                                 value={sortBy}
@@ -450,8 +940,24 @@ export default function Orders() {
                                 <option value="amount_low">Amount: Low to High</option>
                             </select>
                         </div>
+                        <div className="relative w-full md:w-auto order-3 md:order-2">
+                            <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
+                            <input
+                                placeholder="Search order / customer"
+                                className="w-full md:w-64 pl-9 pr-3 py-2.5 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none"
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                            />
+                        </div>
                     </div>
                 </div>
+                {selectedNonDeletableCount > 0 && (
+                    <div className="px-6 pb-3">
+                        <span className="inline-flex text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
+                            {selectedNonDeletableCount} selected are paid and cannot be deleted
+                        </span>
+                    </div>
+                )}
                 {isLoading ? (
                     <div className="py-16 text-center text-gray-400">Loading orders...</div>
                 ) : orders.length === 0 ? (
@@ -462,11 +968,21 @@ export default function Orders() {
                             <table className="w-full text-left">
                                 <thead className="bg-gray-50 border-b border-gray-200">
                                     <tr>
+                                        <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-10">
+                                            <input
+                                                type="checkbox"
+                                                checked={allOnPageSelected}
+                                                onChange={(e) => toggleSelectAll(e.target.checked)}
+                                                className="rounded border-gray-300 text-primary focus:ring-primary"
+                                            />
+                                        </th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Order Ref</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Total</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Payment</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
@@ -475,8 +991,25 @@ export default function Orders() {
                                             ? getPendingDurationLabel(order.created_at)
                                             : '';
                                         return (
-                                        <tr key={order.id} onClick={() => openDetails(order.id)} className="hover:bg-gray-50/50 transition-colors cursor-pointer">
-                                            <td className="px-6 py-4 text-sm font-semibold text-gray-800">{order.order_ref}</td>
+                                        <tr
+                                            key={order.id}
+                                            onClick={() => openDetails(order)}
+                                            className={`transition-colors cursor-pointer ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50/50'}`}
+                                        >
+                                            <td className="px-4 py-4">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedRowKeys.includes(getRowKey(order))}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => toggleRowSelection(order, e.target.checked)}
+                                                    className="rounded border-gray-300 text-primary focus:ring-primary"
+                                                />
+                                            </td>
+                                            <td className="px-6 py-4 text-sm font-semibold text-gray-800">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{order.order_ref}</span>
+                                                </div>
+                                            </td>
                                             <td className="px-6 py-4 text-sm text-gray-700">
                                                 <div className="font-medium">{order.customer_name || 'Guest'}</div>
                                                 <div className="text-xs text-gray-400">{order.customer_mobile || '—'}</div>
@@ -484,12 +1017,23 @@ export default function Orders() {
                                             <td className="px-6 py-4 text-sm text-gray-600">{formatAdminDate(order.created_at)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</td>
                                             <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                                    String(order.payment_status || '').toLowerCase() === 'paid' ? 'bg-emerald-50 text-emerald-700' :
+                                                    ['failed', 'expired'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-red-100 text-red-700' :
+                                                    ['pending', 'created', 'attempted'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-amber-50 text-amber-700' :
+                                                    'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                    {getPaymentStatusLabel(order)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
                                                 <div className="flex items-center gap-2">
                                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                                         order.status === 'confirmed' ? 'bg-blue-50 text-blue-700' :
                                                         order.status === 'pending' ? 'bg-amber-50 text-amber-700' :
                                                         order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
                                                         order.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
+                                                        order.status === 'failed' ? 'bg-red-100 text-red-700' :
                                                         'bg-gray-100 text-gray-600'
                                                     }`}>
                                                         {order.status || 'pending'}
@@ -501,6 +1045,32 @@ export default function Orders() {
                                                     )}
                                                 </div>
                                             </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="inline-flex items-center gap-2">
+                                                    {canDownloadInvoice(order) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleDownloadInvoice(order, e)}
+                                                            disabled={downloadingInvoiceId === (order.order_id || order.id)}
+                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                                                            title="Download invoice"
+                                                        >
+                                                            <Download size={14} />
+                                                        </button>
+                                                    )}
+                                                    {canDeleteRow(order) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleDeleteOrder(e, order)}
+                                                            disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
+                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                            title="Delete order"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
                                         </tr>
                                     );})}
                                 </tbody>
@@ -509,14 +1079,23 @@ export default function Orders() {
 
                         <div className="md:hidden divide-y divide-gray-100">
                             {orders.map((order) => (
-                                <button
+                                <div
                                     key={order.id}
-                                    type="button"
-                                    onClick={() => openDetails(order.id)}
-                                    className="w-full text-left p-4 hover:bg-gray-50 transition-colors"
+                                    onClick={() => openDetails(order)}
+                                    className={`w-full text-left p-4 transition-colors relative ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
                                 >
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
+                                            <label className="inline-flex items-center gap-2 text-[11px] text-gray-500 font-semibold">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedRowKeys.includes(getRowKey(order))}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    onChange={(e) => toggleRowSelection(order, e.target.checked)}
+                                                    className="rounded border-gray-300 text-primary focus:ring-primary"
+                                                />
+                                                Select
+                                            </label>
                                             <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Order</p>
                                             <p className="text-sm font-semibold text-gray-800">{order.order_ref}</p>
                                             <p className="text-xs text-gray-500">{formatAdminDate(order.created_at)}</p>
@@ -525,18 +1104,51 @@ export default function Orders() {
                                             <p className="text-sm font-medium text-gray-700">{order.customer_name || 'Guest'}</p>
                                             <p className="text-xs text-gray-400">{order.customer_mobile || '—'}</p>
                                             <p className="text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</p>
+                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Payment</p>
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                                String(order.payment_status || '').toLowerCase() === 'paid' ? 'bg-emerald-50 text-emerald-700' :
+                                                ['failed', 'expired'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-red-100 text-red-700' :
+                                                ['pending', 'created', 'attempted'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-amber-50 text-amber-700' :
+                                                'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                {getPaymentStatusLabel(order)}
+                                            </span>
+                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Order Status</p>
                                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                                                 order.status === 'confirmed' ? 'bg-blue-50 text-blue-700' :
                                                 order.status === 'pending' ? 'bg-amber-50 text-amber-700' :
                                                 order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
                                                 order.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
+                                                order.status === 'failed' ? 'bg-red-100 text-red-700' :
                                                 'bg-gray-100 text-gray-600'
                                             }`}>
                                                 {order.status || 'pending'}
                                             </span>
                                         </div>
                                     </div>
-                                </button>
+                                    {canDeleteRow(order) && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleDeleteOrder(e, order)}
+                                            disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
+                                            className="absolute right-4 bottom-4 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                            title="Delete order"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
+                                    {canDownloadInvoice(order) && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleDownloadInvoice(order, e)}
+                                            disabled={downloadingInvoiceId === (order.order_id || order.id)}
+                                            className="absolute right-14 bottom-4 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                                            title="Download invoice"
+                                        >
+                                            <Download size={14} />
+                                        </button>
+                                    )}
+                                </div>
                             ))}
                         </div>
                     </>
@@ -552,6 +1164,19 @@ export default function Orders() {
                             >
                                 Previous
                             </button>
+                            {visiblePages.map((pageNo) => (
+                                <button
+                                    key={pageNo}
+                                    onClick={() => setPage(pageNo)}
+                                    className={`px-3 py-2 rounded-lg border text-sm font-semibold ${
+                                        pageNo === page
+                                            ? 'border-primary bg-primary text-accent'
+                                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {pageNo}
+                                </button>
+                            ))}
                             <button
                                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                 disabled={page === totalPages}
@@ -576,20 +1201,52 @@ export default function Orders() {
                                 <X size={18} />
                             </button>
                         </div>
-                        {isDetailsLoading || !selectedOrder ? (
+                        {!selectedOrder ? (
                             <div className="py-16 text-center text-gray-400">Loading order details...</div>
                         ) : (
                             <>
+                                {isDetailsLoading && (
+                                    <div className="mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 inline-flex items-center gap-1">
+                                        Refreshing latest details...
+                                    </div>
+                                )}
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <h3 className="text-lg font-semibold text-gray-900">{selectedOrder.order_ref}</h3>
                                         <p className="text-sm text-gray-500 mt-1">Placed on {formatAdminDate(selectedOrder.created_at)}</p>
+                                        <p className="text-xs text-gray-500 mt-1">Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
+                                        {detailsLastSyncedAt && (
+                                            <p className="text-[11px] text-gray-400 mt-1">
+                                                Last synced: {formatAdminDateTime(detailsLastSyncedAt)}
+                                            </p>
+                                        )}
                                     </div>
-                                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">
+                                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                                        selectedOrder.status === 'confirmed' ? 'text-blue-700 bg-blue-50' :
+                                        selectedOrder.status === 'pending' ? 'text-amber-700 bg-amber-50' :
+                                        selectedOrder.status === 'shipped' ? 'text-indigo-700 bg-indigo-50' :
+                                        selectedOrder.status === 'completed' ? 'text-emerald-700 bg-emerald-50' :
+                                        selectedOrder.status === 'failed' ? 'text-red-700 bg-red-100' :
+                                        'text-gray-600 bg-gray-100'
+                                    }`}>
                                         {selectedOrder.status || 'confirmed'}
                                     </span>
                                 </div>
+                                {canDownloadInvoice(selectedOrder) && (
+                                    <div className="mt-3 flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
+                                            disabled={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
+                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-60"
+                                        >
+                                            <Download size={14} />
+                                            {downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating...' : 'Download Invoice'}
+                                        </button>
+                                    </div>
+                                )}
 
+                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && (
                                 <div className="mt-4">
                                     <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
                                     <select
@@ -604,6 +1261,21 @@ export default function Orders() {
                                         <option value="completed">Completed</option>
                                         <option value="cancelled">Cancelled</option>
                                     </select>
+                                    {pendingStatus === 'cancelled' &&
+                                        isRazorpayPaidOrder(selectedOrder) &&
+                                        Boolean(selectedOrder?.razorpay_payment_id || selectedOrder?.razorpay_order_id) && (
+                                        <label className="mt-3 inline-flex items-start gap-2 text-xs text-gray-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={processRefundOnCancel}
+                                                onChange={(e) => setProcessRefundOnCancel(e.target.checked)}
+                                                className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary"
+                                            />
+                                            <span>
+                                                Process instant Razorpay refund (speed: optimum) while cancelling order.
+                                            </span>
+                                        </label>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={handleStatusUpdate}
@@ -618,6 +1290,12 @@ export default function Orders() {
                                         {isUpdatingStatus ? 'Updating...' : 'Update Status'}
                                     </button>
                                 </div>
+                                )}
+                                {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (
+                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                                        Refund has been initiated for this cancelled order. Status changes are locked.
+                                    </div>
+                                )}
 
                                 <div className="mt-5 grid grid-cols-1 gap-4">
                                     <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
@@ -634,17 +1312,79 @@ export default function Orders() {
                                             <p><span className="text-gray-500">Method:</span> {getPaymentMethodLabel(selectedOrder)}</p>
                                             <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
                                             <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
-                                            {getRefundAmount(selectedOrder) > 0 && (
+                                            <p><span className="text-gray-500">Invoice No:</span> <span className="font-mono text-xs">{getInvoiceNumber(selectedOrder)}</span></p>
+                                            {selectedOrder?.failure_reason && (
+                                                <p><span className="text-gray-500">Failure:</span> {selectedOrder.failure_reason}</p>
+                                            )}
+                                            {hasRefundInitiated(selectedOrder) && (
                                                 <>
-                                                    <p><span className="text-gray-500">Refund Amount:</span> ₹{getRefundAmount(selectedOrder).toLocaleString()}</p>
+                                                    <p><span className="text-gray-500">Refund Amount:</span> {getRefundAmount(selectedOrder) > 0 ? `₹${getRefundAmount(selectedOrder).toLocaleString()}` : '—'}</p>
                                                     <p><span className="text-gray-500">Refund Ref:</span> <span className="font-mono text-xs">{getRefundReference(selectedOrder) || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Refund Status:</span> {String(selectedOrder?.refund_status || '').trim() || '—'}</p>
                                                 </>
                                             )}
                                             {selectedOrder.status === 'pending' && (
                                                 <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>
                                             )}
+                                            {canFetchPaymentStatus(selectedOrder) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleFetchPaymentStatus({ reason: 'payment' })}
+                                                    disabled={isFetchingPaymentStatus}
+                                                    className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60"
+                                                >
+                                                    <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
+                                                    {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment / Settlement'}
+                                                </button>
+                                            )}
+                                            {canCheckRefundStatus(selectedOrder) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleFetchPaymentStatus({ reason: 'refund' })}
+                                                    disabled={isFetchingPaymentStatus}
+                                                    className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60"
+                                                >
+                                                    <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
+                                                    {isFetchingPaymentStatus ? 'Checking...' : 'Check Refund Status'}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
+                                    {!isAttemptEntry(selectedOrder) && (
+                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                            <p className="text-xs text-gray-400 font-semibold uppercase">Settlement Details</p>
+                                            {selectedOrder?.settlement_snapshot ? (
+                                                <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                    <p><span className="text-gray-500">Settlement ID:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.id || selectedOrder.settlement_id || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Status:</span> {selectedOrder.settlement_snapshot.status || '—'}</p>
+                                                    <p><span className="text-gray-500">Settlement Amount:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.amount)}</p>
+                                                    <p><span className="text-gray-500">Charges (Fees):</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.fees)}</p>
+                                                    <p><span className="text-gray-500">Tax:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.tax)}</p>
+                                                    <p><span className="text-gray-500">Net Credited:</span> {formatSettlementAmount(
+                                                        selectedOrder.settlement_snapshot.net_amount
+                                                        ?? (Number(selectedOrder.settlement_snapshot.amount || 0) - Number(selectedOrder.settlement_snapshot.fees || 0) - Number(selectedOrder.settlement_snapshot.tax || 0))
+                                                    )}</p>
+                                                    <p><span className="text-gray-500">UTR:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.utr || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Created At:</span> {selectedOrder.settlement_snapshot.created_at ? formatAdminDateTime(new Date(Number(selectedOrder.settlement_snapshot.created_at) * 1000).toISOString()) : '—'}</p>
+                                                </div>
+                                            ) : (
+                                                <p className="mt-2 text-sm text-gray-500">
+                                                    Settlement info is not available yet for this payment.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                    {!isAttemptEntry(selectedOrder) && (
+                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                            <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
+                                            <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                <p><span className="text-gray-500">Coupon:</span> {selectedOrder.coupon_code || '—'}</p>
+                                                <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
+                                                <p><span className="text-gray-500">Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || selectedOrder.discount_total || 0).toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Source:</span> {isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout')}</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden">
@@ -714,6 +1454,16 @@ export default function Orders() {
                     </div>
                 </div>
             )}
+            <Modal
+                isOpen={confirmModal.isOpen}
+                onClose={handleConfirmModalClose}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText}
+                onConfirm={handleConfirmAction}
+                isLoading={isConfirmProcessing}
+            />
         </div>
     );
 }

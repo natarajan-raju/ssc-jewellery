@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Check } from 'lucide-react';
 
 const isVariantInStock = (variant) => {
@@ -12,13 +12,42 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
 
     const variants = Array.isArray(product.variants) ? product.variants : [];
     const [selectedId, setSelectedId] = useState(variants[0]?.id || '');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [justAdded, setJustAdded] = useState(false);
+    const closeTimerRef = useRef(null);
 
     useEffect(() => {
         setSelectedId(variants[0]?.id || '');
+        setIsSubmitting(false);
+        setJustAdded(false);
+        if (closeTimerRef.current) {
+            clearTimeout(closeTimerRef.current);
+            closeTimerRef.current = null;
+        }
     }, [product?.id]);
+
+    useEffect(() => () => {
+        if (closeTimerRef.current) {
+            clearTimeout(closeTimerRef.current);
+        }
+    }, []);
 
     const selected = variants.find(v => String(v.id) === String(selectedId));
     const canAdd = selected ? isVariantInStock(selected) : true;
+
+    const handleConfirm = async () => {
+        if (!selected || !canAdd || isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            await onConfirm(selected);
+            setJustAdded(true);
+            closeTimerRef.current = setTimeout(() => {
+                onClose();
+            }, 1200);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -47,11 +76,22 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
                 </div>
 
                 <button
-                    onClick={() => onConfirm(selected)}
-                    disabled={!canAdd}
-                    className={`w-full mt-5 py-3 rounded-xl font-bold ${canAdd ? 'bg-primary text-accent hover:bg-primary-light' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                    onClick={handleConfirm}
+                    disabled={!canAdd || isSubmitting}
+                    className={`w-full mt-5 py-3 rounded-xl font-bold transition-colors ${
+                        !canAdd
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : justAdded
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-primary text-accent hover:bg-primary-light'
+                    }`}
                 >
-                    {canAdd ? 'Add to Cart' : 'Out of Stock'}
+                    {!canAdd ? 'Out of Stock' : justAdded ? (
+                        <span className="inline-flex items-center justify-center gap-2">
+                            <Check size={18} />
+                            Added
+                        </span>
+                    ) : 'Add to Cart'}
                 </button>
             </div>
         </div>

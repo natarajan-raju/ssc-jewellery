@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Instagram, Youtube, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
+import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
 import { productService } from '../services/productService';
 import { useAuth } from '../context/AuthContext';
 import logoLight from '../assets/logo_light.webp';
@@ -10,6 +10,17 @@ export default function Footer() {
     const { user } = useAuth();
     const { socket } = useSocket();
     const [categories, setCategories] = useState([]);
+    const [company, setCompany] = useState({
+        displayName: 'SSC Jewellery',
+        contactNumber: '',
+        supportEmail: '',
+        address: '',
+        instagramUrl: '',
+        youtubeUrl: '',
+        facebookUrl: '',
+        whatsappNumber: ''
+    });
+    const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
     const loadCategories = async () => {
         try {
@@ -20,25 +31,42 @@ export default function Footer() {
             setCategories([]);
         }
     };
+    const loadCompanyInfo = async () => {
+        try {
+            const res = await fetch(`${CMS_API_URL}/company-info`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.message || 'Failed to load company info');
+            const nextCompany = data?.company || {};
+            setCompany((prev) => ({ ...prev, ...nextCompany }));
+        } catch {}
+    };
 
     useEffect(() => {
         loadCategories();
+        loadCompanyInfo();
     }, []);
 
     useEffect(() => {
         if (!socket) return;
         const handleCategoryRefresh = () => loadCategories();
+        const handleCompanyRefresh = () => loadCompanyInfo();
         socket.on('refresh:categories', handleCategoryRefresh);
         socket.on('product:category_change', handleCategoryRefresh);
+        socket.on('company:info_update', handleCompanyRefresh);
         return () => {
             socket.off('refresh:categories', handleCategoryRefresh);
             socket.off('product:category_change', handleCategoryRefresh);
+            socket.off('company:info_update', handleCompanyRefresh);
         };
     }, [socket]);
 
     const categoryLinks = categories
         .filter(c => c?.name && Number(c.product_count) > 0)
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const whatsappLink = company.whatsappNumber
+        ? `https://wa.me/${String(company.whatsappNumber).replace(/\\D/g, '')}`
+        : '';
+    const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
 
     return (
         <footer className="bg-primary text-white mt-16">
@@ -49,17 +77,30 @@ export default function Footer() {
                         <p className="text-sm text-white/70">
                             Premium Impon jewellery crafted with care. Discover timeless designs and elegant collections.
                         </p>
-                        <div className="flex items-center gap-3">
-                            <a href="https://www.instagram.com/sreesaiimpon_jewelery_official" target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#E1306C] hover:bg-white/20 transition-colors">
-                                <Instagram size={18} />
-                            </a>
-                            <a href="https://youtube.com/@sreesaicollection8996" target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#FF0000] hover:bg-white/20 transition-colors">
-                                <Youtube size={18} />
-                            </a>
-                            <a href="https://wa.me/919500941350" target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#25D366] hover:bg-white/20 transition-colors">
-                                <MessageCircle size={18} />
-                            </a>
-                        </div>
+                        {hasSocial && (
+                            <div className="flex items-center gap-3">
+                                {company.instagramUrl && (
+                                    <a href={company.instagramUrl} target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#E1306C] hover:bg-white/20 transition-colors">
+                                        <Instagram size={18} />
+                                    </a>
+                                )}
+                                {company.youtubeUrl && (
+                                    <a href={company.youtubeUrl} target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#FF0000] hover:bg-white/20 transition-colors">
+                                        <Youtube size={18} />
+                                    </a>
+                                )}
+                                {company.facebookUrl && (
+                                    <a href={company.facebookUrl} target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:bg-white/20 transition-colors">
+                                        <Facebook size={18} />
+                                    </a>
+                                )}
+                                {whatsappLink && (
+                                    <a href={whatsappLink} target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#25D366] hover:bg-white/20 transition-colors">
+                                        <MessageCircle size={18} />
+                                    </a>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div>
@@ -119,20 +160,28 @@ export default function Footer() {
                 <div className="mt-10 border-t border-white/10 pt-8 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-white/70">
                     <div className="flex items-start gap-2">
                         <MapPin size={16} className="text-accent mt-0.5" />
-                        <span>Registered Address: 12/4, Market Road, Sivakasi, Tamil Nadu, India</span>
+                        <span>Registered Address: {company.address || 'Address not set'}</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <Mail size={16} className="text-accent" />
-                        <a href="mailto:support@sscimpon.com" className="text-white/60 hover:text-accent">support@sscimpon.com</a>
+                        {company.supportEmail ? (
+                            <a href={`mailto:${company.supportEmail}`} className="text-white/60 hover:text-accent">{company.supportEmail}</a>
+                        ) : (
+                            <span className="text-white/40">Email not set</span>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <Phone size={16} className="text-accent" />
-                        <a href="tel:+919500941350" className="text-white/60 hover:text-accent">+91 95009 41350</a>
+                        {company.contactNumber ? (
+                            <a href={`tel:${company.contactNumber}`} className="text-white/60 hover:text-accent">{company.contactNumber}</a>
+                        ) : (
+                            <span className="text-white/40">Phone not set</span>
+                        )}
                     </div>
                 </div>
             </div>
             <div className="bg-black/30 text-center text-xs text-white/60 py-4">
-                © {new Date().getFullYear()} SSC Jewellery. All rights reserved.
+                © {new Date().getFullYear()} {company.displayName || 'SSC Jewellery'}. All rights reserved.
             </div>
         </footer>
     );

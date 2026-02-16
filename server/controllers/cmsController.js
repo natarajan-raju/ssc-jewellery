@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const fs = require('fs');
 const path = require('path');
+const CompanyProfile = require('../models/CompanyProfile');
 
 const notifyClients = (req, event, payload = {}) => {
     const io = req.app.get('io');
@@ -90,6 +91,15 @@ const getFeaturedCategory = async (req, res) => {
         res.json(config);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch featured category' });
+    }
+};
+
+const getCompanyInfo = async (_req, res) => {
+    try {
+        const profile = await CompanyProfile.get();
+        res.json({ company: profile });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch company info' });
     }
 };
 
@@ -296,4 +306,4 @@ const updateSlide = async (req, res) => {
     }
 };
 
-module.exports = { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory, createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts, deleteSlide, reorderSlides, updateSlide };
+module.exports = { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, getCompanyInfo, createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory, createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts, deleteSlide, reorderSlides, updateSlide };

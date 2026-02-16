@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const AbandonedCart = require('./AbandonedCart');
+const CompanyProfile = require('./CompanyProfile');
 
 const buildOrderRef = () => {
     const now = new Date();
@@ -19,6 +21,19 @@ const normalizeAddress = (address) => {
     return address;
 };
 
+const parseJsonSafe = (value) => {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+
+const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
+const fromSubunits = (subunits) => Number(subunits || 0) / 100;
+
 const applyDefaultPending = (order) => {
     if (!order) return order;
     const status = order.status || '';
@@ -35,13 +50,18 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
     if (!shippingAddress || !shippingAddress.state) return 0;
     const [zones] = await connection.execute('SELECT * FROM shipping_zones');
     const [options] = await connection.execute('SELECT * FROM shipping_options');
-    const state = String(shippingAddress.state || '').trim().toLowerCase();
+    const normalizeStateKey = (value) => String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+    const state = normalizeStateKey(shippingAddress.state);
+    if (!state) return 0;
 
     const zone = zones.find((z) => {
         if (!z.states) return false;
         try {
             const states = JSON.parse(z.states || '[]');
-            return states.some((s) => String(s).trim().toLowerCase() === state);
+            return states.some((s) => normalizeStateKey(s) === state);
         } catch {
             return false;
         }
@@ -131,7 +151,21 @@ const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'all' } = {}) =
 };
 
 class Order {
-    static async getCheckoutSummary(userId, { shippingAddress } = {}) {
+    static async computeShippingFeeForSummary({
+        shippingAddress = null,
+        subtotal = 0,
+        totalWeightKg = 0
+    } = {}) {
+        if (!shippingAddress || !shippingAddress.state) return 0;
+        const connection = await db.getConnection();
+        try {
+            return await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async getCheckoutSummary(userId, { shippingAddress, couponCode = null } = {}) {
         const connection = await db.getConnection();
         try {
             const [cartRows] = await connection.execute(
@@ -176,7 +210,29 @@ class Order {
             }
 
             const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
-            const discountTotal = 0;
+            let discountTotal = 0;
+            let coupon = null;
+            if (couponCode) {
+                const discount = await AbandonedCart.getRedeemableDiscount({
+                    code: couponCode,
+                    userId,
+                    cartTotalSubunits: toSubunits(subtotal),
+                    connection
+                });
+                if (!discount) {
+                    throw new Error('Coupon is invalid or expired');
+                }
+                discountTotal = fromSubunits(discount.discountSubunits);
+                coupon = {
+                    id: discount.id,
+                    code: discount.code,
+                    type: discount.discount_type || 'percent',
+                    percent: Number(discount.discount_percent || 0),
+                    journeyId: discount.journey_id || null,
+                    discountSubunits: Number(discount.discountSubunits || 0)
+                };
+            }
+            if (discountTotal > subtotal) discountTotal = subtotal;
             const total = subtotal + shippingFee - discountTotal;
 
             return {
@@ -185,14 +241,22 @@ class Order {
                 shippingFee,
                 discountTotal,
                 total,
-                currency: 'INR'
+                currency: 'INR',
+                coupon
             };
         } finally {
             connection.release();
         }
     }
 
-    static async createFromCart(userId, { billingAddress, shippingAddress, payment = null, skipStockDeduction = false }) {
+    static async createFromCart(userId, {
+        billingAddress,
+        shippingAddress,
+        payment = null,
+        skipStockDeduction = false,
+        couponCode = null,
+        sourceChannel = null
+    }) {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
@@ -328,7 +392,29 @@ class Order {
             }
 
             const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
-            const discountTotal = 0;
+            let discountTotal = 0;
+            let coupon = null;
+            if (couponCode) {
+                const discount = await AbandonedCart.getRedeemableDiscount({
+                    code: couponCode,
+                    userId,
+                    cartTotalSubunits: toSubunits(subtotal),
+                    connection
+                });
+                if (!discount) {
+                    throw new Error('Coupon is invalid or expired');
+                }
+                discountTotal = fromSubunits(discount.discountSubunits);
+                coupon = {
+                    id: discount.id,
+                    code: discount.code,
+                    type: discount.discount_type || 'percent',
+                    percent: Number(discount.discount_percent || 0),
+                    journeyId: discount.journey_id || null,
+                    discountSubunits: Number(discount.discountSubunits || 0)
+                };
+            }
+            if (discountTotal > subtotal) discountTotal = subtotal;
             const total = subtotal + shippingFee - discountTotal;
             const orderRef = buildOrderRef();
             const paymentStatus = payment?.paymentStatus || 'created';
@@ -336,11 +422,20 @@ class Order {
             const razorpayOrderId = payment?.razorpayOrderId || null;
             const razorpayPaymentId = payment?.razorpayPaymentId || null;
             const razorpaySignature = payment?.razorpaySignature || null;
+            const settlementId = payment?.settlementId || null;
+            const settlementSnapshot = payment?.settlementSnapshot || null;
+            const couponMeta = coupon ? {
+                percent: coupon.percent || 0,
+                discountSubunits: coupon.discountSubunits || 0
+            } : null;
+            const isAbandonedRecovery = coupon?.journeyId ? 1 : 0;
+            const companyProfile = await CompanyProfile.get();
+            const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -350,17 +445,34 @@ class Order {
                     razorpayOrderId,
                     razorpayPaymentId,
                     razorpaySignature,
+                    coupon?.code || null,
+                    coupon?.type || null,
+                    discountTotal,
+                    couponMeta ? JSON.stringify(couponMeta) : null,
+                    sourceChannel ? String(sourceChannel).slice(0, 30) : null,
+                    isAbandonedRecovery,
+                    coupon?.journeyId || null,
                     subtotal,
                     shippingFee,
                     discountTotal,
                     total,
                     'INR',
                     JSON.stringify(billingAddress || null),
-                    JSON.stringify(shippingAddress || null)
+                    JSON.stringify(shippingAddress || null),
+                    JSON.stringify(companySnapshot),
+                    settlementId,
+                    settlementSnapshot ? JSON.stringify(settlementSnapshot) : null
                 ]
             );
 
             const orderId = orderResult.insertId;
+            if (coupon?.id) {
+                await AbandonedCart.markDiscountRedeemed({
+                    discountId: coupon.id,
+                    orderId,
+                    connection
+                });
+            }
             await connection.execute(
                 'INSERT INTO order_status_events (order_id, status) VALUES (?, ?)',
                 [orderId, 'confirmed']
@@ -405,10 +517,150 @@ class Order {
                 discountTotal,
                 total,
                 currency: 'INR',
+                couponCode: coupon?.code || null,
+                couponType: coupon?.type || null,
+                sourceChannel: sourceChannel || null,
+                isAbandonedRecovery: Boolean(isAbandonedRecovery),
+                abandonedJourneyId: coupon?.journeyId || null,
                 billingAddress: normalizeAddress(billingAddress),
                 shippingAddress: normalizeAddress(shippingAddress),
+                companySnapshot,
                 items: orderItems
             };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async createFromRecoveryJourney(userId, {
+        journey,
+        payment = null,
+        billingAddress = null,
+        shippingAddress = null,
+        orderRef = null,
+        shippingFeeOverrideSubunits = null
+    }) {
+        if (!userId) throw new Error('userId is required');
+        if (!journey?.id) throw new Error('journey is required');
+        const snapshotItems = Array.isArray(journey.cart_snapshot_json) ? journey.cart_snapshot_json : [];
+        if (!snapshotItems.length) throw new Error('Recovery snapshot is empty');
+
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const orderItems = snapshotItems.map((item) => {
+                const quantity = Math.max(1, Number(item?.quantity || 1));
+                const price = Number(item?.price || 0);
+                const lineTotal = Number(item?.lineTotal ?? (price * quantity));
+                return {
+                    productId: item?.productId || null,
+                    variantId: item?.variantId || '',
+                    title: item?.title || 'Item',
+                    variantTitle: item?.variantTitle || null,
+                    quantity,
+                    price,
+                    lineTotal,
+                    imageUrl: item?.imageUrl || item?.image_url || null,
+                    sku: item?.sku || null,
+                    snapshot: {
+                        ...item,
+                        quantity,
+                        unitPrice: price,
+                        lineTotal,
+                        capturedAt: new Date().toISOString()
+                    }
+                };
+            });
+
+            const subtotal = fromSubunits(Number(journey.cart_total_subunits || 0))
+                || orderItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+            const totalWeightKg = orderItems.reduce((sum, item) => {
+                const weight = Number(item?.snapshot?.weightKg || item?.weightKg || 0);
+                const qty = Number(item?.quantity || 0);
+                return sum + (weight * qty);
+            }, 0);
+            const shippingFee = shippingFeeOverrideSubunits != null
+                ? fromSubunits(Number(shippingFeeOverrideSubunits || 0))
+                : await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
+            const discountTotal = 0;
+            const total = subtotal + shippingFee - discountTotal;
+
+            const paymentStatus = payment?.paymentStatus || 'paid';
+            const paymentGateway = payment?.gateway || 'razorpay';
+            const razorpayOrderId = payment?.razorpayOrderId || null;
+            const razorpayPaymentId = payment?.razorpayPaymentId || null;
+            const settlementId = payment?.settlementId || null;
+            const settlementSnapshot = payment?.settlementSnapshot || null;
+            const finalOrderRef = orderRef || buildOrderRef();
+            const companyProfile = await CompanyProfile.get();
+            const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
+
+            const [orderResult] = await connection.execute(
+                `INSERT INTO orders
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    finalOrderRef,
+                    userId,
+                    'confirmed',
+                    paymentStatus,
+                    paymentGateway,
+                    razorpayOrderId,
+                    razorpayPaymentId,
+                    null,
+                    null,
+                    null,
+                    0,
+                    null,
+                    'abandoned_recovery',
+                    1,
+                    journey.id,
+                    subtotal,
+                    shippingFee,
+                    discountTotal,
+                    total,
+                    'INR',
+                    JSON.stringify(billingAddress || null),
+                    JSON.stringify(shippingAddress || null),
+                    JSON.stringify(companySnapshot),
+                    settlementId,
+                    settlementSnapshot ? JSON.stringify(settlementSnapshot) : null
+                ]
+            );
+
+            const orderId = orderResult.insertId;
+            await connection.execute(
+                'INSERT INTO order_status_events (order_id, status) VALUES (?, ?)',
+                [orderId, 'confirmed']
+            );
+
+            const values = orderItems.map((item) => ([
+                orderId,
+                item.productId,
+                item.variantId,
+                item.title,
+                item.variantTitle,
+                item.quantity,
+                item.price,
+                item.lineTotal,
+                item.imageUrl,
+                item.sku,
+                JSON.stringify(item.snapshot || null)
+            ]));
+            await connection.query(
+                `INSERT INTO order_items
+                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                VALUES ?`,
+                [values]
+            );
+
+            await connection.execute('DELETE FROM cart_items WHERE user_id = ?', [userId]);
+            await connection.commit();
+            return Order.getById(orderId);
         } catch (error) {
             await connection.rollback();
             throw error;
@@ -426,11 +678,39 @@ class Order {
         return Order.getById(rows[0].id);
     }
 
+    static async getByRazorpayPaymentId(razorpayPaymentId) {
+        const [rows] = await db.execute(
+            'SELECT id FROM orders WHERE razorpay_payment_id = ? ORDER BY id DESC LIMIT 1',
+            [razorpayPaymentId]
+        );
+        if (!rows.length) return null;
+        return Order.getById(rows[0].id);
+    }
+
+    static async getBySettlementId(settlementId, { limit = 100 } = {}) {
+        const ref = String(settlementId || '').trim();
+        if (!ref) return [];
+        const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+        const [rows] = await db.execute(
+            `SELECT id
+             FROM orders
+             WHERE settlement_id = ?
+             ORDER BY id DESC
+             LIMIT ?`,
+            [ref, safeLimit]
+        );
+        if (!rows.length) return [];
+        const orders = await Promise.all(rows.map((row) => Order.getById(row.id)));
+        return orders.filter(Boolean);
+    }
+
     static async updatePaymentByRazorpayOrderId({
         razorpayOrderId,
         paymentStatus,
         razorpayPaymentId = null,
         razorpaySignature = null,
+        settlementId = null,
+        settlementSnapshot = null,
         refundReference = null,
         refundAmount = null,
         refundStatus = null
@@ -441,12 +721,40 @@ class Order {
                  payment_gateway = 'razorpay',
                  razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
+                 settlement_id = COALESCE(?, settlement_id),
+                 settlement_snapshot = COALESCE(?, settlement_snapshot),
                  refund_reference = COALESCE(?, refund_reference),
                  refund_amount = COALESCE(?, refund_amount),
                  refund_status = COALESCE(?, refund_status),
                  updated_at = CURRENT_TIMESTAMP
              WHERE razorpay_order_id = ?`,
-            [paymentStatus, razorpayPaymentId, razorpaySignature, refundReference, refundAmount, refundStatus, razorpayOrderId]
+            [
+                paymentStatus,
+                razorpayPaymentId,
+                razorpaySignature,
+                settlementId,
+                settlementSnapshot ? JSON.stringify(settlementSnapshot) : null,
+                refundReference,
+                refundAmount,
+                refundStatus,
+                razorpayOrderId
+            ]
+        );
+        return Number(result?.affectedRows || 0);
+    }
+
+    static async updateSettlementByOrderId({
+        orderId,
+        settlementId = null,
+        settlementSnapshot = null
+    } = {}) {
+        const [result] = await db.execute(
+            `UPDATE orders
+             SET settlement_id = COALESCE(?, settlement_id),
+                 settlement_snapshot = COALESCE(?, settlement_snapshot),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [settlementId, settlementSnapshot ? JSON.stringify(settlementSnapshot) : null, orderId]
         );
         return Number(result?.affectedRows || 0);
     }
@@ -464,13 +772,172 @@ class Order {
         const safeLimit = Math.max(1, Number(limit) || 20);
         const safePage = Math.max(1, Number(page) || 1);
         const offset = (safePage - 1) * safeLimit;
-        const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange });
-        const orderBy = resolveAdminOrderSort({ sortBy, quickRange });
+        const latestLimit = quickRange === 'latest_10' ? 10 : null;
+        const includeAttemptRows = status === 'all' || status === 'failed';
+
+        const buildDateClause = (alias, params) => {
+            switch (quickRange) {
+                case 'last_7_days':
+                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
+                case 'last_1_month':
+                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`;
+                case 'last_1_year':
+                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)`;
+                default: {
+                    let clause = '';
+                    if (startDate) {
+                        clause += ` AND DATE(${alias}.created_at) >= ?`;
+                        params.push(startDate);
+                    }
+                    if (endDate) {
+                        clause += ` AND DATE(${alias}.created_at) <= ?`;
+                        params.push(endDate);
+                    }
+                    return clause;
+                }
+            }
+        };
+
+        const searchClauseForOrder = (params) => {
+            if (!search) return '';
+            const term = `%${search}%`;
+            params.push(term, term, term, term, term);
+            return ' AND (o.order_ref LIKE ? OR u.name LIKE ? OR u.mobile LIKE ? OR o.razorpay_order_id LIKE ? OR o.razorpay_payment_id LIKE ?)';
+        };
+
+        const searchClauseForAttempt = (params) => {
+            if (!search) return '';
+            const term = `%${search}%`;
+            params.push(term, term, term, term);
+            return ' AND (pa.razorpay_order_id LIKE ? OR pa.razorpay_payment_id LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)';
+        };
+
+        const orderParams = [];
+        let orderWhere = 'WHERE 1=1';
+        if (status && status !== 'all' && status !== 'failed') {
+            orderWhere += ' AND o.status = ?';
+            orderParams.push(status);
+        } else if (status === 'failed') {
+            orderWhere += " AND (o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed')";
+        }
+        orderWhere += searchClauseForOrder(orderParams);
+        orderWhere += buildDateClause('o', orderParams);
+
+        const attemptParams = [];
+        let attemptWhere = `WHERE pa.local_order_id IS NULL
+            AND pa.status IN ('failed', 'attempted', 'created', 'expired')
+            AND NOT EXISTS (
+                SELECT 1
+                FROM payment_attempts pa_success
+                WHERE pa_success.user_id = pa.user_id
+                  AND pa_success.created_at > pa.created_at
+                  AND (
+                    pa_success.local_order_id IS NOT NULL
+                    OR pa_success.status = 'paid'
+                  )
+            )
+            AND NOT (
+                pa.status = 'failed'
+                AND EXISTS (
+                    SELECT 1
+                    FROM payment_attempts pa_retry
+                    WHERE pa_retry.user_id = pa.user_id
+                      AND JSON_UNQUOTE(JSON_EXTRACT(pa_retry.notes, '$.retryOfAttemptId')) = CAST(pa.id AS CHAR)
+                      AND (
+                          pa_retry.local_order_id IS NOT NULL
+                          OR pa_retry.status = 'paid'
+                      )
+                )
+            )`;
+        attemptWhere += searchClauseForAttempt(attemptParams);
+        attemptWhere += buildDateClause('pa', attemptParams);
+
+        const unionSql = `
+            SELECT
+                CAST(o.id AS CHAR) as id,
+                'order' as entity_type,
+                o.id as order_id,
+                NULL as attempt_id,
+                o.order_ref,
+                o.user_id,
+                o.status,
+                o.payment_status,
+                o.payment_gateway,
+                o.razorpay_order_id,
+                o.razorpay_payment_id,
+                o.coupon_code,
+                o.coupon_type,
+                o.coupon_discount_value,
+                o.coupon_meta,
+                o.source_channel,
+                o.is_abandoned_recovery,
+                o.abandoned_journey_id,
+                o.refund_reference,
+                o.refund_amount,
+                o.refund_status,
+                o.subtotal,
+                o.shipping_fee,
+                o.discount_total,
+                o.total,
+                o.currency,
+                o.billing_address,
+                o.shipping_address,
+                o.created_at,
+                o.updated_at,
+                u.name as customer_name,
+                u.mobile as customer_mobile,
+                NULL as failure_reason
+            FROM orders o
+            LEFT JOIN users u ON u.id = o.user_id
+            ${orderWhere}
+            ${includeAttemptRows ? `
+            UNION ALL
+            SELECT
+                CONCAT('attempt_', pa.id) as id,
+                'attempt' as entity_type,
+                NULL as order_id,
+                pa.id as attempt_id,
+                CONCAT('PAY-', pa.razorpay_order_id) as order_ref,
+                pa.user_id,
+                'failed' as status,
+                pa.status as payment_status,
+                'razorpay' as payment_gateway,
+                pa.razorpay_order_id,
+                pa.razorpay_payment_id,
+                NULL as coupon_code,
+                NULL as coupon_type,
+                0 as coupon_discount_value,
+                NULL as coupon_meta,
+                NULL as source_channel,
+                0 as is_abandoned_recovery,
+                NULL as abandoned_journey_id,
+                NULL as refund_reference,
+                0 as refund_amount,
+                NULL as refund_status,
+                ROUND(pa.amount_subunits / 100, 2) as subtotal,
+                0 as shipping_fee,
+                0 as discount_total,
+                ROUND(pa.amount_subunits / 100, 2) as total,
+                pa.currency,
+                pa.billing_address,
+                pa.shipping_address,
+                pa.created_at,
+                pa.updated_at,
+                u.name as customer_name,
+                u.mobile as customer_mobile,
+                pa.failure_reason
+            FROM payment_attempts pa
+            LEFT JOIN users u ON u.id = pa.user_id
+            ${attemptWhere}` : ''}
+        `;
+
+        const queryParams = includeAttemptRows
+            ? [...orderParams, ...attemptParams]
+            : [...orderParams];
+
         const [countRows] = await db.execute(
-            `SELECT COUNT(*) as total FROM orders o
-             LEFT JOIN users u ON u.id = o.user_id
-             ${where}`,
-            params
+            `SELECT COUNT(*) as total FROM (${unionSql}) combined_rows`,
+            queryParams
         );
         const totalRaw = Number(countRows[0]?.total || 0);
         const total = latestLimit ? Math.min(totalRaw, latestLimit) : totalRaw;
@@ -487,33 +954,48 @@ class Order {
 
         if (latestLimit) {
             const [latestRows] = await db.execute(
-                `SELECT * FROM (
-                    SELECT o.*, u.name as customer_name, u.mobile as customer_mobile
-                    FROM orders o
-                    LEFT JOIN users u ON u.id = o.user_id
-                    ${where}
-                    ORDER BY o.created_at DESC
-                    LIMIT ${latestLimit}
-                 ) latest_orders
-                 ORDER BY latest_orders.created_at DESC
-                 LIMIT ? OFFSET ?`,
-                [...params, Number(queryLimit), Number(offset)]
+                `SELECT * FROM (${unionSql}) combined_rows
+                 ORDER BY created_at DESC
+                 LIMIT ${latestLimit}`,
+                queryParams
             );
-            rows = latestRows;
+            rows = latestRows.slice(offset, offset + queryLimit);
         } else {
+            const mappedOrderBy = (() => {
+                if (sortBy === 'amount_high') return 'total DESC, created_at DESC';
+                if (sortBy === 'amount_low') return 'total ASC, created_at DESC';
+                if (sortBy === 'oldest') return 'created_at ASC';
+                return 'created_at DESC';
+            })();
             const [normalRows] = await db.execute(
-                `SELECT o.*, u.name as customer_name, u.mobile as customer_mobile
-                 FROM orders o
-                 LEFT JOIN users u ON u.id = o.user_id
-                 ${where}
-                 ORDER BY ${orderBy}
+                `SELECT * FROM (${unionSql}) combined_rows
+                 ORDER BY ${mappedOrderBy}
                  LIMIT ? OFFSET ?`,
-                [...params, Number(queryLimit), Number(offset)]
+                [...queryParams, Number(queryLimit), Number(offset)]
             );
             rows = normalRows;
         }
 
-        const normalized = rows.map(applyDefaultPending);
+        const normalized = rows.map((row) => {
+            const base = {
+                ...row,
+                billing_address: normalizeAddress(row.billing_address),
+                shipping_address: normalizeAddress(row.shipping_address),
+                company_snapshot: parseJsonSafe(row.company_snapshot),
+                settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
+                coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
+                    ? (() => {
+                        try { return JSON.parse(row.coupon_meta); } catch { return null; }
+                    })()
+                    : row.coupon_meta || null,
+                items: [],
+                events: []
+            };
+            if (row.entity_type === 'attempt') {
+                return base;
+            }
+            return applyDefaultPending(base);
+        });
         return {
             orders: normalized,
             total,
@@ -553,6 +1035,13 @@ class Order {
             ...order,
             billing_address: normalizeAddress(order.billing_address),
             shipping_address: normalizeAddress(order.shipping_address),
+            company_snapshot: parseJsonSafe(order.company_snapshot),
+            settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
+            coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
+                ? (() => {
+                    try { return JSON.parse(order.coupon_meta); } catch { return null; }
+                })()
+                : order.coupon_meta || null,
             items: normalizedItems,
             events
         });
@@ -665,6 +1154,13 @@ class Order {
             ...order,
             billing_address: normalizeAddress(order.billing_address),
             shipping_address: normalizeAddress(order.shipping_address),
+            company_snapshot: parseJsonSafe(order.company_snapshot),
+            settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
+            coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
+                ? (() => {
+                    try { return JSON.parse(order.coupon_meta); } catch { return null; }
+                })()
+                : order.coupon_meta || null,
             items: itemsByOrder[order.id] || [],
             events: eventsByOrder[order.id] || []
         }));
@@ -684,8 +1180,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(scoped.total) as total_revenue,
-                    SUM(CASE WHEN scoped.status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN scoped.status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND DATE(scoped.created_at) < CURDATE()) THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN scoped.status = 'confirmed' AND DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
@@ -703,8 +1199,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(o.total) as total_revenue,
-                    SUM(CASE WHEN o.status = 'pending' THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN o.status = 'confirmed' THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND DATE(o.created_at) < CURDATE()) THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN o.status = 'confirmed' AND DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN o.total ELSE 0 END) as today_revenue
                  FROM orders o
@@ -732,6 +1228,11 @@ class Order {
         await db.execute('UPDATE orders SET status = ? WHERE id = ?', [status, orderId]);
         await db.execute('INSERT INTO order_status_events (order_id, status) VALUES (?, ?)', [orderId, status]);
         return true;
+    }
+
+    static async deleteById(orderId) {
+        const [result] = await db.execute('DELETE FROM orders WHERE id = ?', [orderId]);
+        return Number(result?.affectedRows || 0) > 0;
     }
 
     static async markStaleAsPending() {

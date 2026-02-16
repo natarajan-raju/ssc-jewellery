@@ -182,7 +182,6 @@ export const CartProvider = ({ children }) => {
     const closeQuickAdd = () => setQuickAddProduct(null);
     const handleQuickAddConfirm = async (variant) => {
         await addItem({ product: quickAddProduct, variant, quantity: 1 });
-        closeQuickAdd();
     };
 
     const isAdminRoute = location.pathname.startsWith('/admin');

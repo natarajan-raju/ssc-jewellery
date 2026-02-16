@@ -428,6 +428,14 @@ class PaymentAttempt {
             expiresAt
         });
     }
+
+    static async deleteById(id) {
+        const [result] = await db.execute(
+            'DELETE FROM payment_attempts WHERE id = ? AND local_order_id IS NULL',
+            [id]
+        );
+        return Number(result?.affectedRows || 0) > 0;
+    }
 }
 
 module.exports = { PaymentAttempt, PAYMENT_STATUS };
