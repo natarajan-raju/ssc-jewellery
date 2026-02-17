@@ -25,6 +25,7 @@ let abandonedCache = {
     journeys: {},
     timelines: {}
 };
+let loyaltyCouponCache = {};
 const ABANDONED_CACHE_TTL = 60 * 1000;
 
 // 2. ERROR HANDLER (The Fix for "Fake Success")
@@ -93,6 +94,18 @@ export const adminService = {
 
     getUserCart: async (userId) => {
         const res = await fetch(`${API_URL}/users/${userId}/cart`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    getUserActiveCoupons: async (userId) => {
+        const res = await fetch(`${API_URL}/users/${userId}/coupons/active`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    issueCouponToUser: async (userId, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${userId}/coupons`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
         return handleResponse(res);
     },
 
@@ -208,6 +221,28 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    getLoyaltyCoupons: async ({ page = 1, limit = 20, search = '', sourceType = 'all' } = {}) => {
+        const cacheKey = `${page}::${limit}::${search}::${sourceType}`;
+        const cached = loyaltyCouponCache[cacheKey];
+        if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
+            return cached.data;
+        }
+        const query = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}&search=${encodeURIComponent(search)}&sourceType=${encodeURIComponent(sourceType)}`;
+        const res = await fetch(`${API_URL}/loyalty/coupons${query}`, { headers: getAuthHeader() });
+        const data = await handleResponse(res);
+        loyaltyCouponCache[cacheKey] = { ts: Date.now(), data };
+        return data;
+    },
+    createLoyaltyCoupon: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/loyalty/coupons`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        const data = await handleResponse(res);
+        loyaltyCouponCache = {};
+        return data;
+    },
 
     patchAbandonedJourneyCache: (journey) => {
         if (!journey?.id) return;
@@ -260,5 +295,6 @@ export const adminService = {
             journeys: {},
             timelines: {}
         };
+        loyaltyCouponCache = {};
     }
 };
