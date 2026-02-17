@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, Sparkles, Ticket, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -7,6 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
 import { orderService } from '../services/orderService';
 import { useShipping } from '../context/ShippingContext';
+import { useSocket } from '../context/SocketContext';
 import logo from '../assets/logo.webp';
 import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
@@ -66,6 +67,7 @@ export default function Checkout() {
     const { user, loading, updateUser } = useAuth();
     const { items, subtotal, itemCount, clearCart } = useCart();
     const { zones } = useShipping();
+    const { socket } = useSocket();
     const toast = useToast();
     const navigate = useNavigate();
     const location = useLocation();
@@ -96,6 +98,25 @@ export default function Checkout() {
         const raw = new URLSearchParams(location.search).get('coupon');
         return String(raw || '').trim().toUpperCase();
     }, [location.search]);
+
+    const refreshAvailableCoupons = useCallback(async () => {
+        if (!user || itemCount <= 0) {
+            setAvailableCoupons([]);
+            return;
+        }
+        try {
+            const res = await orderService.getAvailableCoupons();
+            const nextCoupons = Array.isArray(res?.coupons) ? res.coupons : [];
+            setAvailableCoupons(nextCoupons);
+            if (appliedCoupon?.code && !nextCoupons.some((entry) => String(entry.code || '').toUpperCase() === String(appliedCoupon.code || '').toUpperCase())) {
+                setAppliedCoupon(null);
+                setCoupon('');
+                toast.info('Applied coupon is no longer available.');
+            }
+        } catch {
+            setAvailableCoupons([]);
+        }
+    }, [user, itemCount, appliedCoupon?.code, toast]);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -195,14 +216,21 @@ export default function Checkout() {
     }, [user, itemCount, form.address, appliedCoupon?.code, toast]);
 
     useEffect(() => {
-        if (!user || itemCount <= 0) {
-            setAvailableCoupons([]);
-            return;
-        }
-        orderService.getAvailableCoupons()
-            .then((res) => setAvailableCoupons(Array.isArray(res?.coupons) ? res.coupons : []))
-            .catch(() => setAvailableCoupons([]));
-    }, [user, itemCount, appliedCoupon?.code]);
+        refreshAvailableCoupons();
+    }, [refreshAvailableCoupons]);
+
+    useEffect(() => {
+        if (!socket || !user?.id) return undefined;
+        const handleCouponChanged = (payload = {}) => {
+            const affectedUserId = payload?.userId || null;
+            if (affectedUserId && String(affectedUserId) !== String(user.id)) return;
+            refreshAvailableCoupons();
+        };
+        socket.on('coupon:changed', handleCouponChanged);
+        return () => {
+            socket.off('coupon:changed', handleCouponChanged);
+        };
+    }, [socket, user?.id, refreshAvailableCoupons]);
 
     useEffect(() => {
         if (!orderResult?.id) {
@@ -773,21 +801,32 @@ export default function Checkout() {
                                 {availableCoupons.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Available Coupons</p>
-                                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
                                             {availableCoupons.map((entry) => (
                                                 <button
                                                     key={entry.id || entry.code}
                                                     type="button"
                                                     onClick={() => handleApplyAvailableCoupon(entry.code)}
-                                                    className={`text-left rounded-xl border px-3 py-2 transition-colors ${appliedCoupon?.code === entry.code ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'}`}
+                                                    className={`relative text-left rounded-xl border overflow-hidden transition-all ${appliedCoupon?.code === entry.code ? 'border-emerald-300 ring-2 ring-emerald-100' : 'border-gray-200 hover:border-primary/30'}`}
                                                 >
-                                                    <p className="text-sm font-semibold text-gray-800">{entry.code}</p>
-                                                    <p className="text-xs text-gray-500 mt-1">
-                                                        {entry.discountType === 'fixed'
-                                                            ? `₹${Number(entry.discountValue || 0).toLocaleString()} off`
-                                                            : `${Number(entry.discountValue || 0)}% off`}
-                                                        {entry.expiresAt ? ` • Expires ${new Date(entry.expiresAt).toLocaleDateString('en-IN')}` : ''}
-                                                    </p>
+                                                    <div className="grid grid-cols-[1fr_auto]">
+                                                        <div className="bg-primary text-accent px-3 py-3">
+                                                            <p className="text-[10px] uppercase tracking-wider opacity-80">Voucher Code</p>
+                                                            <p className="text-sm font-bold mt-1">{entry.code}</p>
+                                                        </div>
+                                                        <div className="bg-accent px-3 py-3 text-primary min-w-[132px] border-l border-dashed border-primary/30">
+                                                            <p className="text-[11px] font-bold">
+                                                                {entry.discountType === 'fixed'
+                                                                    ? `₹${Number(entry.discountValue || 0).toLocaleString('en-IN')} OFF`
+                                                                    : `${Number(entry.discountValue || 0)}% OFF`}
+                                                            </p>
+                                                            <p className="text-[11px] mt-1 text-primary/70">
+                                                                {entry.expiresAt ? `Expires ${new Date(entry.expiresAt).toLocaleDateString('en-IN')}` : 'No expiry'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <span style={{ left: 'calc(100% - 132px)' }} className="absolute top-0 -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200" />
+                                                    <span style={{ left: 'calc(100% - 132px)' }} className="absolute bottom-0 -translate-x-1/2 translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200" />
                                                 </button>
                                             ))}
                                         </div>

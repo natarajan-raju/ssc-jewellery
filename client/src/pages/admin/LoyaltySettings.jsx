@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Crown, Gem, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, X } from 'lucide-react';
+import { ArrowLeft, Crown, Gem, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, Trash2, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
 import { useToast } from '../../context/ToastContext';
+import { useSocket } from '../../context/SocketContext';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -72,6 +73,7 @@ const getDefaultCouponForm = () => ({
 
 export default function LoyaltySettings({ onBack }) {
     const toast = useToast();
+    const { socket } = useSocket();
     const [rows, setRows] = useState([]);
     const [activeTier, setActiveTier] = useState('regular');
     const [editingTier, setEditingTier] = useState(null);
@@ -87,6 +89,7 @@ export default function LoyaltySettings({ onBack }) {
     const [couponSearch, setCouponSearch] = useState('');
     const [couponLoading, setCouponLoading] = useState(false);
     const [couponCreating, setCouponCreating] = useState(false);
+    const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponRefreshKey, setCouponRefreshKey] = useState(0);
 
     useEffect(() => {
@@ -145,6 +148,18 @@ export default function LoyaltySettings({ onBack }) {
             });
         return () => { cancelled = true; };
     }, [couponPage, couponSearch, couponRefreshKey]);
+
+    useEffect(() => {
+        if (!socket) return undefined;
+        const handleCouponChanged = () => {
+            adminService.invalidateLoyaltyCouponCache();
+            setCouponRefreshKey((v) => v + 1);
+        };
+        socket.on('coupon:changed', handleCouponChanged);
+        return () => {
+            socket.off('coupon:changed', handleCouponChanged);
+        };
+    }, [socket]);
 
     const updateRow = (tier, patch) => {
         setRows((prev) => prev.map((row) => (row.tier === tier ? { ...row, ...patch } : row)));
@@ -218,6 +233,22 @@ export default function LoyaltySettings({ onBack }) {
             toast.error(error?.message || 'Failed to create coupon');
         } finally {
             setCouponCreating(false);
+        }
+    };
+
+    const handleDeleteCoupon = async (couponId) => {
+        const id = Number(couponId || 0);
+        if (!Number.isFinite(id) || id <= 0) return;
+        if (!window.confirm('Delete this coupon?')) return;
+        setCouponDeletingId(id);
+        try {
+            await adminService.deleteLoyaltyCoupon(id);
+            toast.success('Coupon deleted');
+            setCouponRefreshKey((v) => v + 1);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to delete coupon');
+        } finally {
+            setCouponDeletingId(null);
         }
     };
 
@@ -321,11 +352,12 @@ export default function LoyaltySettings({ onBack }) {
                                 <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Scope</th>
                                 <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Discount</th>
                                 <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Used</th>
+                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500 text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={5}>Loading coupons...</td></tr>}
-                            {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={5}>No coupons found.</td></tr>}
+                            {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={6}>Loading coupons...</td></tr>}
+                            {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={6}>No coupons found.</td></tr>}
                             {!couponLoading && couponList.map((cp) => (
                                 <tr key={cp.id}>
                                     <td className="px-3 py-2 font-semibold text-gray-800">{cp.code}</td>
@@ -333,6 +365,17 @@ export default function LoyaltySettings({ onBack }) {
                                     <td className="px-3 py-2 text-gray-600">{cp.scope_type}</td>
                                     <td className="px-3 py-2 text-gray-600">{cp.discount_type === 'fixed' ? `₹${Number(cp.discount_value || 0).toLocaleString('en-IN')}` : `${Number(cp.discount_value || 0)}%`}</td>
                                     <td className="px-3 py-2 text-gray-600">{Number(cp.used_count || 0)}</td>
+                                    <td className="px-3 py-2 text-right">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDeleteCoupon(cp.id)}
+                                            disabled={couponDeletingId === cp.id}
+                                            className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                            title="Delete Coupon"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

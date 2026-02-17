@@ -243,6 +243,18 @@ export const adminService = {
         loyaltyCouponCache = {};
         return data;
     },
+    deleteLoyaltyCoupon: async (couponId) => {
+        const res = await fetch(`${API_URL}/loyalty/coupons/${couponId}`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        const data = await handleResponse(res);
+        loyaltyCouponCache = {};
+        return data;
+    },
+    invalidateLoyaltyCouponCache: () => {
+        loyaltyCouponCache = {};
+    },
 
     patchAbandonedJourneyCache: (journey) => {
         if (!journey?.id) return;
