@@ -17,6 +17,7 @@ import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate } from '../../utils/dateFormat';
+import customerIllustration from '../../assets/customer.svg';
 
 const CUSTOMER_PAGE_SIZE = 20;
 const getTodayDateInput = () => {
@@ -50,6 +51,8 @@ const isBirthdayToday = (dob) => {
     const now = new Date();
     return Number(month) === now.getMonth() + 1 && Number(day) === now.getDate();
 };
+
+const tierLabel = (tier = 'regular') => (String(tier).toLowerCase() === 'regular' ? 'Basic' : String(tier));
 
 export default function Customers({ onOpenLoyalty }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
@@ -380,7 +383,7 @@ export default function Customers({ onOpenLoyalty }) {
                             <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
                             <p className="text-sm text-gray-500 mt-1">{selectedUser.email || '—'}</p>
                             <p className="text-sm text-gray-500">{selectedUser.mobile || '—'}</p>
-                            <p className="text-xs text-gray-400 mt-2">Tier: {String(selectedUser.loyaltyTier || 'regular').toUpperCase()}</p>
+                            <p className="text-xs text-gray-400 mt-2">Tier: {tierLabel(selectedUser.loyaltyTier || 'regular').toUpperCase()}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="p-4 rounded-xl border border-gray-200 bg-white"><p className="text-xs text-gray-400 font-bold uppercase">Overall Volume</p><p className="text-lg font-bold text-gray-800 mt-1">₹{Number(selectedUser.totalSpend || 0).toLocaleString('en-IN')}</p></div>
@@ -432,7 +435,7 @@ export default function Customers({ onOpenLoyalty }) {
                     </button>
                     <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} className="px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none">
                         <option value="all">All Tiers</option>
-                        <option value="regular">Regular</option>
+                        <option value="regular">Basic</option>
                         <option value="bronze">Bronze</option>
                         <option value="silver">Silver</option>
                         <option value="gold">Gold</option>
@@ -472,6 +475,7 @@ export default function Customers({ onOpenLoyalty }) {
                                 {paginatedCustomersOnly.map((user) => {
                                     const waLink = getWhatsappLink(user.mobile);
                                     const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
+                                    const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                     return (
                                         <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''}`}>
                                             <td className="px-6 py-4">
@@ -480,7 +484,13 @@ export default function Customers({ onOpenLoyalty }) {
                                                     <span className="font-medium text-gray-900">{user.name}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 uppercase">{String(user.loyaltyTier || 'regular')}</span></td>
+                                            <td className="px-6 py-4">
+                                                {isBasicTier ? (
+                                                    <span className="text-xs text-gray-400">-</span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 uppercase">{String(user.loyaltyTier || 'regular')}</span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4">
                                                 <div className="text-sm text-gray-900">{user.email || '—'}</div>
                                                 <div className="text-xs text-gray-500">{user.mobile || '—'}</div>
@@ -503,6 +513,17 @@ export default function Customers({ onOpenLoyalty }) {
                                         </tr>
                                     );
                                 })}
+                                {paginatedCustomersOnly.length === 0 && (
+                                    <tr>
+                                        <td colSpan={4} className="px-6 py-10">
+                                            <div className="flex flex-col items-center justify-center text-center">
+                                                <img src={customerIllustration} alt="No customers" className="w-40 h-40 object-contain opacity-80" />
+                                                <p className="mt-3 text-sm font-semibold text-gray-700">No customers found</p>
+                                                <p className="text-xs text-gray-500 mt-1">Try changing filters or search to view matching customers.</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>

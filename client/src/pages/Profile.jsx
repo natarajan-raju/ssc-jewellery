@@ -242,6 +242,8 @@ export default function Profile() {
     const dobLocked = !!user.dobLocked;
     const tier = String(loyaltyStatus?.tier || user?.loyaltyTier || 'regular').toLowerCase();
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
+    const rawTierLabel = String(loyaltyStatus?.profile?.label || (tier === 'regular' ? 'Basic' : tier));
+    const tierLabel = rawTierLabel.toLowerCase() === 'regular' ? 'Basic' : rawTierLabel;
     const progressPct = Number(loyaltyStatus?.progress?.progressPct || 0);
 
     return (
@@ -250,9 +252,11 @@ export default function Profile() {
                 <div className="flex flex-col lg:flex-row gap-8">
                     <div className="lg:w-1/3 space-y-6">
                         <div className={`relative bg-white rounded-2xl shadow-xl border-2 ${tierTheme.profileBorder} p-6 overflow-hidden`}>
-                            <span className={`absolute top-0 right-0 px-3 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] rounded-bl-xl ${tierTheme.profileRibbon}`}>
-                                {(loyaltyStatus?.profile?.label || tier)}
-                            </span>
+                            {tier !== 'regular' && (
+                                <span className={`absolute top-0 right-0 px-3 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] rounded-bl-xl ${tierTheme.profileRibbon}`}>
+                                    {tierLabel}
+                                </span>
+                            )}
                             <div className="flex items-start gap-4">
                                 <div className="relative">
                                     <div className={`w-20 h-20 rounded-2xl bg-gray-100 border-2 ${tierTheme.profileImageBorder} overflow-hidden flex items-center justify-center`}>
@@ -294,7 +298,7 @@ export default function Profile() {
                                 <p className={`!mb-0 text-xs uppercase tracking-[0.3em] font-semibold ${tierTheme.caption}`}>Member Perks</p>
                             </div>
                             <p className={`!mb-0 text-lg font-semibold mt-3 ${tierTheme.title}`}>
-                                {loyaltyStatus?.profile?.label || 'Regular'} tier active.
+                                {tierLabel} tier active.
                             </p>
                             <p className={`!mb-0 text-sm mt-2 ${tierTheme.body}`}>
                                 {loyaltyStatus?.progress?.message || 'Keep your profile updated to receive curated offers.'}
@@ -362,9 +366,11 @@ export default function Profile() {
                                         <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5">
                                             <div className="flex items-center justify-between gap-3">
                                                 <p className="text-sm font-semibold text-gray-800">Current Benefits</p>
-                                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.chip}`}>
-                                                    {(loyaltyStatus?.profile?.label || tier).toUpperCase()}
-                                                </span>
+                                                {tier !== 'regular' && (
+                                                    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.chip}`}>
+                                                        {tierLabel.toUpperCase()}
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="mt-3 space-y-2">
                                                 {(loyaltyStatus?.profile?.benefits || ['Standard pricing', 'Progress tracking']).map((benefit) => (

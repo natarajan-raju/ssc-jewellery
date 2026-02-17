@@ -55,10 +55,10 @@ class User {
         let query = `SELECT u.*,
             COALESCE(ul.tier, 'regular') as loyalty_tier,
             (SELECT COUNT(*) FROM cart_items ci WHERE ci.user_id = u.id) as cart_count,
-            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as total_orders,
-            (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as total_spend,
-            (SELECT COALESCE(AVG(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as avg_order_value,
-            (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as last_order_at,
+            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as total_orders,
+            (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as total_spend,
+            (SELECT COALESCE(AVG(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as avg_order_value,
+            (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as last_order_at,
             (
                 SELECT COUNT(*)
                 FROM coupons c

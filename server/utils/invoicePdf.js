@@ -42,7 +42,7 @@ const getTierTheme = (tier) => {
     if (t === 'gold') return { label: 'Gold', color: '#CA8A04' };
     if (t === 'silver') return { label: 'Silver', color: '#6B7280' };
     if (t === 'bronze') return { label: 'Bronze', color: '#B45309' };
-    return { label: 'Regular', color: '#4B5563' };
+    return { label: 'Basic', color: '#4B5563' };
 };
 
 const normalizeAddressLines = (address) => {

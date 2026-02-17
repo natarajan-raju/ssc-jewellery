@@ -989,7 +989,7 @@ export default function Checkout() {
                             )}
                             {Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0) > 0 && (
                                 <div className="flex items-center justify-between text-sm mt-2">
-                                    <span className="text-gray-500">Member Discount ({String(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular').toUpperCase()})</span>
+                                    <span className="text-gray-500">Member Discount ({String(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular').toLowerCase() === 'regular' ? 'BASIC' : String(orderResult.loyalty_tier || orderResult.loyaltyTier || '').toUpperCase()})</span>
                                     <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0).toLocaleString()}</span>
                                 </div>
                             )}

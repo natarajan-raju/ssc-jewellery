@@ -7,7 +7,7 @@ const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
 const DEFAULT_LOYALTY_CONFIG = {
     regular: {
-        label: 'Regular',
+        label: 'Basic',
         color: '#4B5563',
         threshold: 0,
         windowDays: 30,
@@ -110,7 +110,6 @@ const buildBenefitsFromValues = (tier, config = {}) => {
     const shippingDiscountPct = toMoney(config.shippingDiscountPct ?? 0);
     const birthdayDiscountPct = toMoney(config.birthdayDiscountPct ?? 10);
     const abandonedCartBoostPct = toMoney(config.abandonedCartBoostPct ?? 0);
-    const priorityWeight = Number(config.priorityWeight ?? 0);
     const shippingPriority = normalizeShippingPriority(config.shippingPriority || 'standard');
     const shippingPriorityLabel = {
         standard: 'Standard dispatch queue',
@@ -119,9 +118,7 @@ const buildBenefitsFromValues = (tier, config = {}) => {
         higher: 'Higher dispatch priority',
         highest: 'Highest dispatch priority'
     }[shippingPriority];
-    const priorityLine = priorityWeight > 0
-        ? `${shippingPriorityLabel} (weight ${priorityWeight})`
-        : shippingPriorityLabel;
+    const priorityLine = shippingPriorityLabel;
     return [
         `${extraDiscountPct}% extra member discount`,
         `${shippingDiscountPct}% shipping fee discount`,
@@ -245,7 +242,8 @@ const getUserSpendWindows = async (userId, connection = db) => {
          FROM orders
          WHERE user_id = ?
            AND LOWER(COALESCE(payment_status, '')) = 'paid'
-           AND LOWER(COALESCE(status, '')) <> 'cancelled'`,
+           AND LOWER(COALESCE(payment_status, '')) NOT IN ('refunded', 'failed')
+           AND LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'refunded')`,
         [userId]
     );
     const row = rows[0] || {};
@@ -337,8 +335,8 @@ const sendMonthlyStatusSummaryMail = async ({ user, status }) => {
     await sendEmailCommunication({
         to: user.email,
         subject: `Your Monthly Membership Summary`,
-        text: `Current tier: ${status?.profile?.label || status?.tier || 'Regular'}. ${status?.progress?.message || ''}`,
-        html: `<p>Hi ${user.name || 'Customer'},</p><p>Current tier: <strong>${status?.profile?.label || status?.tier || 'Regular'}</strong>.</p><p>${status?.progress?.message || ''}</p>`
+        text: `Current tier: ${status?.profile?.label || status?.tier || 'Basic'}. ${status?.progress?.message || ''}`,
+        html: `<p>Hi ${user.name || 'Customer'},</p><p>Current tier: <strong>${status?.profile?.label || status?.tier || 'Basic'}</strong>.</p><p>${status?.progress?.message || ''}</p>`
     });
 };
 
@@ -461,7 +459,7 @@ const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => 
         coupon = existingRows[0];
     } else {
         const status = await getUserLoyaltyStatus(user.id);
-        const tierLabel = status?.profile?.label || 'Regular';
+        const tierLabel = status?.profile?.label || 'Basic';
         const birthdayDiscountPct = Number(status?.profile?.birthdayDiscountPct ?? 10);
         coupon = await Coupon.createCoupon({
             prefix: 'BDAY',

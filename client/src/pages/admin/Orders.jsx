@@ -105,6 +105,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     };
     const getTierLabel = (order) => {
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
+        if (tier === 'regular') return 'Basic';
         return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
     };
     const getTierBadgeClasses = (order) => {

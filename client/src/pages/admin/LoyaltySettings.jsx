@@ -5,6 +5,7 @@ import { productService } from '../../services/productService';
 import { useToast } from '../../context/ToastContext';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
+
 const getTodayDateInput = () => {
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -15,6 +16,19 @@ const toNumber = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
 };
+
+const shippingPriorityLabel = (value = 'standard') => {
+    const map = {
+        standard: 'Standard',
+        standard_plus: 'Standard+',
+        high: 'High',
+        higher: 'Higher',
+        highest: 'Highest'
+    };
+    return map[String(value || '').toLowerCase()] || 'Standard';
+};
+
+const tierLabel = (tier = 'regular') => (String(tier).toLowerCase() === 'regular' ? 'Basic' : String(tier));
 
 const SHIPPING_PRIORITY_OPTIONS = [
     { value: 'standard', label: 'Standard' },
@@ -35,15 +49,26 @@ const TIER_STYLE = {
 const buildBenefitsPreview = (row) => {
     const tier = String(row?.tier || 'regular').toLowerCase();
     if (tier === 'regular') return ['Standard pricing', 'Standard shipping', 'Progress tracking to next tier'];
-    const shipping = SHIPPING_PRIORITY_OPTIONS.find((entry) => entry.value === row.shippingPriority);
     return [
         `${toNumber(row.extraDiscountPct)}% extra member discount`,
         `${toNumber(row.shippingDiscountPct)}% shipping fee discount`,
         `${toNumber(row.birthdayDiscountPct ?? 10)}% birthday coupon offer`,
         `${toNumber(row.abandonedCartBoostPct)}% abandoned cart offer boost`,
-        `${shipping?.label || 'Standard'} dispatch priority (weight ${toNumber(row.priorityWeight)})`
+        `${shippingPriorityLabel(row.shippingPriority)} dispatch priority`
     ];
 };
+
+const getDefaultCouponForm = () => ({
+    name: '',
+    scopeType: 'generic',
+    discountType: 'percent',
+    discountValue: 5,
+    usageLimitPerUser: 1,
+    tierScope: 'regular',
+    categoryIds: [],
+    startsAt: getTodayDateInput(),
+    expiresAt: ''
+});
 
 export default function LoyaltySettings({ onBack }) {
     const toast = useToast();
@@ -53,17 +78,8 @@ export default function LoyaltySettings({ onBack }) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
-    const [couponForm, setCouponForm] = useState({
-        name: '',
-        scopeType: 'generic',
-        discountType: 'percent',
-        discountValue: 5,
-        usageLimitPerUser: 1,
-        tierScope: 'regular',
-        categoryIds: [],
-        startsAt: getTodayDateInput(),
-        expiresAt: ''
-    });
+    const [couponForm, setCouponForm] = useState(getDefaultCouponForm());
+    const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
     const [categories, setCategories] = useState([]);
     const [couponList, setCouponList] = useState([]);
     const [couponPage, setCouponPage] = useState(1);
@@ -77,16 +93,17 @@ export default function LoyaltySettings({ onBack }) {
         let cancelled = false;
         Promise.all([
             adminService.getLoyaltyConfig(),
-            productService.getCategories().catch(() => [])
+            productService.getCategories().catch(() => ({ categories: [] }))
         ]).then(([data, cats]) => {
             if (cancelled) return;
             const config = Array.isArray(data?.config) ? data.config : [];
             const byTier = Object.fromEntries(config.map((item) => [String(item.tier || '').toLowerCase(), item]));
             setRows(ORDER.map((tier) => {
                 const item = byTier[tier] || {};
+                const rowLabel = String(item.label || tierLabel(tier));
                 return {
                     tier,
-                    label: item.label || tier,
+                    label: rowLabel.toLowerCase() === 'regular' ? 'Basic' : rowLabel,
                     threshold: toNumber(item.threshold),
                     windowDays: toNumber(item.windowDays, 30),
                     extraDiscountPct: toNumber(item.extraDiscountPct),
@@ -98,7 +115,11 @@ export default function LoyaltySettings({ onBack }) {
                     benefits: Array.isArray(item.benefits) ? item.benefits : buildBenefitsPreview({ ...item, tier })
                 };
             }));
-            setCategories(Array.isArray(cats) ? cats : []);
+
+            const categoryRows = Array.isArray(cats)
+                ? cats
+                : (Array.isArray(cats?.categories) ? cats.categories : []);
+            setCategories(categoryRows);
         }).catch((error) => {
             toast.error(error?.message || 'Failed to load loyalty settings');
         }).finally(() => {
@@ -165,6 +186,41 @@ export default function LoyaltySettings({ onBack }) {
         }
     };
 
+    const handleIssueCoupon = async () => {
+        if (!couponForm.startsAt) {
+            toast.error('Start date is required');
+            return;
+        }
+        if (couponForm.expiresAt && couponForm.expiresAt < couponForm.startsAt) {
+            toast.error('End date must be on or after start date');
+            return;
+        }
+        setCouponCreating(true);
+        try {
+            const payload = {
+                name: couponForm.name || 'Admin Coupon',
+                scopeType: couponForm.scopeType,
+                discountType: couponForm.discountType,
+                discountValue: Number(couponForm.discountValue || 0),
+                usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
+                tierScope: couponForm.scopeType === 'tier' ? couponForm.tierScope : undefined,
+                categoryIds: couponForm.scopeType === 'category' ? couponForm.categoryIds : [],
+                startsAt: new Date(`${couponForm.startsAt}T00:00:00`).toISOString(),
+                expiresAt: couponForm.expiresAt ? new Date(`${couponForm.expiresAt}T23:59:59`).toISOString() : null,
+                sourceType: 'admin'
+            };
+            const res = await adminService.createLoyaltyCoupon(payload);
+            toast.success(`Coupon created: ${res?.coupon?.code || ''}`);
+            setCouponRefreshKey((v) => v + 1);
+            setCouponForm(getDefaultCouponForm());
+            setIsCouponModalOpen(false);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to create coupon');
+        } finally {
+            setCouponCreating(false);
+        }
+    };
+
     if (loading) return <div className="py-16 text-center text-gray-400">Loading loyalty settings...</div>;
 
     const style = TIER_STYLE[activeRow?.tier || 'regular'] || TIER_STYLE.regular;
@@ -191,7 +247,7 @@ export default function LoyaltySettings({ onBack }) {
                             onClick={() => setActiveTier(tier)}
                             className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${activeTier === tier ? 'bg-primary text-accent border-primary' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                         >
-                            {tier.toUpperCase()}
+                            {tierLabel(tier).toUpperCase()}
                         </button>
                     ))}
                 </div>
@@ -221,15 +277,15 @@ export default function LoyaltySettings({ onBack }) {
                     </div>
                     <div className={`mt-3 rounded-xl border px-3 py-2 ${style.stat}`}>
                         <p className="text-[11px] uppercase tracking-wider opacity-70">Shipping Priority</p>
-                        <p className="text-lg font-bold mt-1">{activeRow.shippingPriority} (weight {toNumber(activeRow.priorityWeight)})</p>
+                        <p className="text-lg font-bold mt-1">{shippingPriorityLabel(activeRow.shippingPriority)}</p>
                     </div>
                     <div className={`mt-3 rounded-xl border p-3 ${style.stat}`}>
                         <p className="text-[11px] uppercase tracking-wider opacity-70">Benefit Preview</p>
-                        <div className="mt-2 space-y-1">
+                        <ul className="mt-2 space-y-2">
                             {(activeRow.benefits?.length ? activeRow.benefits : buildBenefitsPreview(activeRow)).map((line) => (
-                                <p key={line} className="text-sm">- {line}</p>
+                                <li key={line} className="text-sm leading-6">- {line}</li>
                             ))}
-                        </div>
+                        </ul>
                     </div>
                     <TierIcon size={82} className="absolute right-4 bottom-4 opacity-20" />
                 </div>
@@ -238,116 +294,23 @@ export default function LoyaltySettings({ onBack }) {
             <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
                 <div className="flex items-center justify-between gap-3">
                     <h3 className="text-lg font-semibold text-gray-800">Coupon Module</h3>
-                    <div className="relative w-full max-w-xs">
-                        <Search size={14} className="absolute left-3 top-3 text-gray-400" />
-                        <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field pl-8 py-2.5" />
+                    <div className="flex items-center gap-2 w-full justify-end">
+                        <div className="relative w-full max-w-xs">
+                            <Search size={14} className="absolute left-3 top-3 text-gray-400" />
+                            <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field pl-8 py-2.5" />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setCouponForm(getDefaultCouponForm());
+                                setIsCouponModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
+                        >
+                            <Plus size={14} /> Issue New Coupon
+                        </button>
                     </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <label className="text-xs text-gray-600">
-                        Coupon Name
-                        <input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} />
-                    </label>
-                    <label className="text-xs text-gray-600">
-                        Coupon Scope
-                        <select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}>
-                            <option value="generic">Generic</option>
-                            <option value="category">Category specific</option>
-                            <option value="tier">Tier specific</option>
-                        </select>
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                        <label className="text-xs text-gray-600">
-                            Discount Type
-                            <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
-                                <option value="percent">Percent</option>
-                                <option value="fixed">Fixed INR</option>
-                            </select>
-                        </label>
-                        <label className="text-xs text-gray-600">
-                            Discount Value
-                            <input className="input-field mt-1" type="number" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
-                        </label>
-                    </div>
-                    <label className="text-xs text-gray-600">
-                        Usage Limit Per User
-                        <input className="input-field mt-1" type="number" placeholder="Per-user usage" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} />
-                    </label>
-                    <label className="text-xs text-gray-600">
-                        Start Date <span className="text-red-500">*</span>
-                        <input className="input-field mt-1" type="date" value={couponForm.startsAt} onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))} />
-                    </label>
-                    <label className="text-xs text-gray-600">
-                        End Date (Optional)
-                        <input className="input-field mt-1" type="date" value={couponForm.expiresAt} min={couponForm.startsAt || undefined} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} />
-                    </label>
-                    {couponForm.scopeType === 'tier' && (
-                        <label className="text-xs text-gray-600">
-                            Tier Scope
-                            <select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>
-                                {ORDER.map((tier) => <option key={tier} value={tier}>{tier.toUpperCase()}</option>)}
-                            </select>
-                        </label>
-                    )}
-                    {couponForm.scopeType === 'category' && (
-                        <label className="text-xs text-gray-600 md:col-span-2">
-                            Category Scope (Multi-select)
-                            <select
-                                multiple
-                                className="input-field mt-1 min-h-[110px]"
-                                value={couponForm.categoryIds.map(String)}
-                                onChange={(e) => {
-                                    const selected = Array.from(e.target.selectedOptions).map((op) => Number(op.value)).filter((n) => Number.isFinite(n) && n > 0);
-                                    setCouponForm((p) => ({ ...p, categoryIds: selected }));
-                                }}
-                            >
-                                {categories.map((cat) => (
-                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                ))}
-                            </select>
-                        </label>
-                    )}
-                    <button
-                        type="button"
-                        onClick={async () => {
-                            if (!couponForm.startsAt) {
-                                toast.error('Start date is required');
-                                return;
-                            }
-                            if (couponForm.expiresAt && couponForm.expiresAt < couponForm.startsAt) {
-                                toast.error('End date must be on or after start date');
-                                return;
-                            }
-                            setCouponCreating(true);
-                            try {
-                                const payload = {
-                                    name: couponForm.name || 'Admin Coupon',
-                                    scopeType: couponForm.scopeType,
-                                    discountType: couponForm.discountType,
-                                    discountValue: Number(couponForm.discountValue || 0),
-                                    usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
-                                    tierScope: couponForm.scopeType === 'tier' ? couponForm.tierScope : undefined,
-                                    categoryIds: couponForm.scopeType === 'category' ? couponForm.categoryIds : [],
-                                    startsAt: new Date(`${couponForm.startsAt}T00:00:00`).toISOString(),
-                                    expiresAt: couponForm.expiresAt ? new Date(`${couponForm.expiresAt}T23:59:59`).toISOString() : null,
-                                    sourceType: 'admin'
-                                };
-                                const res = await adminService.createLoyaltyCoupon(payload);
-                                toast.success(`Coupon created: ${res?.coupon?.code || ''}`);
-                                setCouponRefreshKey((v) => v + 1);
-                            } catch (error) {
-                                toast.error(error?.message || 'Failed to create coupon');
-                            } finally {
-                                setCouponCreating(false);
-                            }
-                        }}
-                        disabled={couponCreating}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
-                    >
-                        <Plus size={14} /> {couponCreating ? 'Creating...' : 'Issue Coupon'}
-                    </button>
-                </div>
-                <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). End date is optional.</p>
 
                 <div className="rounded-xl border border-gray-200 overflow-hidden">
                     <table className="w-full text-left text-sm">
@@ -381,6 +344,55 @@ export default function LoyaltySettings({ onBack }) {
                     <button type="button" onClick={() => setCouponPage((p) => Math.min(couponTotalPages, p + 1))} disabled={couponPage >= couponTotalPages} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Next</button>
                 </div>
             </div>
+
+            {isCouponModalOpen && (
+                <div className="fixed inset-0 z-[96] bg-black/50 flex items-center justify-center p-4">
+                    <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <div><p className="text-xs uppercase tracking-[0.25em] text-gray-400 font-semibold">Coupon</p><h3 className="text-lg font-semibold text-gray-900 mt-1">Issue New Coupon</h3></div>
+                            <button onClick={() => setIsCouponModalOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={16} /></button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="text-xs text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
+                                <label className="text-xs text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
+                                <label className="text-xs text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option></select></label>
+                                <label className="text-xs text-gray-600">Discount Value<input className="input-field mt-1" type="number" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
+                                <label className="text-xs text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
+                                <label className="text-xs text-gray-600">Start Date <span className="text-red-500">*</span><input className="input-field mt-1" type="date" value={couponForm.startsAt} onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))} /></label>
+                                <label className="text-xs text-gray-600">End Date (Optional)<input className="input-field mt-1" type="date" value={couponForm.expiresAt} min={couponForm.startsAt || undefined} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} /></label>
+                                {couponForm.scopeType === 'tier' && (
+                                    <label className="text-xs text-gray-600">Tier Scope<select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>{ORDER.map((tier) => <option key={tier} value={tier}>{tierLabel(tier).toUpperCase()}</option>)}</select></label>
+                                )}
+                            </div>
+                            {couponForm.scopeType === 'category' && (
+                                <label className="text-xs text-gray-600 block">Category Scope (Multi-select)
+                                    <select
+                                        multiple
+                                        className="input-field mt-1 min-h-[140px]"
+                                        value={couponForm.categoryIds.map(String)}
+                                        onChange={(e) => {
+                                            const selected = Array.from(e.target.selectedOptions).map((op) => Number(op.value)).filter((n) => Number.isFinite(n) && n > 0);
+                                            setCouponForm((p) => ({ ...p, categoryIds: selected }));
+                                        }}
+                                    >
+                                        {categories.map((cat) => (
+                                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                            )}
+                            <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). End date is optional.</p>
+                        </div>
+                        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+                            <button type="button" onClick={() => setIsCouponModalOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
+                            <button type="button" onClick={handleIssueCoupon} disabled={couponCreating} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
+                                <Plus size={16} /> {couponCreating ? 'Issuing...' : 'Issue Coupon'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {editRow && (
                 <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4">

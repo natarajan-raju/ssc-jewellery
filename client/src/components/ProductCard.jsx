@@ -329,7 +329,7 @@ export default function ProductCard({ product }) {
                 </div>
                 {memberPct > 0 && (
                     <p className="text-[11px] text-blue-700 mt-1">
-                        {loyaltyTier.toUpperCase()} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
+                        {(loyaltyTier === 'regular' ? 'BASIC' : loyaltyTier.toUpperCase())} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
                     </p>
                 )}
                 <div className="md:hidden">

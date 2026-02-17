@@ -620,7 +620,7 @@ const initDB = async () => {
             `INSERT INTO loyalty_tier_config
                 (tier, label, color, threshold, window_days, extra_discount_pct, shipping_discount_pct, birthday_discount_pct, abandoned_cart_boost_pct, priority_weight, shipping_priority, benefits_json, is_active)
              VALUES
-                ('regular', 'Regular', '#4B5563', 0, 30, 0, 0, 10, 0, 0, 'standard', JSON_ARRAY('Standard pricing','Standard shipping','Progress tracking to next tier'), 1),
+                ('regular', 'Basic', '#4B5563', 0, 30, 0, 0, 10, 0, 0, 'standard', JSON_ARRAY('Standard pricing','Standard shipping','Progress tracking to next tier'), 1),
                 ('bronze', 'Bronze', '#CD7F32', 5000, 30, 1, 5, 10, 2, 1, 'standard_plus', JSON_ARRAY('1% extra member discount','5% shipping fee discount','Priority support queue'), 1),
                 ('silver', 'Silver', '#9CA3AF', 10000, 60, 2, 10, 10, 4, 2, 'high', JSON_ARRAY('2% extra member discount','10% shipping fee discount','High priority dispatch queue'), 1),
                 ('gold', 'Gold', '#D4AF37', 25000, 90, 3, 15, 10, 6, 3, 'higher', JSON_ARRAY('3% extra member discount','15% shipping fee discount','Faster dispatch + premium support'), 1),

@@ -168,7 +168,8 @@ export default function Navbar() {
     const isShopActive = () => location.pathname === '/shop' || location.pathname.startsWith('/shop/');
     const tier = String(user?.loyaltyTier || 'regular').toLowerCase();
     const tierStyle = TIER_STYLES[tier] || TIER_STYLES.regular;
-    const tierLabel = String(user?.loyaltyProfile?.label || tier).toUpperCase();
+    const tierLabel = String(user?.loyaltyProfile?.label || (tier === 'regular' ? 'Basic' : tier)).toUpperCase();
+    const showTierBadge = user && tier !== 'regular';
 
     return (
         // [FIX] Dynamic Classes for Animation
@@ -290,7 +291,7 @@ export default function Navbar() {
 
                     {/* Actions */}
                     <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
-                        {user && (
+                        {showTierBadge && (
                             <span className={`px-2.5 py-1 rounded-full border text-[10px] tracking-widest font-bold ${tierStyle.badge}`}>
                                 {tierLabel}
                             </span>
@@ -342,7 +343,7 @@ export default function Navbar() {
 
                     {/* Mobile Actions */}
                     <div className="md:hidden flex items-center gap-2">
-                        {user && (
+                        {showTierBadge && (
                             <span className={`px-2 py-0.5 rounded-full border text-[10px] tracking-widest font-bold ${tierStyle.badge}`}>
                                 {tierLabel}
                             </span>
@@ -399,13 +400,15 @@ export default function Navbar() {
                             >
                                 My Profile
                             </Link>
-                            <div className="text-xs text-gray-500 py-2 border-b border-gray-100">
-                                Tier:
-                                {' '}
-                                <span className={`inline-flex px-2 py-0.5 rounded-full border font-bold tracking-wider ${tierStyle.badge}`}>
-                                    {tierLabel}
-                                </span>
-                            </div>
+                            {showTierBadge && (
+                                <div className="text-xs text-gray-500 py-2 border-b border-gray-100">
+                                    Tier:
+                                    {' '}
+                                    <span className={`inline-flex px-2 py-0.5 rounded-full border font-bold tracking-wider ${tierStyle.badge}`}>
+                                        {tierLabel}
+                                    </span>
+                                </div>
+                            )}
                             <Link
                                 to="/wishlist"
                                 className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600 inline-flex items-center justify-center gap-2"
