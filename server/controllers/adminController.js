@@ -263,6 +263,12 @@ const createCoupon = async (req, res) => {
             return res.status(403).json({ message: 'Only admin can create coupons' });
         }
         const payload = req.body || {};
+        if (!payload.startsAt) {
+            return res.status(400).json({ message: 'start date is required' });
+        }
+        if (payload.expiresAt && new Date(payload.expiresAt).getTime() < new Date(payload.startsAt).getTime()) {
+            return res.status(400).json({ message: 'end date must be on or after start date' });
+        }
         const coupon = await Coupon.createCoupon(payload, { createdBy: req.user?.id || null });
         return res.status(201).json({ coupon });
     } catch (error) {
@@ -279,6 +285,12 @@ const issueCouponToUser = async (req, res) => {
             return res.status(404).json({ message: 'Customer not found' });
         }
         const body = req.body || {};
+        if (!body.startsAt) {
+            return res.status(400).json({ message: 'start date is required' });
+        }
+        if (body.expiresAt && new Date(body.expiresAt).getTime() < new Date(body.startsAt).getTime()) {
+            return res.status(400).json({ message: 'end date must be on or after start date' });
+        }
         const coupon = await Coupon.createCoupon({
             name: body.name || `Customer Offer - ${user.name || userId}`,
             description: body.description || null,
@@ -290,7 +302,7 @@ const issueCouponToUser = async (req, res) => {
             minCartValue: body.minCartValue != null ? Number(body.minCartValue) : 0,
             usageLimitTotal: body.usageLimitTotal != null ? Number(body.usageLimitTotal) : null,
             usageLimitPerUser: Math.max(1, Number(body.usageLimitPerUser || 1)),
-            startsAt: body.startsAt || null,
+            startsAt: body.startsAt,
             expiresAt: body.expiresAt || null,
             customerTargets: [user.id]
         }, { createdBy: req.user?.id || null });

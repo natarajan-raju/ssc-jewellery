@@ -5,6 +5,11 @@ import { productService } from '../../services/productService';
 import { useToast } from '../../context/ToastContext';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
+const getTodayDateInput = () => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+};
 
 const toNumber = (value, fallback = 0) => {
     const n = Number(value);
@@ -55,7 +60,9 @@ export default function LoyaltySettings({ onBack }) {
         discountValue: 5,
         usageLimitPerUser: 1,
         tierScope: 'regular',
-        categoryIds: []
+        categoryIds: [],
+        startsAt: getTodayDateInput(),
+        expiresAt: ''
     });
     const [categories, setCategories] = useState([]);
     const [couponList, setCouponList] = useState([]);
@@ -237,43 +244,80 @@ export default function LoyaltySettings({ onBack }) {
                     </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <input className="input-field" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} />
-                    <select className="input-field" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}>
-                        <option value="generic">Generic</option>
-                        <option value="category">Category specific</option>
-                        <option value="tier">Tier specific</option>
-                    </select>
+                    <label className="text-xs text-gray-600">
+                        Coupon Name
+                        <input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                        Coupon Scope
+                        <select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}>
+                            <option value="generic">Generic</option>
+                            <option value="category">Category specific</option>
+                            <option value="tier">Tier specific</option>
+                        </select>
+                    </label>
                     <div className="grid grid-cols-2 gap-2">
-                        <select className="input-field" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
-                            <option value="percent">Percent</option>
-                            <option value="fixed">Fixed INR</option>
-                        </select>
-                        <input className="input-field" type="number" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
+                        <label className="text-xs text-gray-600">
+                            Discount Type
+                            <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
+                                <option value="percent">Percent</option>
+                                <option value="fixed">Fixed INR</option>
+                            </select>
+                        </label>
+                        <label className="text-xs text-gray-600">
+                            Discount Value
+                            <input className="input-field mt-1" type="number" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
+                        </label>
                     </div>
-                    <input className="input-field" type="number" placeholder="Per-user usage" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} />
+                    <label className="text-xs text-gray-600">
+                        Usage Limit Per User
+                        <input className="input-field mt-1" type="number" placeholder="Per-user usage" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                        Start Date <span className="text-red-500">*</span>
+                        <input className="input-field mt-1" type="date" value={couponForm.startsAt} onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))} />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                        End Date (Optional)
+                        <input className="input-field mt-1" type="date" value={couponForm.expiresAt} min={couponForm.startsAt || undefined} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} />
+                    </label>
                     {couponForm.scopeType === 'tier' && (
-                        <select className="input-field" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>
-                            {ORDER.map((tier) => <option key={tier} value={tier}>{tier.toUpperCase()}</option>)}
-                        </select>
+                        <label className="text-xs text-gray-600">
+                            Tier Scope
+                            <select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>
+                                {ORDER.map((tier) => <option key={tier} value={tier}>{tier.toUpperCase()}</option>)}
+                            </select>
+                        </label>
                     )}
                     {couponForm.scopeType === 'category' && (
-                        <select
-                            multiple
-                            className="input-field min-h-[110px] md:col-span-2"
-                            value={couponForm.categoryIds.map(String)}
-                            onChange={(e) => {
-                                const selected = Array.from(e.target.selectedOptions).map((op) => Number(op.value)).filter((n) => Number.isFinite(n) && n > 0);
-                                setCouponForm((p) => ({ ...p, categoryIds: selected }));
-                            }}
-                        >
-                            {categories.map((cat) => (
-                                <option key={cat.id} value={cat.id}>{cat.name}</option>
-                            ))}
-                        </select>
+                        <label className="text-xs text-gray-600 md:col-span-2">
+                            Category Scope (Multi-select)
+                            <select
+                                multiple
+                                className="input-field mt-1 min-h-[110px]"
+                                value={couponForm.categoryIds.map(String)}
+                                onChange={(e) => {
+                                    const selected = Array.from(e.target.selectedOptions).map((op) => Number(op.value)).filter((n) => Number.isFinite(n) && n > 0);
+                                    setCouponForm((p) => ({ ...p, categoryIds: selected }));
+                                }}
+                            >
+                                {categories.map((cat) => (
+                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                ))}
+                            </select>
+                        </label>
                     )}
                     <button
                         type="button"
                         onClick={async () => {
+                            if (!couponForm.startsAt) {
+                                toast.error('Start date is required');
+                                return;
+                            }
+                            if (couponForm.expiresAt && couponForm.expiresAt < couponForm.startsAt) {
+                                toast.error('End date must be on or after start date');
+                                return;
+                            }
                             setCouponCreating(true);
                             try {
                                 const payload = {
@@ -284,6 +328,8 @@ export default function LoyaltySettings({ onBack }) {
                                     usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
                                     tierScope: couponForm.scopeType === 'tier' ? couponForm.tierScope : undefined,
                                     categoryIds: couponForm.scopeType === 'category' ? couponForm.categoryIds : [],
+                                    startsAt: new Date(`${couponForm.startsAt}T00:00:00`).toISOString(),
+                                    expiresAt: couponForm.expiresAt ? new Date(`${couponForm.expiresAt}T23:59:59`).toISOString() : null,
                                     sourceType: 'admin'
                                 };
                                 const res = await adminService.createLoyaltyCoupon(payload);
@@ -301,6 +347,7 @@ export default function LoyaltySettings({ onBack }) {
                         <Plus size={14} /> {couponCreating ? 'Creating...' : 'Issue Coupon'}
                     </button>
                 </div>
+                <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). End date is optional.</p>
 
                 <div className="rounded-xl border border-gray-200 overflow-hidden">
                     <table className="w-full text-left text-sm">

@@ -19,6 +19,11 @@ import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate } from '../../utils/dateFormat';
 
 const CUSTOMER_PAGE_SIZE = 20;
+const getTodayDateInput = () => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+};
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -75,8 +80,10 @@ export default function Customers({ onOpenLoyalty }) {
         discountValue: 5,
         minCartValue: 0,
         usageLimitPerUser: 1,
+        startsAt: getTodayDateInput(),
         expiresAt: ''
     });
+    const [cartCountOverrides, setCartCountOverrides] = useState({});
 
     useEffect(() => {
         refreshUsers(false);
@@ -185,7 +192,10 @@ export default function Customers({ onOpenLoyalty }) {
         setIsCartLoading(true);
         try {
             const data = await adminService.getUserCart(user.id);
-            setCartItems(data.items || []);
+            const nextItems = data.items || [];
+            setCartItems(nextItems);
+            const nextCount = nextItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+            setCartCountOverrides((prev) => ({ ...prev, [user.id]: nextCount }));
         } catch {
             toast.error('Failed to load cart');
         } finally {
@@ -212,12 +222,17 @@ export default function Customers({ onOpenLoyalty }) {
             discountValue: 5,
             minCartValue: 0,
             usageLimitPerUser: 1,
+            startsAt: getTodayDateInput(),
             expiresAt: ''
         });
     };
 
     const handleIssueCouponToUser = async () => {
         if (!couponModalUser?.id) return;
+        if (!couponForm.startsAt) return toast.error('Start date is required');
+        if (couponForm.expiresAt && couponForm.expiresAt < couponForm.startsAt) {
+            return toast.error('End date must be on or after start date');
+        }
         setCouponSaving(true);
         try {
             const payload = {
@@ -226,7 +241,8 @@ export default function Customers({ onOpenLoyalty }) {
                 discountValue: Number(couponForm.discountValue || 0),
                 minCartValue: Number(couponForm.minCartValue || 0),
                 usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
-                expiresAt: couponForm.expiresAt ? new Date(couponForm.expiresAt).toISOString() : null
+                startsAt: new Date(`${couponForm.startsAt}T00:00:00`).toISOString(),
+                expiresAt: couponForm.expiresAt ? new Date(`${couponForm.expiresAt}T23:59:59`).toISOString() : null
             };
             const res = await adminService.issueCouponToUser(couponModalUser.id, payload);
             toast.success(`Coupon issued: ${res?.coupon?.code || ''}`);
@@ -282,17 +298,39 @@ export default function Customers({ onOpenLoyalty }) {
                             <button onClick={() => setCouponModalUser(null)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={16} /></button>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <input className="input-field md:col-span-2" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} />
-                            <select className="input-field" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
-                                <option value="percent">Percent</option>
-                                <option value="fixed">Fixed INR</option>
-                            </select>
-                            <input className="input-field" type="number" placeholder="Discount value" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
-                            <input className="input-field" type="number" placeholder="Min cart value (INR)" value={couponForm.minCartValue} onChange={(e) => setCouponForm((p) => ({ ...p, minCartValue: e.target.value }))} />
-                            <input className="input-field" type="number" placeholder="Usage per user" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} />
-                            <input className="input-field md:col-span-2" type="datetime-local" value={couponForm.expiresAt} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} />
+                            <label className="md:col-span-2 text-xs text-gray-600">
+                                Coupon Name
+                                <input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                Discount Type
+                                <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
+                                    <option value="percent">Percent</option>
+                                    <option value="fixed">Fixed INR</option>
+                                </select>
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                Discount Value
+                                <input className="input-field mt-1" type="number" placeholder="Discount value" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                Minimum Cart Value (INR)
+                                <input className="input-field mt-1" type="number" placeholder="Min cart value" value={couponForm.minCartValue} onChange={(e) => setCouponForm((p) => ({ ...p, minCartValue: e.target.value }))} />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                Usage Limit Per User
+                                <input className="input-field mt-1" type="number" placeholder="Usage per user" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                Start Date <span className="text-red-500">*</span>
+                                <input className="input-field mt-1" type="date" value={couponForm.startsAt} onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))} required />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                End Date (Optional)
+                                <input className="input-field mt-1" type="date" value={couponForm.expiresAt} min={couponForm.startsAt || undefined} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} />
+                            </label>
                         </div>
-                        <p className="text-xs text-gray-500">Coupon will be sent via email and WhatsApp (if mobile is available).</p>
+                        <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). Coupon will be sent via email and WhatsApp (if mobile is available).</p>
                         <div className="flex justify-end gap-2">
                             <button className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50" onClick={() => setCouponModalUser(null)}>Cancel</button>
                             <button disabled={couponSaving} className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60" onClick={handleIssueCouponToUser}>
@@ -433,6 +471,7 @@ export default function Customers({ onOpenLoyalty }) {
                             <tbody className="divide-y divide-gray-100">
                                 {paginatedCustomersOnly.map((user) => {
                                     const waLink = getWhatsappLink(user.mobile);
+                                    const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                     return (
                                         <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''}`}>
                                             <td className="px-6 py-4">
@@ -455,9 +494,9 @@ export default function Customers({ onOpenLoyalty }) {
                                                         <MessageCircle size={18} />
                                                     </a>
                                                 )}
-                                                <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative p-2 rounded-lg border transition-colors ${user.cart_count > 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-primary'}`} title="View Cart">
+                                                <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative p-2 rounded-lg border transition-colors ${cartCount > 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-primary'}`} title="View Cart">
                                                     <ShoppingCart size={16} />
-                                                    {user.cart_count > 0 && <span className="absolute -top-1 -right-1 text-[10px] font-bold bg-green-600 text-white rounded-full px-1.5 py-0.5">{user.cart_count}</span>}
+                                                    {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[10px] font-bold bg-green-600 text-white rounded-full px-1.5 py-0.5">{cartCount}</span>}
                                                 </button>
                                                 {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all" title="Delete User"><Trash2 size={18} /></button>}
                                             </td>
