@@ -78,6 +78,7 @@ export default function Checkout() {
     const [isSummaryLoading, setIsSummaryLoading] = useState(false);
     const [loyaltyStatus, setLoyaltyStatus] = useState(null);
     const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+    const [availableCoupons, setAvailableCoupons] = useState([]);
     const [isPlacingOrder, setIsPlacingOrder] = useState(false);
     const [orderResult, setOrderResult] = useState(null);
     const [activeAttemptId, setActiveAttemptId] = useState(null);
@@ -194,6 +195,16 @@ export default function Checkout() {
     }, [user, itemCount, form.address, appliedCoupon?.code, toast]);
 
     useEffect(() => {
+        if (!user || itemCount <= 0) {
+            setAvailableCoupons([]);
+            return;
+        }
+        orderService.getAvailableCoupons()
+            .then((res) => setAvailableCoupons(Array.isArray(res?.coupons) ? res.coupons : []))
+            .catch(() => setAvailableCoupons([]));
+    }, [user, itemCount, appliedCoupon?.code]);
+
+    useEffect(() => {
         if (!orderResult?.id) {
             orderCelebratedRef.current = false;
             return;
@@ -267,6 +278,28 @@ export default function Checkout() {
     const handleRemoveCoupon = () => {
         setAppliedCoupon(null);
         setCoupon('');
+    };
+
+    const handleApplyAvailableCoupon = (code) => {
+        setCoupon(String(code || '').toUpperCase());
+        if (appliedCoupon?.code === String(code || '').toUpperCase()) return;
+        setIsApplyingCoupon(true);
+        orderService.validateRecoveryCoupon({
+            code,
+            shippingAddress: form.address
+        }).then((data) => {
+            setAppliedCoupon({
+                code: String(code || '').toUpperCase(),
+                discountTotal: Number(data?.discountTotal || 0),
+                coupon: data?.coupon || null
+            });
+            toast.success(`Coupon applied: ${String(code || '').toUpperCase()}`);
+        }).catch((error) => {
+            toast.error(error?.message || 'Coupon is invalid or expired');
+            setAppliedCoupon(null);
+        }).finally(() => {
+            setIsApplyingCoupon(false);
+        });
     };
 
     const lineItems = useMemo(() => items.map(item => ({
@@ -725,6 +758,29 @@ export default function Checkout() {
                                 </div>
                                 {appliedCoupon && (
                                     <p className="text-xs text-emerald-600 mt-3">Coupon {appliedCoupon.code} applied. Discount: ₹{Number(appliedCoupon.discountTotal || 0).toLocaleString()}.</p>
+                                )}
+                                {availableCoupons.length > 0 && (
+                                    <div className="mt-4">
+                                        <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Available Coupons</p>
+                                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            {availableCoupons.map((entry) => (
+                                                <button
+                                                    key={entry.id || entry.code}
+                                                    type="button"
+                                                    onClick={() => handleApplyAvailableCoupon(entry.code)}
+                                                    className={`text-left rounded-xl border px-3 py-2 transition-colors ${appliedCoupon?.code === entry.code ? 'border-emerald-300 bg-emerald-50' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'}`}
+                                                >
+                                                    <p className="text-sm font-semibold text-gray-800">{entry.code}</p>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        {entry.discountType === 'fixed'
+                                                            ? `₹${Number(entry.discountValue || 0).toLocaleString()} off`
+                                                            : `${Number(entry.discountValue || 0)}% off`}
+                                                        {entry.expiresAt ? ` • Expires ${new Date(entry.expiresAt).toLocaleDateString('en-IN')}` : ''}
+                                                    </p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         </div>

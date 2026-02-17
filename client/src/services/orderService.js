@@ -367,6 +367,13 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    getAvailableCoupons: async () => {
+        const res = await fetch(`${API_URL}/coupons/available`, {
+            method: 'GET',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
     retryRazorpayOrder: async ({ attemptId } = {}) => {
         const res = await fetch(`${API_URL}/razorpay/retry`, {
             method: 'POST',
