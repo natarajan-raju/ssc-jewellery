@@ -420,9 +420,34 @@ class Coupon {
                 code: row.code,
                 name: row.name,
                 scopeType: row.scope_type,
+                sourceType: row.source_type || 'admin',
                 discountType: row.discount_type,
                 discountValue: Number(row.discount_value || 0),
                 usageLimitPerUser: Number(row.usage_limit_per_user || 1),
+                expiresAt: row.expires_at || null
+            });
+        }
+        const [recoveryRows] = await db.execute(
+            `SELECT code, discount_type, discount_percent, min_cart_subunits, expires_at
+             FROM abandoned_cart_discounts
+             WHERE user_id = ?
+               AND status = 'active'
+               AND (expires_at IS NULL OR expires_at > NOW())
+             ORDER BY id DESC
+             LIMIT 50`,
+            [userId]
+        );
+        for (const row of recoveryRows) {
+            out.push({
+                id: `abandoned:${row.code}`,
+                code: row.code,
+                name: 'Recovery Offer',
+                scopeType: 'customer',
+                sourceType: 'abandoned',
+                discountType: row.discount_type || 'percent',
+                discountValue: Number(row.discount_percent || 0),
+                usageLimitPerUser: 1,
+                minCartValue: fromSubunits(row.min_cart_subunits || 0),
                 expiresAt: row.expires_at || null
             });
         }

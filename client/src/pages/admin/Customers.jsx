@@ -54,6 +54,16 @@ const isBirthdayToday = (dob) => {
 };
 
 const tierLabel = (tier = 'regular') => (String(tier).toLowerCase() === 'regular' ? 'Basic' : String(tier));
+const formatLongDate = (value) => {
+    if (!value) return 'No expiry';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'No expiry';
+    const day = date.getDate();
+    const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+    const month = date.toLocaleString('en-IN', { month: 'short' });
+    const year = date.getFullYear();
+    return `${day}${suffix} ${month} ${year}`;
+};
 
 export default function Customers({ onOpenLoyalty }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
@@ -79,6 +89,7 @@ export default function Customers({ onOpenLoyalty }) {
 
     const [couponModalUser, setCouponModalUser] = useState(null);
     const [couponSaving, setCouponSaving] = useState(false);
+    const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponForm, setCouponForm] = useState({
         name: '',
         discountType: 'percent',
@@ -283,6 +294,22 @@ export default function Customers({ onOpenLoyalty }) {
         }
     };
 
+    const handleDeleteUserCoupon = async (userId, couponId) => {
+        if (!userId || !couponId) return;
+        if (!window.confirm('Delete this coupon?')) return;
+        setCouponDeletingId(String(couponId));
+        try {
+            await adminService.deleteUserCoupon(userId, couponId);
+            toast.success('Coupon deleted');
+            const data = await adminService.getUserActiveCoupons(userId);
+            setActiveCoupons(Array.isArray(data?.coupons) ? data.coupons : []);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to delete coupon');
+        } finally {
+            setCouponDeletingId(null);
+        }
+    };
+
     const formatAddress = (address) => {
         if (!address) return '—';
         if (typeof address === 'string') {
@@ -434,9 +461,27 @@ export default function Customers({ onOpenLoyalty }) {
                                     </button>
                                 </div>
                                 <p className="text-sm text-gray-700 mt-2">{activeCoupons.length} active coupon(s)</p>
-                                <div className="mt-2 space-y-1">
-                                    {activeCoupons.slice(0, 6).map((cp) => (
-                                        <p key={cp.id || cp.code} className="text-xs text-gray-600">- {cp.code} ({cp.discountType === 'fixed' ? `₹${Number(cp.discountValue || 0)}` : `${Number(cp.discountValue || 0)}%`})</p>
+                                <div className="mt-2 space-y-2">
+                                    {activeCoupons.slice(0, 12).map((cp) => (
+                                        <div key={cp.id || cp.code} className="rounded-lg border border-gray-200 px-3 py-2 flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-semibold text-gray-800 truncate">{cp.code}</p>
+                                                <p className="text-[11px] text-gray-600 mt-1">
+                                                    {cp.discountType === 'fixed' ? `₹${Number(cp.discountValue || 0).toLocaleString('en-IN')} off` : `${Number(cp.discountValue || 0)}% off`}
+                                                    {cp.sourceType === 'abandoned' ? ' • Abandoned cart' : ''}
+                                                    {cp.expiresAt ? ` • Expires ${formatLongDate(cp.expiresAt)}` : ' • No expiry'}
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteUserCoupon(selectedUser.id, cp.id || cp.code)}
+                                                disabled={couponDeletingId === String(cp.id || cp.code)}
+                                                className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                title="Delete coupon"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
                                     ))}
                                     {activeCoupons.length === 0 && <p className="text-xs text-gray-400">No active coupons.</p>}
                                 </div>
@@ -448,7 +493,7 @@ export default function Customers({ onOpenLoyalty }) {
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
-                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">User Management</h1>
+                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Customer Management</h1>
                     <p className="text-gray-500 text-sm mt-1">Manage staff access and customers</p>
                 </div>
                 <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
@@ -484,7 +529,7 @@ export default function Customers({ onOpenLoyalty }) {
                                 <Plus size={14} strokeWidth={3} /> Add Customer
                             </button>
                         </div>
-                        <table className="w-full text-left">
+                        <table className="hidden md:table w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
@@ -548,6 +593,55 @@ export default function Customers({ onOpenLoyalty }) {
                                 )}
                             </tbody>
                         </table>
+
+                        <div className="md:hidden p-4">
+                            {paginatedCustomersOnly.length === 0 && (
+                                <div className="py-10">
+                                    <div className="flex flex-col items-center justify-center text-center">
+                                        <img src={customerIllustration} alt="No customers" className="w-32 h-32 object-contain opacity-80" />
+                                        <p className="mt-3 text-sm font-semibold text-gray-700">No customers found</p>
+                                        <p className="text-xs text-gray-500 mt-1">Try changing filters or search to view matching customers.</p>
+                                    </div>
+                                </div>
+                            )}
+                            {paginatedCustomersOnly.length > 0 && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {paginatedCustomersOnly.map((user) => {
+                                        const waLink = getWhatsappLink(user.mobile);
+                                        const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
+                                        const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
+                                        return (
+                                            <div key={`m-${user.id}`} onClick={() => openProfile(user)} className={`rounded-xl border p-3 bg-white ${isBirthdayToday(user.dob) ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary">{String(user.name || 'U').charAt(0)}</div>
+                                                    <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
+                                                </div>
+                                                <p className="text-[11px] text-gray-500 mt-2 line-clamp-1">{user.mobile || '—'}</p>
+                                                <p className="text-[11px] text-gray-500 line-clamp-1">{user.email || '—'}</p>
+                                                <div className="mt-2">
+                                                    {isBasicTier ? <span className="text-[11px] text-gray-400">Tier: -</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 uppercase">{String(user.loyaltyTier || '').toUpperCase()}</span>}
+                                                </div>
+                                                <div className="mt-3 flex items-center justify-end gap-1">
+                                                    <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 p-1.5 rounded-md transition-all" title="Issue Coupon">
+                                                        <TicketPercent size={16} />
+                                                    </button>
+                                                    {waLink && (
+                                                        <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-gray-400 hover:text-green-700 hover:bg-green-50 p-1.5 rounded-md transition-all" title="Open WhatsApp">
+                                                            <MessageCircle size={16} />
+                                                        </a>
+                                                    )}
+                                                    <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative p-1.5 rounded-md border transition-colors ${cartCount > 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-primary'}`} title="View Cart">
+                                                        <ShoppingCart size={14} />
+                                                        {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-green-600 text-white rounded-full px-1 py-0.5">{cartCount}</span>}
+                                                    </button>
+                                                    {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-md transition-all" title="Delete User"><Trash2 size={16} /></button>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {customerTotalPages > 1 && (

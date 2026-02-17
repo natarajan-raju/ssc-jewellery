@@ -3,6 +3,7 @@ const Cart = require('../models/Cart');
 const bcrypt = require('bcryptjs');
 const CompanyProfile = require('../models/CompanyProfile');
 const Coupon = require('../models/Coupon');
+const AbandonedCart = require('../models/AbandonedCart');
 const {
     verifyEmailTransport,
     sendEmailCommunication,
@@ -390,6 +391,53 @@ const deleteCoupon = async (req, res) => {
     }
 };
 
+const deleteUserCoupon = async (req, res) => {
+    try {
+        if (String(req.user?.role || '').toLowerCase() !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can delete coupons' });
+        }
+        const userId = String(req.params.id || '').trim();
+        const couponIdRaw = String(req.params.couponId || '').trim();
+        if (!userId || !couponIdRaw) {
+            return res.status(400).json({ message: 'Invalid coupon id' });
+        }
+
+        if (couponIdRaw.startsWith('abandoned:')) {
+            const code = couponIdRaw.slice('abandoned:'.length);
+            const affected = await AbandonedCart.deactivateDiscountByCodeForUser({ userId, code });
+            if (!affected) return res.status(404).json({ message: 'Coupon not found or already inactive' });
+            emitCouponChanged(req, {
+                action: 'deleted',
+                code: String(code || '').toUpperCase(),
+                scopeType: 'customer',
+                sourceType: 'abandoned',
+                userTargets: [userId]
+            });
+            return res.json({ ok: true, id: couponIdRaw });
+        }
+
+        const couponId = Number(couponIdRaw);
+        if (!Number.isFinite(couponId) || couponId <= 0) {
+            return res.status(400).json({ message: 'Invalid coupon id' });
+        }
+        const coupon = await Coupon.getById(couponId);
+        if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+        const affected = await Coupon.deactivateCoupon(couponId);
+        if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
+        emitCouponChanged(req, {
+            action: 'deleted',
+            couponId,
+            code: coupon.code || null,
+            scopeType: coupon.scope_type || 'generic',
+            sourceType: coupon.source_type || 'admin',
+            userTargets: [userId]
+        });
+        return res.json({ ok: true, id: couponId });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to delete coupon' });
+    }
+};
+
 const getUserActiveCoupons = async (req, res) => {
     try {
         const userId = String(req.params.id || '').trim();
@@ -421,6 +469,7 @@ module.exports = {
     listCoupons,
     createCoupon,
     deleteCoupon,
+    deleteUserCoupon,
     issueCouponToUser,
     getUserActiveCoupons
 };

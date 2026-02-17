@@ -108,6 +108,13 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    deleteUserCoupon: async (userId, couponId) => {
+        const res = await fetch(`${API_URL}/users/${userId}/coupons/${encodeURIComponent(couponId)}`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
 
     getUsersAll: async (role = 'all') => {
         const all = [];

@@ -55,6 +55,17 @@ const normalizeStateKey = (value) => String(value || '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
 
+const formatLongDate = (value) => {
+    if (!value) return 'No expiry';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'No expiry';
+    const day = date.getDate();
+    const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+    const month = date.toLocaleString('en-IN', { month: 'short' });
+    const year = date.getFullYear();
+    return `${day}${suffix} ${month} ${year}`;
+};
+
 const TIER_THEME = {
     regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/25', fill: 'bg-white', tag: 'bg-white/20 border-white/35 text-white' },
     bronze: { card: 'from-amber-800 via-orange-700 to-amber-800', chip: 'bg-amber-100 text-amber-800 border-amber-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/20', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' },
@@ -807,26 +818,26 @@ export default function Checkout() {
                                                     key={entry.id || entry.code}
                                                     type="button"
                                                     onClick={() => handleApplyAvailableCoupon(entry.code)}
-                                                    className={`relative text-left rounded-xl border overflow-hidden transition-all ${appliedCoupon?.code === entry.code ? 'border-emerald-300 ring-2 ring-emerald-100' : 'border-gray-200 hover:border-primary/30'}`}
+                                                    className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''}`}
                                                 >
-                                                    <div className="grid grid-cols-[1fr_auto]">
-                                                        <div className="bg-primary text-accent px-3 py-3">
-                                                            <p className="text-[10px] uppercase tracking-wider opacity-80">Voucher Code</p>
-                                                            <p className="text-sm font-bold mt-1">{entry.code}</p>
+                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_168px] min-h-[92px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
+                                                        <div className="bg-primary px-3 py-3 flex flex-col justify-center">
+                                                            <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
+                                                            <p className="text-sm font-bold mt-1 text-white break-words leading-5">{entry.code}</p>
                                                         </div>
-                                                        <div className="bg-accent px-3 py-3 text-primary min-w-[132px] border-l border-dashed border-primary/30">
-                                                            <p className="text-[11px] font-bold">
+                                                        <div className="bg-accent px-3 py-3 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
+                                                            <p className="text-[12px] font-extrabold tracking-wide">
                                                                 {entry.discountType === 'fixed'
                                                                     ? `₹${Number(entry.discountValue || 0).toLocaleString('en-IN')} OFF`
                                                                     : `${Number(entry.discountValue || 0)}% OFF`}
                                                             </p>
-                                                            <p className="text-[11px] mt-1 text-primary/70">
-                                                                {entry.expiresAt ? `Expires ${new Date(entry.expiresAt).toLocaleDateString('en-IN')}` : 'No expiry'}
+                                                            <p className="text-[12px] mt-1 text-primary/80 font-medium">
+                                                                {entry.expiresAt ? `Expires ${formatLongDate(entry.expiresAt)}` : 'No expiry'}
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <span style={{ left: 'calc(100% - 132px)' }} className="absolute top-0 -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200" />
-                                                    <span style={{ left: 'calc(100% - 132px)' }} className="absolute bottom-0 -translate-x-1/2 translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200" />
+                                                    <span style={{ left: 'calc(100% - 168px)' }} className="absolute top-0 -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200 z-10" />
+                                                    <span style={{ left: 'calc(100% - 168px)' }} className="absolute bottom-0 -translate-x-1/2 translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200 z-10" />
                                                 </button>
                                             ))}
                                         </div>
@@ -996,7 +1007,7 @@ export default function Checkout() {
                                             <img
                                                 src={method.logo}
                                                 alt={method.name}
-                                                className="h-6 w-auto object-contain"
+                                                className="h-6 w-full max-w-[72px] object-contain"
                                                 loading="lazy"
                                                 onError={(e) => {
                                                     e.currentTarget.style.display = 'none';
