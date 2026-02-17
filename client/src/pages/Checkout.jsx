@@ -812,7 +812,7 @@ export default function Checkout() {
                                 {availableCoupons.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Available Coupons</p>
-                                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                                             {availableCoupons.map((entry) => (
                                                 <button
                                                     key={entry.id || entry.code}
@@ -820,10 +820,10 @@ export default function Checkout() {
                                                     onClick={() => handleApplyAvailableCoupon(entry.code)}
                                                     className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''}`}
                                                 >
-                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_152px] h-[90px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
+                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[104px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
                                                         <div className="bg-primary px-4 py-3 flex flex-col justify-center">
                                                             <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
-                                                            <p className="text-sm font-bold mt-1 text-white break-words leading-5">{entry.code}</p>
+                                                            <p className="text-sm font-bold mt-1 text-white leading-5 break-all min-h-[2.5rem] max-h-[2.5rem] line-clamp-2">{entry.code}</p>
                                                         </div>
                                                         <div className="bg-accent px-4 py-3 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
                                                             <p className="text-[15px] font-extrabold tracking-wide">
@@ -836,8 +836,8 @@ export default function Checkout() {
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <span style={{ left: 'calc(100% - 152px)' }} className="absolute top-0 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border border-gray-200 z-10" />
-                                                    <span style={{ left: 'calc(100% - 152px)' }} className="absolute bottom-0 h-3 w-3 -translate-x-1/2 translate-y-1/2 rounded-full bg-white border border-gray-200 z-10" />
+                                                    <span style={{ left: 'calc(100% - 156px)' }} className="absolute -top-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
+                                                    <span style={{ left: 'calc(100% - 156px)' }} className="absolute -bottom-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
                                                 </button>
                                             ))}
                                         </div>

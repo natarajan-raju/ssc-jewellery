@@ -858,7 +858,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                             ))}
                         </select>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
                         <input ref={startDateInputRef} type="date" value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} className="sr-only" />
                         <button
                             type="button"
@@ -868,7 +868,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                 else startDateInputRef.current?.click();
                             }}
                             disabled={draftQuickRange !== 'custom'}
-                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left whitespace-nowrap min-w-[170px]"
                         >
                             {draftStartDate ? formatRangeDate(draftStartDate) : 'Start Date'}
                         </button>
@@ -881,22 +881,11 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                 else endDateInputRef.current?.click();
                             }}
                             disabled={draftQuickRange !== 'custom'}
-                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left whitespace-nowrap min-w-[170px]"
                         >
                             {draftEndDate ? formatRangeDate(draftEndDate) : 'End Date'}
                         </button>
                     </div>
-                    {draftQuickRange === 'custom' && (
-                        <div className="order-2 md:order-2 text-xs text-gray-500">
-                            Range:
-                            {' '}
-                            {formatRangeDate(draftStartDate)}
-                            {' '}
-                            -
-                            {' '}
-                            {formatRangeDate(draftEndDate)}
-                        </div>
-                    )}
                     <button
                         type="button"
                         onClick={handleExport}
