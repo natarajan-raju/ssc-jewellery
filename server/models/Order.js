@@ -1324,11 +1324,11 @@ class Order {
             [summaryRows] = await db.execute(
                 `SELECT
                     COUNT(*) as total_orders,
-                    SUM(scoped.total) as total_revenue,
+                    SUM(CASE WHEN scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as total_revenue,
                     SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND DATE(scoped.created_at) < CURDATE()) THEN 1 ELSE 0 END) as pending_orders,
                     SUM(CASE WHEN scoped.status = 'confirmed' AND DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
-                    SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN scoped.total ELSE 0 END) as today_revenue
+                    SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
                     SELECT o.total, o.status, o.created_at
                     FROM orders o
@@ -1343,11 +1343,11 @@ class Order {
             [summaryRows] = await db.execute(
                 `SELECT
                     COUNT(*) as total_orders,
-                    SUM(o.total) as total_revenue,
+                    SUM(CASE WHEN o.status <> 'cancelled' THEN o.total ELSE 0 END) as total_revenue,
                     SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND DATE(o.created_at) < CURDATE()) THEN 1 ELSE 0 END) as pending_orders,
                     SUM(CASE WHEN o.status = 'confirmed' AND DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
-                    SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN o.total ELSE 0 END) as today_revenue
+                    SUM(CASE WHEN DATE(o.created_at) = CURDATE() AND o.status <> 'cancelled' THEN o.total ELSE 0 END) as today_revenue
                  FROM orders o
                  LEFT JOIN users u ON u.id = o.user_id
                  ${where}`,

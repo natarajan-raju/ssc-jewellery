@@ -792,6 +792,16 @@ class AbandonedCart {
                 expiresAt || null
             ]
         );
+        await db.execute(
+            `UPDATE abandoned_cart_discounts
+             SET status = 'invalidated',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE journey_id = ?
+               AND user_id = ?
+               AND attempt_no < ?
+               AND status = 'active'`,
+            [safeJourneyId, userId, safeAttemptNo]
+        );
         return { code, percent: Number(percent || 0) };
     }
 

@@ -119,7 +119,13 @@ class User {
     }
 
     static async findById(id) {
-        const [rows] = await db.execute('SELECT * FROM users WHERE id = ?', [id]);
+        const [rows] = await db.execute(
+            `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier
+             FROM users u
+             LEFT JOIN user_loyalty ul ON ul.user_id = u.id
+             WHERE u.id = ?`,
+            [id]
+        );
         return User.normalizeRow(rows[0]);
     }
 

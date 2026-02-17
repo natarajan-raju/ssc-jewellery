@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2 } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
@@ -43,6 +43,8 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     const [draftQuickRange, setDraftQuickRange] = useState('all');
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
+    const startDateInputRef = useRef(null);
+    const endDateInputRef = useRef(null);
     const [sortBy, setSortBy] = useState('newest');
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -857,20 +859,32 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                         </select>
                     </div>
                     <div className="grid grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
-                        <input
-                            type="date"
-                            value={draftStartDate}
-                            onChange={(e) => setDraftStartDate(e.target.value)}
+                        <input ref={startDateInputRef} type="date" value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} className="sr-only" />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (draftQuickRange !== 'custom') return;
+                                if (startDateInputRef.current?.showPicker) startDateInputRef.current.showPicker();
+                                else startDateInputRef.current?.click();
+                            }}
                             disabled={draftQuickRange !== 'custom'}
-                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
-                        />
-                        <input
-                            type="date"
-                            value={draftEndDate}
-                            onChange={(e) => setDraftEndDate(e.target.value)}
+                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                        >
+                            {draftStartDate ? formatRangeDate(draftStartDate) : 'Start Date'}
+                        </button>
+                        <input ref={endDateInputRef} type="date" value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} className="sr-only" />
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (draftQuickRange !== 'custom') return;
+                                if (endDateInputRef.current?.showPicker) endDateInputRef.current.showPicker();
+                                else endDateInputRef.current?.click();
+                            }}
                             disabled={draftQuickRange !== 'custom'}
-                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
-                        />
+                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                        >
+                            {draftEndDate ? formatRangeDate(draftEndDate) : 'End Date'}
+                        </button>
                     </div>
                     {draftQuickRange === 'custom' && (
                         <div className="order-2 md:order-2 text-xs text-gray-500">
