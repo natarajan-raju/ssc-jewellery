@@ -158,7 +158,7 @@ export default function CartDrawer() {
     if (!render) return null;
 
     return (
-        <div className="fixed inset-0 z-[80]">
+        <div className="fixed inset-0 z-[120]">
             <div
                 className={`absolute inset-0 bg-black/35 backdrop-blur-[2px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
                 onClick={closeCart}

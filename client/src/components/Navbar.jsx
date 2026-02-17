@@ -170,6 +170,12 @@ export default function Navbar() {
     const tierStyle = TIER_STYLES[tier] || TIER_STYLES.regular;
     const tierLabel = String(user?.loyaltyProfile?.label || (tier === 'regular' ? 'Basic' : tier)).toUpperCase();
     const showTierBadge = user && tier !== 'regular';
+    const handleCartClick = () => {
+        setIsUserMenuOpen(false);
+        setIsMegaOpen(false);
+        setIsOpen(false);
+        openCart();
+    };
 
     return (
         // [FIX] Dynamic Classes for Animation
@@ -297,7 +303,8 @@ export default function Navbar() {
                             </span>
                         )}
                         <button 
-                            onClick={openCart}
+                            type="button"
+                            onClick={handleCartClick}
                             className={`relative p-2 rounded-full hover:bg-gray-100 text-gray-600 hover:text-primary transition-colors ${shakeCart ? 'cart-shake' : ''}`}
                         >
                             <ShoppingCart size={22} strokeWidth={2} />
@@ -349,7 +356,8 @@ export default function Navbar() {
                             </span>
                         )}
                         <button 
-                            onClick={openCart}
+                            type="button"
+                            onClick={handleCartClick}
                             className={`relative p-2 text-primary ${shakeCart ? 'cart-shake' : ''}`}
                         >
                             <ShoppingCart size={24} />
