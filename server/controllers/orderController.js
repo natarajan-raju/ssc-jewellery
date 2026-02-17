@@ -887,6 +887,16 @@ const validateRecoveryCoupon = async (req, res) => {
     }
 };
 
+const getAvailableCoupons = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const coupons = await Order.getAvailableCoupons(userId);
+        return res.json({ coupons });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to fetch available coupons' });
+    }
+};
+
 const getCheckoutSummary = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -1447,6 +1457,7 @@ module.exports = {
     createRazorpayOrder,
     getCheckoutSummary,
     validateRecoveryCoupon,
+    getAvailableCoupons,
     retryRazorpayPayment,
     verifyRazorpayPayment,
     handleRazorpayWebhook,

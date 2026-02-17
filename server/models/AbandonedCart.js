@@ -710,8 +710,9 @@ class AbandonedCart {
             };
         }
 
-        const stamp = Date.now().toString(36).toUpperCase();
-        const code = `REC${String(journeyId).slice(-3)}${String(attemptNo)}${stamp}`.slice(0, 24);
+        const stamp = Date.now().toString(36).toUpperCase().slice(-4);
+        const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+        const code = `REC-${String(journeyId).slice(-2).padStart(2, '0')}${String(attemptNo)}-${stamp}${rand}`.slice(0, 24);
         await db.execute(
             `INSERT INTO abandoned_cart_discounts
                 (journey_id, user_id, attempt_no, code, discount_type, discount_percent, max_discount_subunits, min_cart_subunits, status, expires_at)

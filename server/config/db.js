@@ -628,6 +628,64 @@ const initDB = async () => {
              ON DUPLICATE KEY UPDATE tier = tier`
         );
 
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS coupons (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                code VARCHAR(40) NOT NULL UNIQUE,
+                name VARCHAR(120) NOT NULL,
+                description VARCHAR(255),
+                source_type VARCHAR(30) NOT NULL DEFAULT 'admin',
+                scope_type VARCHAR(30) NOT NULL DEFAULT 'generic',
+                discount_type VARCHAR(20) NOT NULL DEFAULT 'percent',
+                discount_value DECIMAL(10,2) NOT NULL DEFAULT 0,
+                max_discount_subunits BIGINT NULL,
+                min_cart_subunits BIGINT NOT NULL DEFAULT 0,
+                tier_scope VARCHAR(20) NULL,
+                category_scope_json JSON,
+                starts_at DATETIME NULL,
+                expires_at DATETIME NULL,
+                usage_limit_total INT NULL,
+                usage_limit_per_user INT NOT NULL DEFAULT 1,
+                metadata_json JSON,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_by VARCHAR(50) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_coupons_source (source_type),
+                INDEX idx_coupons_scope (scope_type),
+                INDEX idx_coupons_active_dates (is_active, starts_at, expires_at)
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS coupon_user_targets (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                coupon_id BIGINT NOT NULL,
+                user_id VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_coupon_user (coupon_id, user_id),
+                INDEX idx_coupon_user_user (user_id),
+                FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS coupon_redemptions (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                coupon_id BIGINT NOT NULL,
+                user_id VARCHAR(50) NOT NULL,
+                order_id BIGINT NULL,
+                redeemed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                year_key INT NULL,
+                INDEX idx_coupon_redemptions_coupon (coupon_id),
+                INDEX idx_coupon_redemptions_user (user_id),
+                UNIQUE KEY uniq_coupon_order (coupon_id, order_id),
+                FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
         // 6. [NEW] PRODUCT_CATEGORIES (Junction Table)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS product_categories (

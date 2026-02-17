@@ -17,6 +17,12 @@ class User {
             address: parseJson(row.address),
             billingAddress: parseJson(row.billing_address),
             profileImage: row.profile_image || null,
+            loyaltyTier: String(row.loyalty_tier || row.loyaltyTier || 'regular').toLowerCase(),
+            totalOrders: Number(row.total_orders || row.totalOrders || 0),
+            totalSpend: Number(row.total_spend || row.totalSpend || 0),
+            avgOrderValue: Number(row.avg_order_value || row.avgOrderValue || 0),
+            lastOrderAt: row.last_order_at || row.lastOrderAt || null,
+            activeCouponCount: Number(row.active_coupon_count || row.activeCouponCount || 0),
             dob: row.dob
                 ? (row.dob instanceof Date
                     ? `${row.dob.getFullYear()}-${String(row.dob.getMonth() + 1).padStart(2, '0')}-${String(row.dob.getDate()).padStart(2, '0')}`
@@ -47,8 +53,27 @@ class User {
         const offset = (page - 1) * limit;
         
         let query = `SELECT u.*,
-            (SELECT COUNT(*) FROM cart_items ci WHERE ci.user_id = u.id) as cart_count
-            FROM users u`;
+            COALESCE(ul.tier, 'regular') as loyalty_tier,
+            (SELECT COUNT(*) FROM cart_items ci WHERE ci.user_id = u.id) as cart_count,
+            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as total_orders,
+            (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as total_spend,
+            (SELECT COALESCE(AVG(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as avg_order_value,
+            (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.status, '')) <> 'cancelled') as last_order_at,
+            (
+                SELECT COUNT(*)
+                FROM coupons c
+                LEFT JOIN coupon_user_targets cut ON cut.coupon_id = c.id AND cut.user_id = u.id
+                WHERE c.is_active = 1
+                  AND (c.starts_at IS NULL OR c.starts_at <= NOW())
+                  AND (c.expires_at IS NULL OR c.expires_at >= NOW())
+                  AND (
+                    c.scope_type = 'generic'
+                    OR (c.scope_type = 'customer' AND cut.user_id IS NOT NULL)
+                    OR (c.scope_type = 'tier' AND LOWER(COALESCE(c.tier_scope, '')) = LOWER(COALESCE(ul.tier, 'regular')))
+                  )
+            ) as active_coupon_count
+            FROM users u
+            LEFT JOIN user_loyalty ul ON ul.user_id = u.id`;
         let countQuery = 'SELECT COUNT(*) as total FROM users';
         const params = [];
         

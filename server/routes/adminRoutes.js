@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, listCoupons, createCoupon, issueCouponToUser, getUserActiveCoupons } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -20,6 +20,8 @@ router.get('/users', getUsers);
 router.post('/users', createUser);
 router.delete('/users/:id', deleteUser);
 router.get('/users/:id/cart', getUserCart);
+router.get('/users/:id/coupons/active', getUserActiveCoupons);
+router.post('/users/:id/coupons', issueCouponToUser);
 
 // ✅ REVERTED TO ORIGINAL PATH:
 router.put('/users/:id/reset-password', resetUserPassword);
@@ -42,5 +44,7 @@ router.get('/company-info', getCompanyInfo);
 router.put('/company-info', updateCompanyInfo);
 router.get('/loyalty/config', getLoyaltyConfig);
 router.put('/loyalty/config', updateLoyaltyConfig);
+router.get('/loyalty/coupons', listCoupons);
+router.post('/loyalty/coupons', createCoupon);
 
 module.exports = router;

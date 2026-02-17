@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const User = require('../models/User');
+const Coupon = require('../models/Coupon');
 const { sendOrderLifecycleCommunication, sendEmailCommunication } = require('./communications/communicationService');
 
 const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
@@ -124,7 +125,7 @@ const buildBenefitsFromValues = (tier, config = {}) => {
     return [
         `${extraDiscountPct}% extra member discount`,
         `${shippingDiscountPct}% shipping fee discount`,
-        `${birthdayDiscountPct}% birthday discount (overrides other discounts)`,
+        `${birthdayDiscountPct}% birthday coupon offer`,
         `${abandonedCartBoostPct}% abandoned cart offer boost`,
         priorityLine
     ];
@@ -430,6 +431,91 @@ const runMonthlyLoyaltyReassessment = async () => {
     return { total: rows.length, changed, upgraded };
 };
 
+const isUserBirthdayToday = (dob) => {
+    if (!dob) return false;
+    const parts = String(dob).split('T')[0].split('-');
+    const month = Number(parts[1] || 0);
+    const day = Number(parts[2] || 0);
+    if (!month || !day) return false;
+    const now = new Date();
+    return month === now.getMonth() + 1 && day === now.getDate();
+};
+
+const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => {
+    const user = await User.findById(userId);
+    if (!user?.id || !user?.email) return { created: false, coupon: null, reason: 'user_missing' };
+    if (!isUserBirthdayToday(user.dob)) return { created: false, coupon: null, reason: 'not_birthday' };
+    const year = new Date().getFullYear();
+    const [existingRows] = await db.execute(
+        `SELECT id, code
+         FROM coupons
+         WHERE source_type = 'birthday'
+           AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.userId')) = ?
+           AND CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata_json, '$.year')) AS UNSIGNED) = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        [String(user.id), Number(year)]
+    );
+    let coupon = null;
+    if (existingRows.length) {
+        coupon = existingRows[0];
+    } else {
+        const status = await getUserLoyaltyStatus(user.id);
+        const tierLabel = status?.profile?.label || 'Regular';
+        const birthdayDiscountPct = Number(status?.profile?.birthdayDiscountPct ?? 10);
+        coupon = await Coupon.createCoupon({
+            prefix: 'BDAY',
+            name: `${tierLabel} Birthday ${year}`,
+            description: `Birthday coupon for ${tierLabel} tier`,
+            sourceType: 'birthday',
+            scopeType: 'customer',
+            discountType: 'percent',
+            discountValue: birthdayDiscountPct,
+            maxDiscount: null,
+            minCartValue: 0,
+            usageLimitTotal: null,
+            usageLimitPerUser: 1,
+            startsAt: new Date(),
+            expiresAt: new Date(`${year}-12-31T23:59:59`),
+            customerTargets: [user.id],
+            metadata: {
+                year,
+                userId: user.id,
+                tier: String(status?.tier || 'regular').toLowerCase()
+            }
+        }, { createdBy: null });
+    }
+
+    if (sendEmail && coupon?.code && !existingRows.length) {
+        await sendEmailCommunication({
+            to: user.email,
+            subject: `Happy Birthday ${user.name || ''}! Your ${new Date().getFullYear()} coupon is here`,
+            text: `Happy Birthday! Use code ${coupon.code} to enjoy your birthday offer.`,
+            html: `<p>Hi ${user.name || 'Customer'},</p><p>Happy Birthday from SSC Jewellery.</p><p>Your birthday coupon code: <strong>${coupon.code}</strong></p><p>You can use this once this year.</p>`
+        }).catch(() => {});
+    }
+    return { created: !existingRows.length, coupon };
+};
+
+const issueBirthdayCouponsForEligibleUsersToday = async () => {
+    const [rows] = await db.execute(
+        `SELECT id, dob, email
+         FROM users
+         WHERE role = 'customer'
+           AND email IS NOT NULL
+           AND dob IS NOT NULL`
+    );
+    let created = 0;
+    let processed = 0;
+    for (const row of rows) {
+        if (!isUserBirthdayToday(row.dob)) continue;
+        processed += 1;
+        const result = await issueBirthdayCouponForUser(row.id, { sendEmail: true });
+        if (result?.created) created += 1;
+    }
+    return { processed, created };
+};
+
 const getLoyaltyConfigForAdmin = async () => {
     const cfg = await ensureLoyaltyConfigLoaded({ force: true });
     return TIER_ORDER.map((tier) => ({
@@ -499,5 +585,7 @@ module.exports = {
     getUserLoyaltyStatus,
     calculateOrderLoyaltyAdjustments,
     reassessUserTier,
-    runMonthlyLoyaltyReassessment
+    runMonthlyLoyaltyReassessment,
+    issueBirthdayCouponForUser,
+    issueBirthdayCouponsForEligibleUsersToday
 };

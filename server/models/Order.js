@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const AbandonedCart = require('./AbandonedCart');
+const Coupon = require('./Coupon');
 const CompanyProfile = require('./CompanyProfile');
 const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments } = require('../services/loyaltyService');
 
@@ -34,10 +35,6 @@ const parseJsonSafe = (value) => {
 
 const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
-const toMoney = (value) => {
-    const n = Number(value);
-    return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
-};
 
 const applyDefaultPending = (order) => {
     if (!order) return order;
@@ -163,35 +160,45 @@ const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'all' } = {}) =
     }
 };
 
-const isDobToday = (dob) => {
-    if (!dob) return false;
-    const parts = String(dob).split('T')[0].split('-');
-    const month = Number(parts[1] || 0);
-    const day = Number(parts[2] || 0);
-    if (!month || !day) return false;
-    const now = new Date();
-    return month === (now.getMonth() + 1) && day === now.getDate();
-};
-
-const resolveBirthdayDiscount = async ({
-    connection,
-    userId,
-    subtotal = 0,
-    loyaltyStatus = null
-} = {}) => {
-    if (!userId || !connection) return { isActive: false, birthdayDiscountPct: 0, birthdayDiscountTotal: 0 };
-    const [rows] = await connection.execute('SELECT dob FROM users WHERE id = ? LIMIT 1', [userId]);
-    const dob = rows[0]?.dob || null;
-    if (!isDobToday(dob)) {
-        return { isActive: false, birthdayDiscountPct: 0, birthdayDiscountTotal: 0 };
-    }
-    const pct = Number(loyaltyStatus?.profile?.birthdayDiscountPct ?? 10);
-    const birthdayDiscountPct = Number.isFinite(pct) ? Math.max(0, pct) : 10;
-    const birthdayDiscountTotal = Math.min(Math.max(0, Number(subtotal || 0)), toMoney((Number(subtotal || 0) * birthdayDiscountPct) / 100));
-    return { isActive: birthdayDiscountTotal > 0, birthdayDiscountPct, birthdayDiscountTotal };
-};
-
 class Order {
+    static async getAvailableCoupons(userId) {
+        const connection = await db.getConnection();
+        try {
+            const [cartRows] = await connection.execute(
+                `SELECT ci.quantity, ci.product_id,
+                        p.status as product_status, p.mrp, p.discount_price as product_discount_price,
+                        pv.price as variant_price, pv.discount_price as variant_discount_price
+                 FROM cart_items ci
+                 JOIN products p ON p.id = ci.product_id
+                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+                 WHERE ci.user_id = ?`,
+                [userId]
+            );
+            if (!cartRows.length) return [];
+            let subtotal = 0;
+            const productIds = [];
+            for (const row of cartRows) {
+                const quantity = Number(row.quantity || 0);
+                if (quantity <= 0) continue;
+                if (row.product_status && row.product_status !== 'active') continue;
+                const unitPrice = Number(
+                    row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
+                );
+                subtotal += unitPrice * quantity;
+                if (row.product_id) productIds.push(row.product_id);
+            }
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            return Coupon.getAvailableCouponsForUser({
+                userId,
+                loyaltyTier: loyaltyStatus?.tier || 'regular',
+                cartTotalSubunits: toSubunits(subtotal),
+                cartProductIds: [...new Set(productIds)]
+            });
+        } finally {
+            connection.release();
+        }
+    }
+
     static async computeShippingFeeForSummary({
         shippingAddress = null,
         subtotal = 0,
@@ -210,7 +217,7 @@ class Order {
         const connection = await db.getConnection();
         try {
             const [cartRows] = await connection.execute(
-                `SELECT ci.quantity,
+                `SELECT ci.quantity, ci.product_id,
                         p.status as product_status, p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
                         pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg
                  FROM cart_items ci
@@ -253,11 +260,15 @@ class Order {
             const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
             let couponDiscountTotal = 0;
             let coupon = null;
+            const cartProductIds = [...new Set(cartRows.map((row) => row.product_id).filter(Boolean))];
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
             if (couponCode) {
-                const discount = await AbandonedCart.getRedeemableDiscount({
+                const discount = await Coupon.resolveRedeemableCoupon({
                     code: couponCode,
                     userId,
                     cartTotalSubunits: toSubunits(subtotal),
+                    loyaltyTier: loyaltyStatus?.tier || 'regular',
+                    cartProductIds,
                     connection
                 });
                 if (!discount) {
@@ -267,41 +278,31 @@ class Order {
                 coupon = {
                     id: discount.id,
                     code: discount.code,
-                    type: discount.discount_type || 'percent',
-                    percent: Number(discount.discount_percent || 0),
-                    journeyId: discount.journey_id || null,
+                    source: discount.source || 'coupon',
+                    type: discount.type || 'percent',
+                    percent: Number(discount.percent || 0),
+                    fixedAmount: Number(discount.fixedAmount || 0),
+                    journeyId: discount.journeyId || null,
                     discountSubunits: Number(discount.discountSubunits || 0)
                 };
             }
             if (couponDiscountTotal > subtotal) couponDiscountTotal = subtotal;
 
-            const loyaltyStatus = await getUserLoyaltyStatus(userId);
-            const birthday = await resolveBirthdayDiscount({
-                connection,
-                userId,
-                subtotal,
-                loyaltyStatus
-            });
-            if (birthday.isActive) {
-                couponDiscountTotal = 0;
-                coupon = null;
-            }
             const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
                 subtotal,
                 shippingFee,
                 couponDiscount: couponDiscountTotal,
                 tier: loyaltyStatus?.tier || 'regular'
             });
-            const loyaltyDiscountTotal = birthday.isActive ? 0 : Math.min(
+            const loyaltyDiscountTotal = Math.min(
                 Math.max(0, subtotal - couponDiscountTotal),
                 Number(loyaltyAdjustments.loyaltyDiscount || 0)
             );
-            const loyaltyShippingDiscountTotal = birthday.isActive ? 0 : Math.min(
+            const loyaltyShippingDiscountTotal = Math.min(
                 Math.max(0, shippingFee),
                 Number(loyaltyAdjustments.shippingDiscount || 0)
             );
-            const birthdayDiscountTotal = birthday.isActive ? Number(birthday.birthdayDiscountTotal || 0) : 0;
-            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal + birthdayDiscountTotal;
+            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
             const total = Math.max(0, subtotal + shippingFee - discountTotal);
 
             return {
@@ -311,8 +312,6 @@ class Order {
                 couponDiscountTotal,
                 loyaltyDiscountTotal,
                 loyaltyShippingDiscountTotal,
-                birthdayDiscountTotal,
-                birthdayDiscountPct: birthday.isActive ? birthday.birthdayDiscountPct : 0,
                 discountTotal,
                 total,
                 currency: 'INR',
@@ -321,11 +320,7 @@ class Order {
                 loyaltyProfile: loyaltyStatus?.profile || null,
                 loyaltyMeta: {
                     profile: loyaltyAdjustments.profile || null,
-                    progress: loyaltyStatus?.progress || null,
-                    birthdayDiscount: birthday.isActive ? {
-                        pct: birthday.birthdayDiscountPct,
-                        total: birthdayDiscountTotal
-                    } : null
+                    progress: loyaltyStatus?.progress || null
                 }
             };
         } finally {
@@ -478,11 +473,15 @@ class Order {
             const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
             let couponDiscountTotal = 0;
             let coupon = null;
+            const cartProductIds = [...new Set(orderItems.map((item) => item.productId).filter(Boolean))];
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
             if (couponCode) {
-                const discount = await AbandonedCart.getRedeemableDiscount({
+                const discount = await Coupon.resolveRedeemableCoupon({
                     code: couponCode,
                     userId,
                     cartTotalSubunits: toSubunits(subtotal),
+                    loyaltyTier: loyaltyStatus?.tier || 'regular',
+                    cartProductIds,
                     connection
                 });
                 if (!discount) {
@@ -492,41 +491,31 @@ class Order {
                 coupon = {
                     id: discount.id,
                     code: discount.code,
-                    type: discount.discount_type || 'percent',
-                    percent: Number(discount.discount_percent || 0),
-                    journeyId: discount.journey_id || null,
+                    source: discount.source || 'coupon',
+                    type: discount.type || 'percent',
+                    percent: Number(discount.percent || 0),
+                    fixedAmount: Number(discount.fixedAmount || 0),
+                    journeyId: discount.journeyId || null,
                     discountSubunits: Number(discount.discountSubunits || 0)
                 };
             }
             if (couponDiscountTotal > subtotal) couponDiscountTotal = subtotal;
 
-            const loyaltyStatus = await getUserLoyaltyStatus(userId);
-            const birthday = await resolveBirthdayDiscount({
-                connection,
-                userId,
-                subtotal,
-                loyaltyStatus
-            });
-            if (birthday.isActive) {
-                couponDiscountTotal = 0;
-                coupon = null;
-            }
             const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
                 subtotal,
                 shippingFee,
                 couponDiscount: couponDiscountTotal,
                 tier: loyaltyStatus?.tier || 'regular'
             });
-            const loyaltyDiscountTotal = birthday.isActive ? 0 : Math.min(
+            const loyaltyDiscountTotal = Math.min(
                 Math.max(0, subtotal - couponDiscountTotal),
                 Number(loyaltyAdjustments.loyaltyDiscount || 0)
             );
-            const loyaltyShippingDiscountTotal = birthday.isActive ? 0 : Math.min(
+            const loyaltyShippingDiscountTotal = Math.min(
                 Math.max(0, shippingFee),
                 Number(loyaltyAdjustments.shippingDiscount || 0)
             );
-            const birthdayDiscountTotal = birthday.isActive ? Number(birthday.birthdayDiscountTotal || 0) : 0;
-            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal + birthdayDiscountTotal;
+            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
             const total = Math.max(0, subtotal + shippingFee - discountTotal);
             const orderRef = buildOrderRef();
             const paymentStatus = payment?.paymentStatus || 'created';
@@ -538,6 +527,8 @@ class Order {
             const settlementSnapshot = payment?.settlementSnapshot || null;
             const couponMeta = coupon ? {
                 percent: coupon.percent || 0,
+                fixedAmount: coupon.fixedAmount || 0,
+                source: coupon.source || 'coupon',
                 discountSubunits: coupon.discountSubunits || 0
             } : null;
             const isAbandonedRecovery = coupon?.journeyId ? 1 : 0;
@@ -545,11 +536,7 @@ class Order {
             const loyaltyMeta = {
                 tierProfile: loyaltyStatus?.profile || null,
                 adjustmentProfile: loyaltyAdjustments.profile || null,
-                progress: loyaltyStatus?.progress || null,
-                birthdayDiscount: birthday.isActive ? {
-                    pct: birthday.birthdayDiscountPct,
-                    total: birthdayDiscountTotal
-                } : null
+                progress: loyaltyStatus?.progress || null
             };
             const companyProfile = await CompanyProfile.get();
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
@@ -593,9 +580,11 @@ class Order {
 
             const orderId = orderResult.insertId;
             if (coupon?.id) {
-                await AbandonedCart.markDiscountRedeemed({
-                    discountId: coupon.id,
+                await Coupon.markRedeemed({
+                    source: coupon.source || 'coupon',
+                    id: coupon.id,
                     orderId,
+                    userId,
                     connection
                 });
             }
@@ -646,8 +635,6 @@ class Order {
                 couponCode: coupon?.code || null,
                 couponType: coupon?.type || null,
                 couponDiscountTotal,
-                birthdayDiscountTotal,
-                birthdayDiscountPct: birthday.isActive ? birthday.birthdayDiscountPct : 0,
                 loyaltyTier,
                 loyaltyDiscountTotal,
                 loyaltyShippingDiscountTotal,

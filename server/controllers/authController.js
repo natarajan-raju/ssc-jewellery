@@ -4,7 +4,7 @@ const User = require('../models/User');
 const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getUserLoyaltyStatus, reassessUserTier } = require('../services/loyaltyService');
+const { getUserLoyaltyStatus, reassessUserTier, issueBirthdayCouponForUser } = require('../services/loyaltyService');
 
 const generateToken = (user) => {
     return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
@@ -231,6 +231,7 @@ exports.getProfile = async (req, res) => {
             user.loyaltyTier = loyalty.tier;
             user.loyaltyProfile = loyalty.profile;
         } catch {}
+        await issueBirthdayCouponForUser(user.id, { sendEmail: true }).catch(() => {});
         res.json({ user });
     } catch (error) {
         res.status(500).json({ message: error.message });

@@ -32,7 +32,7 @@ const {
     startAbandonedCartMaintenanceScheduler,
     setKnownPublicOriginFromRequest
 } = require('./services/abandonedCartRecoveryService');
-const { runMonthlyLoyaltyReassessment, ensureLoyaltyConfigLoaded } = require('./services/loyaltyService');
+const { runMonthlyLoyaltyReassessment, ensureLoyaltyConfigLoaded, issueBirthdayCouponsForEligibleUsersToday } = require('./services/loyaltyService');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -183,6 +183,39 @@ const scheduleMonthlyLoyaltyReassessment = () => {
 };
 
 scheduleMonthlyLoyaltyReassessment();
+const scheduleDailyBirthdayCoupons = () => {
+    let lastRunKey = '';
+    const runIfWindow = async () => {
+        try {
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).formatToParts(now).reduce((acc, part) => {
+                if (part.type !== 'literal') acc[part.type] = part.value;
+                return acc;
+            }, {});
+            const runKey = `${parts.year}-${parts.month}-${parts.day}`;
+            const hour = Number(parts.hour || 0);
+            const minute = Number(parts.minute || 0);
+            const inWindow = hour === 9 && minute >= 0 && minute < 20;
+            if (!inWindow || lastRunKey === runKey) return;
+            const result = await issueBirthdayCouponsForEligibleUsersToday();
+            lastRunKey = runKey;
+            console.log('Daily birthday coupon job completed:', result);
+        } catch (error) {
+            console.error('Daily birthday coupon job failed:', error);
+        }
+    };
+    setInterval(runIfWindow, 10 * 60 * 1000);
+    runIfWindow();
+};
+scheduleDailyBirthdayCoupons();
 startAbandonedCartRecoveryScheduler({
     onJourneyUpdate: (payload = {}) => {
         io.to('admin').emit('abandoned_cart:journey:update', {

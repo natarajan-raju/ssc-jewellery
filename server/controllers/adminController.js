@@ -2,9 +2,11 @@ const User = require('../models/User');
 const Cart = require('../models/Cart');
 const bcrypt = require('bcryptjs');
 const CompanyProfile = require('../models/CompanyProfile');
+const Coupon = require('../models/Coupon');
 const {
     verifyEmailTransport,
-    sendEmailCommunication
+    sendEmailCommunication,
+    sendWhatsapp
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
 
@@ -235,6 +237,103 @@ const updateLoyaltyConfig = async (req, res) => {
     }
 };
 
+const listCoupons = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page || '1', 10) || 1;
+        const limit = parseInt(req.query.limit || '20', 10) || 20;
+        const search = String(req.query.search || '').trim();
+        const sourceType = String(req.query.sourceType || 'all').trim().toLowerCase();
+        const result = await Coupon.listCoupons({ page, limit, search, sourceType });
+        return res.json({
+            coupons: result.coupons,
+            pagination: {
+                currentPage: page,
+                totalPages: result.totalPages,
+                totalCoupons: result.total
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch coupons' });
+    }
+};
+
+const createCoupon = async (req, res) => {
+    try {
+        if (String(req.user?.role || '').toLowerCase() !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can create coupons' });
+        }
+        const payload = req.body || {};
+        const coupon = await Coupon.createCoupon(payload, { createdBy: req.user?.id || null });
+        return res.status(201).json({ coupon });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to create coupon' });
+    }
+};
+
+const issueCouponToUser = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        if (!userId) return res.status(400).json({ message: 'Invalid user id' });
+        const user = await User.findById(userId);
+        if (!user || String(user.role || 'customer') !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const body = req.body || {};
+        const coupon = await Coupon.createCoupon({
+            name: body.name || `Customer Offer - ${user.name || userId}`,
+            description: body.description || null,
+            sourceType: 'admin',
+            scopeType: 'customer',
+            discountType: body.discountType || 'percent',
+            discountValue: Number(body.discountValue || 0),
+            maxDiscount: body.maxDiscount != null ? Number(body.maxDiscount) : null,
+            minCartValue: body.minCartValue != null ? Number(body.minCartValue) : 0,
+            usageLimitTotal: body.usageLimitTotal != null ? Number(body.usageLimitTotal) : null,
+            usageLimitPerUser: Math.max(1, Number(body.usageLimitPerUser || 1)),
+            startsAt: body.startsAt || null,
+            expiresAt: body.expiresAt || null,
+            customerTargets: [user.id]
+        }, { createdBy: req.user?.id || null });
+
+        const message = `Hi ${user.name || 'Customer'}, your coupon code is ${coupon.code}.`;
+        const emailResult = user.email
+            ? await sendEmailCommunication({
+                to: user.email,
+                subject: `${coupon.name} - Coupon Code`,
+                text: `${message} Expires on ${coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'N/A'}.`,
+                html: `<p>${message}</p><p>Expires on: <strong>${coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'N/A'}</strong></p>`
+            }).catch(() => ({ ok: false }))
+            : { ok: false, skipped: true, reason: 'missing_email' };
+
+        const whatsappResult = user.mobile
+            ? await sendWhatsapp({
+                mobile: user.mobile,
+                message: `${message} Use once per order.`
+            }).catch(() => ({ ok: false }))
+            : { ok: false, skipped: true, reason: 'missing_mobile' };
+
+        return res.status(201).json({ coupon, delivery: { email: emailResult, whatsapp: whatsappResult } });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to issue coupon' });
+    }
+};
+
+const getUserActiveCoupons = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        if (!userId) return res.status(400).json({ message: 'Invalid user id' });
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        const coupons = await Coupon.getActiveCouponsByUser({
+            userId,
+            loyaltyTier: user.loyaltyTier || 'regular'
+        });
+        return res.json({ coupons });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch active coupons' });
+    }
+};
+
 module.exports = {
     getUsers,
     createUser,
@@ -246,5 +345,9 @@ module.exports = {
     getCompanyInfo,
     updateCompanyInfo,
     getLoyaltyConfig,
-    updateLoyaltyConfig
+    updateLoyaltyConfig,
+    listCoupons,
+    createCoupon,
+    issueCouponToUser,
+    getUserActiveCoupons
 };
