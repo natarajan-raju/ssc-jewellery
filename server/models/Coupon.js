@@ -118,6 +118,20 @@ class Coupon {
         };
     }
 
+    static async deactivateCoupon(couponId, { connection = db } = {}) {
+        const id = Number(couponId || 0);
+        if (!Number.isFinite(id) || id <= 0) return 0;
+        const [result] = await connection.execute(
+            `UPDATE coupons
+             SET is_active = 0,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND is_active = 1`,
+            [id]
+        );
+        return Number(result?.affectedRows || 0);
+    }
+
     static async listCoupons({ page = 1, limit = 20, search = '', sourceType = 'all' } = {}, { connection = db } = {}) {
         const safePage = Math.max(1, Number(page || 1));
         const safeLimit = Math.max(1, Math.min(100, Number(limit || 20)));

@@ -10,6 +10,22 @@ const {
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
 
+const emitCouponChanged = (req, payload = {}) => {
+    const io = req.app.get('io');
+    if (!io) return;
+    const eventPayload = { ...payload, ts: new Date().toISOString() };
+    io.to('admin').emit('coupon:changed', eventPayload);
+    const targets = Array.isArray(payload.userTargets)
+        ? [...new Set(payload.userTargets.map((id) => String(id || '').trim()).filter(Boolean))]
+        : [];
+    targets.forEach((userId) => {
+        io.to(`user:${userId}`).emit('coupon:changed', eventPayload);
+    });
+    if (payload.broadcast === true) {
+        io.emit('coupon:changed', eventPayload);
+    }
+};
+
 // --- 1. GET ALL USERS (PAGINATED) ---
 const getUsers = async (req, res) => {
     try {
@@ -270,6 +286,13 @@ const createCoupon = async (req, res) => {
             return res.status(400).json({ message: 'end date must be on or after start date' });
         }
         const coupon = await Coupon.createCoupon(payload, { createdBy: req.user?.id || null });
+        emitCouponChanged(req, {
+            action: 'created',
+            couponId: coupon?.id || null,
+            scopeType: coupon?.scope_type || payload.scopeType || 'generic',
+            sourceType: coupon?.source_type || payload.sourceType || 'admin',
+            broadcast: true
+        });
         return res.status(201).json({ coupon });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to create coupon' });
@@ -308,25 +331,62 @@ const issueCouponToUser = async (req, res) => {
         }, { createdBy: req.user?.id || null });
 
         const message = `Hi ${user.name || 'Customer'}, your coupon code is ${coupon.code}.`;
-        const emailResult = user.email
-            ? await sendEmailCommunication({
-                to: user.email,
-                subject: `${coupon.name} - Coupon Code`,
-                text: `${message} Expires on ${coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'N/A'}.`,
-                html: `<p>${message}</p><p>Expires on: <strong>${coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'N/A'}</strong></p>`
-            }).catch(() => ({ ok: false }))
-            : { ok: false, skipped: true, reason: 'missing_email' };
+        const [emailResult, whatsappResult] = await Promise.all([
+            user.email
+                ? sendEmailCommunication({
+                    to: user.email,
+                    subject: `${coupon.name} - Coupon Code`,
+                    text: `${message} Expires on ${coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'N/A'}.`,
+                    html: `<p>${message}</p><p>Expires on: <strong>${coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'N/A'}</strong></p>`
+                }).catch(() => ({ ok: false }))
+                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+            user.mobile
+                ? sendWhatsapp({
+                    mobile: user.mobile,
+                    message: `${message} Use once per order.`
+                }).catch(() => ({ ok: false }))
+                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
+        ]);
 
-        const whatsappResult = user.mobile
-            ? await sendWhatsapp({
-                mobile: user.mobile,
-                message: `${message} Use once per order.`
-            }).catch(() => ({ ok: false }))
-            : { ok: false, skipped: true, reason: 'missing_mobile' };
+        emitCouponChanged(req, {
+            action: 'created',
+            couponId: coupon?.id || null,
+            scopeType: 'customer',
+            sourceType: 'admin',
+            userTargets: [user.id]
+        });
 
         return res.status(201).json({ coupon, delivery: { email: emailResult, whatsapp: whatsappResult } });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to issue coupon' });
+    }
+};
+
+const deleteCoupon = async (req, res) => {
+    try {
+        if (String(req.user?.role || '').toLowerCase() !== 'admin') {
+            return res.status(403).json({ message: 'Only admin can delete coupons' });
+        }
+        const couponId = Number(req.params.couponId || req.params.id || 0);
+        if (!Number.isFinite(couponId) || couponId <= 0) {
+            return res.status(400).json({ message: 'Invalid coupon id' });
+        }
+        const coupon = await Coupon.getById(couponId);
+        if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+        const affected = await Coupon.deactivateCoupon(couponId);
+        if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
+        emitCouponChanged(req, {
+            action: 'deleted',
+            couponId,
+            code: coupon.code || null,
+            scopeType: coupon.scope_type || 'generic',
+            sourceType: coupon.source_type || 'admin',
+            userTargets: coupon.scope_type === 'customer' ? (coupon.customerTargets || []) : [],
+            broadcast: coupon.scope_type !== 'customer'
+        });
+        return res.json({ ok: true, id: couponId });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to delete coupon' });
     }
 };
 
@@ -360,6 +420,7 @@ module.exports = {
     updateLoyaltyConfig,
     listCoupons,
     createCoupon,
+    deleteCoupon,
     issueCouponToUser,
     getUserActiveCoupons
 };

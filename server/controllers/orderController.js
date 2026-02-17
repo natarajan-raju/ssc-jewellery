@@ -46,6 +46,21 @@ const emitAbandonedRecoveryUpdate = (req, { journeyId = null, userId = null, rea
     });
 };
 
+const emitCouponChangedForOrder = (req, order = null) => {
+    if (!order?.coupon_code || !order?.user_id) return;
+    const io = req.app.get('io');
+    if (!io) return;
+    const payload = {
+        action: 'redeemed',
+        code: String(order.coupon_code || '').trim().toUpperCase(),
+        userId: order.user_id,
+        orderId: order.id || null,
+        ts: new Date().toISOString()
+    };
+    io.to('admin').emit('coupon:changed', payload);
+    io.to(`user:${order.user_id}`).emit('coupon:changed', payload);
+};
+
 const parseAddressObject = (value) => {
     if (!value) return null;
     if (typeof value === 'object') return value;
@@ -140,6 +155,7 @@ const createOrderFromRecoveryPayment = async (req, {
                 reason: 'payment_paid_webhook'
             });
         } catch {}
+        emitCouponChangedForOrder(req, createdOrder);
     }
     return createdOrder;
 };
@@ -494,6 +510,7 @@ const verifyRazorpayPayment = async (req, res) => {
             };
             io.emit('payment:update', paymentPayload);
             io.to(`user:${userId}`).emit('payment:update', paymentPayload);
+            emitCouponChangedForOrder(req, finalOrder);
         }
 
         void triggerOrderLifecycleEmail({

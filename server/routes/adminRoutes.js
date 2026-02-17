@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, listCoupons, createCoupon, issueCouponToUser, getUserActiveCoupons } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, listCoupons, createCoupon, deleteCoupon, issueCouponToUser, getUserActiveCoupons } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -46,5 +46,6 @@ router.get('/loyalty/config', getLoyaltyConfig);
 router.put('/loyalty/config', updateLoyaltyConfig);
 router.get('/loyalty/coupons', listCoupons);
 router.post('/loyalty/coupons', createCoupon);
+router.delete('/loyalty/coupons/:couponId', deleteCoupon);
 
 module.exports = router;

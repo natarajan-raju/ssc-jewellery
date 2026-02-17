@@ -1091,15 +1091,44 @@ class AbandonedCart {
         orderId,
         connection = db
     }) {
-        await connection.execute(
+        const safeId = Number(discountId || 0);
+        if (!Number.isFinite(safeId) || safeId <= 0) return { redeemed: 0, invalidated: 0 };
+        const [targetRows] = await connection.execute(
+            `SELECT id, journey_id, user_id
+             FROM abandoned_cart_discounts
+             WHERE id = ?
+             LIMIT 1`,
+            [safeId]
+        );
+        if (!targetRows.length) return { redeemed: 0, invalidated: 0 };
+        const target = targetRows[0];
+        const [redeemResult] = await connection.execute(
             `UPDATE abandoned_cart_discounts
              SET status = 'redeemed',
                  redeemed_order_id = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?
                AND status = 'active'`,
-            [orderId, discountId]
+            [orderId, safeId]
         );
+        let invalidated = 0;
+        if (target.journey_id) {
+            const [invalidateResult] = await connection.execute(
+                `UPDATE abandoned_cart_discounts
+                 SET status = 'invalidated',
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE journey_id = ?
+                   AND user_id = ?
+                   AND id <> ?
+                   AND status = 'active'`,
+                [target.journey_id, target.user_id, safeId]
+            );
+            invalidated = Number(invalidateResult?.affectedRows || 0);
+        }
+        return {
+            redeemed: Number(redeemResult?.affectedRows || 0),
+            invalidated
+        };
     }
 }
 
