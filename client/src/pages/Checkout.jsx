@@ -307,6 +307,13 @@ export default function Checkout() {
         lineTotal: Number(item.price || 0) * Number(item.quantity || 0),
         weightKg: Number(item.weightKg || 0)
     })), [items]);
+    const productMrpSavings = useMemo(() => lineItems.reduce((sum, item) => {
+        const mrp = Number(item.compareAt || 0);
+        const price = Number(item.price || 0);
+        const qty = Number(item.quantity || 0);
+        if (mrp <= price || qty <= 0) return sum;
+        return sum + ((mrp - price) * qty);
+    }, 0), [lineItems]);
 
     const getOrderResultItemImage = (item) => (
         item?.image_url
@@ -361,6 +368,10 @@ export default function Checkout() {
     const loyaltyShippingDiscount = useMemo(
         () => Number(checkoutSummary?.loyaltyShippingDiscountTotal ?? 0),
         [checkoutSummary?.loyaltyShippingDiscountTotal]
+    );
+    const totalSavings = useMemo(
+        () => Number(productMrpSavings || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0),
+        [productMrpSavings, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
     );
     const grandTotal = useMemo(() => {
         if (checkoutSummary?.total != null) return Number(checkoutSummary.total || 0);
@@ -876,6 +887,12 @@ export default function Checkout() {
                                         <span>Taxes</span>
                                         <span className="font-semibold text-gray-800">Included</span>
                                     </div>
+                                    {totalSavings > 0 && (
+                                        <div className="flex items-center justify-between text-emerald-700">
+                                            <span>Total Savings</span>
+                                            <span className="font-semibold">₹{Number(totalSavings || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-gray-800 text-base font-semibold pt-3">
                                         <span>Total</span>
                                         <span>₹{grandTotal.toLocaleString()}</span>

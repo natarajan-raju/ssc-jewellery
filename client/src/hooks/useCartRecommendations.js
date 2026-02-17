@@ -84,7 +84,8 @@ export const useCartRecommendations = ({ items = [], wishlistProductIds = [], li
                 const unique = dedupeById(combined).filter((product) => {
                     const productId = String(product?.id || '');
                     const isActive = String(product?.status || 'active').toLowerCase() === 'active';
-                    return productId && isActive && !cartProductIds.has(productId);
+                    const inCart = cartProductIds.has(productId);
+                    return productId && isActive && !inCart;
                 });
                 if (!cancelled) {
                     setRecommendations(unique.slice(0, limit));

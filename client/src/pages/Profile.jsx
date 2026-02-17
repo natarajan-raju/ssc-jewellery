@@ -55,15 +55,15 @@ const TIER_THEME = {
         button: 'bg-white/20 text-white hover:bg-white hover:text-slate-800'
     },
     gold: {
-        card: 'from-yellow-700 via-amber-500 to-yellow-700',
+        card: 'from-amber-900 via-amber-800 to-amber-900',
         chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
         profileBorder: 'border-yellow-300',
         profileImageBorder: 'border-yellow-400',
         profileRibbon: 'bg-yellow-600 text-amber-950',
-        title: 'text-amber-950',
-        body: 'text-amber-950',
-        caption: 'text-amber-900',
-        button: 'bg-amber-100/80 text-amber-950 hover:bg-white hover:text-amber-950'
+        title: 'text-amber-50',
+        body: 'text-amber-100',
+        caption: 'text-amber-200',
+        button: 'bg-amber-200/20 text-amber-50 hover:bg-white hover:text-amber-950'
     },
     platinum: {
         card: 'from-sky-700 via-blue-500 to-sky-700',
@@ -76,6 +76,23 @@ const TIER_THEME = {
         caption: 'text-sky-100',
         button: 'bg-white/20 text-white hover:bg-white hover:text-sky-900'
     }
+};
+
+const toNumber = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+const getOrderSavings = (order = {}) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const productSavings = items.reduce((sum, item) => {
+        const qty = toNumber(item?.quantity, 0);
+        const price = toNumber(item?.price, 0);
+        const original = toNumber(item?.original_price ?? item?.compare_at ?? item?.mrp, 0);
+        if (original <= price || qty <= 0) return sum;
+        return sum + ((original - price) * qty);
+    }, 0);
+    const promoSavings = toNumber(order?.discount_total, 0);
+    return productSavings + promoSavings;
 };
 
 export default function Profile() {
@@ -303,7 +320,7 @@ export default function Profile() {
                             <p className={`!mb-0 text-sm mt-2 ${tierTheme.body}`}>
                                 {loyaltyStatus?.progress?.message || 'Keep your profile updated to receive curated offers.'}
                             </p>
-                            <div className="mt-4 h-2 rounded-full bg-white/20 overflow-hidden">
+                            <div className="mt-4 h-2 rounded-full bg-white/30 overflow-hidden">
                                 <div className="h-full bg-white rounded-full" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
                             </div>
                             <div className={`mt-2 text-xs ${tierTheme.caption}`}>
@@ -604,6 +621,9 @@ export default function Profile() {
                                                         <div className="min-w-0">
                                                             <p className="text-sm font-semibold text-gray-800 truncate">{order.order_ref}</p>
                                                             <p className="text-xs text-gray-500">Placed on {formatDate(order.created_at)}</p>
+                                                            {getOrderSavings(order) > 0 && (
+                                                                <p className="text-xs text-emerald-700 mt-1">Savings ₹{getOrderSavings(order).toLocaleString('en-IN')}</p>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <p className="text-sm font-semibold text-gray-800 shrink-0">₹{Number(order.total || 0).toLocaleString()}</p>
