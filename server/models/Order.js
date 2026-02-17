@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const AbandonedCart = require('./AbandonedCart');
 const CompanyProfile = require('./CompanyProfile');
+const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments } = require('../services/loyaltyService');
 
 const buildOrderRef = () => {
     const now = new Date();
@@ -139,6 +140,14 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
 const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'all' } = {}) => {
     if (quickRange === 'latest_10') return 'o.created_at DESC';
     switch (sortBy) {
+        case 'priority':
+            return `CASE LOWER(COALESCE(o.loyalty_tier, 'regular'))
+                WHEN 'platinum' THEN 5
+                WHEN 'gold' THEN 4
+                WHEN 'silver' THEN 3
+                WHEN 'bronze' THEN 2
+                ELSE 1
+            END DESC, o.created_at DESC`;
         case 'oldest':
             return 'o.created_at ASC';
         case 'amount_high':
@@ -210,7 +219,7 @@ class Order {
             }
 
             const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
-            let discountTotal = 0;
+            let couponDiscountTotal = 0;
             let coupon = null;
             if (couponCode) {
                 const discount = await AbandonedCart.getRedeemableDiscount({
@@ -222,7 +231,7 @@ class Order {
                 if (!discount) {
                     throw new Error('Coupon is invalid or expired');
                 }
-                discountTotal = fromSubunits(discount.discountSubunits);
+                couponDiscountTotal = fromSubunits(discount.discountSubunits);
                 coupon = {
                     id: discount.id,
                     code: discount.code,
@@ -232,17 +241,43 @@ class Order {
                     discountSubunits: Number(discount.discountSubunits || 0)
                 };
             }
-            if (discountTotal > subtotal) discountTotal = subtotal;
-            const total = subtotal + shippingFee - discountTotal;
+            if (couponDiscountTotal > subtotal) couponDiscountTotal = subtotal;
+
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
+                subtotal,
+                shippingFee,
+                couponDiscount: couponDiscountTotal,
+                tier: loyaltyStatus?.tier || 'regular'
+            });
+            const loyaltyDiscountTotal = Math.min(
+                Math.max(0, subtotal - couponDiscountTotal),
+                Number(loyaltyAdjustments.loyaltyDiscount || 0)
+            );
+            const loyaltyShippingDiscountTotal = Math.min(
+                Math.max(0, shippingFee),
+                Number(loyaltyAdjustments.shippingDiscount || 0)
+            );
+            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
+            const total = Math.max(0, subtotal + shippingFee - discountTotal);
 
             return {
                 itemCount,
                 subtotal,
                 shippingFee,
+                couponDiscountTotal,
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal,
                 discountTotal,
                 total,
                 currency: 'INR',
-                coupon
+                coupon,
+                loyaltyTier: loyaltyStatus?.tier || 'regular',
+                loyaltyProfile: loyaltyStatus?.profile || null,
+                loyaltyMeta: {
+                    profile: loyaltyAdjustments.profile || null,
+                    progress: loyaltyStatus?.progress || null
+                }
             };
         } finally {
             connection.release();
@@ -392,7 +427,7 @@ class Order {
             }
 
             const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
-            let discountTotal = 0;
+            let couponDiscountTotal = 0;
             let coupon = null;
             if (couponCode) {
                 const discount = await AbandonedCart.getRedeemableDiscount({
@@ -404,7 +439,7 @@ class Order {
                 if (!discount) {
                     throw new Error('Coupon is invalid or expired');
                 }
-                discountTotal = fromSubunits(discount.discountSubunits);
+                couponDiscountTotal = fromSubunits(discount.discountSubunits);
                 coupon = {
                     id: discount.id,
                     code: discount.code,
@@ -414,8 +449,25 @@ class Order {
                     discountSubunits: Number(discount.discountSubunits || 0)
                 };
             }
-            if (discountTotal > subtotal) discountTotal = subtotal;
-            const total = subtotal + shippingFee - discountTotal;
+            if (couponDiscountTotal > subtotal) couponDiscountTotal = subtotal;
+
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
+                subtotal,
+                shippingFee,
+                couponDiscount: couponDiscountTotal,
+                tier: loyaltyStatus?.tier || 'regular'
+            });
+            const loyaltyDiscountTotal = Math.min(
+                Math.max(0, subtotal - couponDiscountTotal),
+                Number(loyaltyAdjustments.loyaltyDiscount || 0)
+            );
+            const loyaltyShippingDiscountTotal = Math.min(
+                Math.max(0, shippingFee),
+                Number(loyaltyAdjustments.shippingDiscount || 0)
+            );
+            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
+            const total = Math.max(0, subtotal + shippingFee - discountTotal);
             const orderRef = buildOrderRef();
             const paymentStatus = payment?.paymentStatus || 'created';
             const paymentGateway = payment?.gateway || 'razorpay';
@@ -429,13 +481,19 @@ class Order {
                 discountSubunits: coupon.discountSubunits || 0
             } : null;
             const isAbandonedRecovery = coupon?.journeyId ? 1 : 0;
+            const loyaltyTier = String(loyaltyStatus?.tier || 'regular').toLowerCase();
+            const loyaltyMeta = {
+                tierProfile: loyaltyStatus?.profile || null,
+                adjustmentProfile: loyaltyAdjustments.profile || null,
+                progress: loyaltyStatus?.progress || null
+            };
             const companyProfile = await CompanyProfile.get();
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -447,8 +505,12 @@ class Order {
                     razorpaySignature,
                     coupon?.code || null,
                     coupon?.type || null,
-                    discountTotal,
+                    couponDiscountTotal,
                     couponMeta ? JSON.stringify(couponMeta) : null,
+                    loyaltyTier,
+                    loyaltyDiscountTotal,
+                    loyaltyShippingDiscountTotal,
+                    JSON.stringify(loyaltyMeta),
                     sourceChannel ? String(sourceChannel).slice(0, 30) : null,
                     isAbandonedRecovery,
                     coupon?.journeyId || null,
@@ -519,6 +581,11 @@ class Order {
                 currency: 'INR',
                 couponCode: coupon?.code || null,
                 couponType: coupon?.type || null,
+                couponDiscountTotal,
+                loyaltyTier,
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal,
+                loyaltyMeta,
                 sourceChannel: sourceChannel || null,
                 isAbandonedRecovery: Boolean(isAbandonedRecovery),
                 abandonedJourneyId: coupon?.journeyId || null,
@@ -596,13 +663,14 @@ class Order {
             const settlementId = payment?.settlementId || null;
             const settlementSnapshot = payment?.settlementSnapshot || null;
             const finalOrderRef = orderRef || buildOrderRef();
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
             const companyProfile = await CompanyProfile.get();
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     finalOrderRef,
                     userId,
@@ -616,6 +684,10 @@ class Order {
                     null,
                     0,
                     null,
+                    String(loyaltyStatus?.tier || 'regular').toLowerCase(),
+                    0,
+                    0,
+                    JSON.stringify({ tierProfile: loyaltyStatus?.profile || null, progress: loyaltyStatus?.progress || null }),
                     'abandoned_recovery',
                     1,
                     journey.id,
@@ -869,6 +941,10 @@ class Order {
                 o.coupon_type,
                 o.coupon_discount_value,
                 o.coupon_meta,
+                o.loyalty_tier,
+                o.loyalty_discount_total,
+                o.loyalty_shipping_discount_total,
+                o.loyalty_meta,
                 o.source_channel,
                 o.is_abandoned_recovery,
                 o.abandoned_journey_id,
@@ -908,6 +984,10 @@ class Order {
                 NULL as coupon_type,
                 0 as coupon_discount_value,
                 NULL as coupon_meta,
+                'regular' as loyalty_tier,
+                0 as loyalty_discount_total,
+                0 as loyalty_shipping_discount_total,
+                NULL as loyalty_meta,
                 NULL as source_channel,
                 0 as is_abandoned_recovery,
                 NULL as abandoned_journey_id,
@@ -962,6 +1042,15 @@ class Order {
             rows = latestRows.slice(offset, offset + queryLimit);
         } else {
             const mappedOrderBy = (() => {
+                if (sortBy === 'priority') {
+                    return `CASE LOWER(COALESCE(loyalty_tier, 'regular'))
+                        WHEN 'platinum' THEN 5
+                        WHEN 'gold' THEN 4
+                        WHEN 'silver' THEN 3
+                        WHEN 'bronze' THEN 2
+                        ELSE 1
+                    END DESC, created_at DESC`;
+                }
                 if (sortBy === 'amount_high') return 'total DESC, created_at DESC';
                 if (sortBy === 'amount_low') return 'total ASC, created_at DESC';
                 if (sortBy === 'oldest') return 'created_at ASC';
@@ -983,6 +1072,7 @@ class Order {
                 shipping_address: normalizeAddress(row.shipping_address),
                 company_snapshot: parseJsonSafe(row.company_snapshot),
                 settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
+                loyalty_meta: parseJsonSafe(row.loyalty_meta),
                 coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
                     ? (() => {
                         try { return JSON.parse(row.coupon_meta); } catch { return null; }
@@ -1037,6 +1127,7 @@ class Order {
             shipping_address: normalizeAddress(order.shipping_address),
             company_snapshot: parseJsonSafe(order.company_snapshot),
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
+            loyalty_meta: parseJsonSafe(order.loyalty_meta),
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
                     try { return JSON.parse(order.coupon_meta); } catch { return null; }
@@ -1156,6 +1247,7 @@ class Order {
             shipping_address: normalizeAddress(order.shipping_address),
             company_snapshot: parseJsonSafe(order.company_snapshot),
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
+            loyalty_meta: parseJsonSafe(order.loyalty_meta),
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
                     try { return JSON.parse(order.coupon_meta); } catch { return null; }
@@ -1260,7 +1352,7 @@ class Order {
                 [values]
             );
             await connection.commit();
-            return { updated: ids.length };
+            return { updated: ids.length, ids };
         } catch (error) {
             await connection.rollback();
             throw error;

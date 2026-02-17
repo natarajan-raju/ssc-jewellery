@@ -8,6 +8,7 @@ const AbandonedCart = require('../models/AbandonedCart');
 const User = require('../models/User');
 const CompanyProfile = require('../models/CompanyProfile');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
+const { sendOrderLifecycleCommunication } = require('../services/communications/communicationService');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -476,12 +477,14 @@ const verifyRazorpayPayment = async (req, res) => {
 
         const io = req.app.get('io');
         if (io) {
-            io.emit('order:create', { order });
-            io.to(`user:${userId}`).emit('order:update', { orderId: order.id, status: order.status || 'confirmed', order });
+            const hydratedOrder = await Order.getById(order.id);
+            const finalOrder = hydratedOrder || order;
+            io.emit('order:create', { order: finalOrder });
+            io.to(`user:${userId}`).emit('order:update', { orderId: finalOrder.id || order.id, status: finalOrder.status || 'confirmed', order: finalOrder });
             const paymentPayload = {
-                orderId: order.id,
-                status: order.status || 'confirmed',
-                order,
+                orderId: finalOrder.id || order.id,
+                status: finalOrder.status || 'confirmed',
+                order: finalOrder,
                 payment: {
                     paymentStatus: PAYMENT_STATUS.PAID,
                     paymentMethod: 'razorpay',
@@ -492,6 +495,12 @@ const verifyRazorpayPayment = async (req, res) => {
             io.emit('payment:update', paymentPayload);
             io.to(`user:${userId}`).emit('payment:update', paymentPayload);
         }
+
+        void triggerOrderLifecycleEmail({
+            order,
+            stage: 'confirmed',
+            includeInvoice: true
+        });
 
         return res.json({ order, verified: true });
     } catch (error) {
@@ -796,15 +805,22 @@ const handleRazorpayWebhook = async (req, res) => {
                 if (linkedOrder) {
                     const io = req.app.get('io');
                     if (io) {
-                        io.emit('order:create', { order: linkedOrder });
-                        if (linkedOrder.user_id) {
-                            io.to(`user:${linkedOrder.user_id}`).emit('order:update', {
-                                orderId: linkedOrder.id,
-                                status: linkedOrder.status,
-                                order: linkedOrder
+                        const hydratedLinkedOrder = await Order.getById(linkedOrder.id);
+                        const finalLinkedOrder = hydratedLinkedOrder || linkedOrder;
+                        io.emit('order:create', { order: finalLinkedOrder });
+                        if (finalLinkedOrder.user_id) {
+                            io.to(`user:${finalLinkedOrder.user_id}`).emit('order:update', {
+                                orderId: finalLinkedOrder.id,
+                                status: finalLinkedOrder.status,
+                                order: finalLinkedOrder
                             });
                         }
                     }
+                    void triggerOrderLifecycleEmail({
+                        order: linkedOrder,
+                        stage: 'confirmed',
+                        includeInvoice: true
+                    });
                 }
             }
 
@@ -862,12 +878,27 @@ const validateRecoveryCoupon = async (req, res) => {
         return res.json({
             ok: true,
             code,
-            discountTotal: Number(summary.discountTotal || 0),
+            discountTotal: Number(summary.couponDiscountTotal || summary.discountTotal || 0),
             total: Number(summary.total || 0),
             coupon: summary.coupon || null
         });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Coupon is invalid or expired' });
+    }
+};
+
+const getCheckoutSummary = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const code = String(req.body?.couponCode || '').trim().toUpperCase() || null;
+        const { shippingAddress = null } = req.body || {};
+        const summary = await Order.getCheckoutSummary(userId, {
+            shippingAddress,
+            couponCode: code
+        });
+        return res.json({ summary });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to compute checkout summary' });
     }
 };
 
@@ -1005,6 +1036,11 @@ const updateOrderStatus = async (req, res) => {
                 io.to(`user:${order.user_id}`).emit('order:update', { orderId: req.params.id, status, order });
             }
         }
+        void triggerOrderLifecycleEmail({
+            order,
+            stage: status === 'pending' ? 'pending_delay' : status,
+            includeInvoice: false
+        });
         res.json({ order, refund });
     } catch (error) {
         res.status(400).json({ message: error.message || 'Failed to update order' });
@@ -1305,11 +1341,7 @@ const fetchMyPaymentStatus = async (req, res) => {
     }
 };
 
-const sendInvoicePdf = async (res, order) => {
-    const paymentStatus = String(order?.payment_status || '').toLowerCase();
-    if (![PAYMENT_STATUS.PAID, PAYMENT_STATUS.REFUNDED].includes(paymentStatus)) {
-        return res.status(400).json({ message: 'Invoice is available only for paid or refunded orders' });
-    }
+const hydrateOrderForInvoice = async (order = {}) => {
     let orderForInvoice = { ...(order || {}) };
     try {
         const snapshot = orderForInvoice.company_snapshot && typeof orderForInvoice.company_snapshot === 'object'
@@ -1329,6 +1361,47 @@ const sendInvoicePdf = async (res, order) => {
             };
         }
     } catch {}
+    return orderForInvoice;
+};
+
+const triggerOrderLifecycleEmail = async ({
+    order = null,
+    stage = 'updated',
+    includeInvoice = false
+} = {}) => {
+    if (!order?.user_id) return;
+    try {
+        const customer = await User.findById(order.user_id);
+        if (!customer?.email) return;
+        let invoiceAttachment = null;
+        if (includeInvoice) {
+            const orderForInvoice = await hydrateOrderForInvoice(order);
+            const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
+            const invoiceRef = String(order?.order_ref || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
+            invoiceAttachment = {
+                filename: `invoice-${invoiceRef}.pdf`,
+                content: pdfBuffer,
+                contentType: 'application/pdf'
+            };
+        }
+        await sendOrderLifecycleCommunication({
+            stage,
+            customer,
+            order,
+            includeInvoice,
+            invoiceAttachment
+        });
+    } catch (error) {
+        console.error(`Order lifecycle email failed for order ${order?.id || 'unknown'}:`, error?.message || error);
+    }
+};
+
+const sendInvoicePdf = async (res, order) => {
+    const paymentStatus = String(order?.payment_status || '').toLowerCase();
+    if (![PAYMENT_STATUS.PAID, PAYMENT_STATUS.REFUNDED].includes(paymentStatus)) {
+        return res.status(400).json({ message: 'Invoice is available only for paid or refunded orders' });
+    }
+    const orderForInvoice = await hydrateOrderForInvoice(order);
     const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
     const invoiceRef = String(order?.order_ref || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
     res.setHeader('Content-Type', 'application/pdf');
@@ -1372,6 +1445,7 @@ const downloadAdminInvoicePdf = async (req, res) => {
 module.exports = {
     createOrderFromCheckout,
     createRazorpayOrder,
+    getCheckoutSummary,
     validateRecoveryCoupon,
     retryRazorpayPayment,
     verifyRazorpayPayment,

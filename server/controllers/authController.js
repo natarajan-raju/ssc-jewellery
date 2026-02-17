@@ -4,6 +4,7 @@ const User = require('../models/User');
 const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { getUserLoyaltyStatus, reassessUserTier } = require('../services/loyaltyService');
 
 const generateToken = (user) => {
     return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
@@ -225,9 +226,24 @@ exports.getProfile = async (req, res) => {
             return res.status(401).json({ message: 'Not authorized' });
         }
         delete user.password;
+        try {
+            const loyalty = await getUserLoyaltyStatus(user.id);
+            user.loyaltyTier = loyalty.tier;
+        } catch {}
         res.json({ user });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+exports.getLoyaltyStatus = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        await reassessUserTier(userId, { reason: 'on_demand_read', sendNotifications: false }).catch(() => {});
+        const status = await getUserLoyaltyStatus(userId);
+        return res.json({ status });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch loyalty status' });
     }
 };
 

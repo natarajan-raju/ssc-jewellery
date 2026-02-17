@@ -66,6 +66,13 @@ export const authService = {
     });
     return res.json();
   },
+  getLoyaltyStatus: async () => {
+    const res = await fetch(`${API_URL}/loyalty-status`, {
+      method: 'GET',
+      headers: authService.getAuthHeader()
+    });
+    return res.json();
+  },
   updateProfile: async (payload) => {
     const res = await fetch(`${API_URL}/profile`, {
       method: 'PUT',

@@ -123,6 +123,16 @@ const normalizeOrderForCache = (order) => {
             return null;
         }
     })();
+    const loyaltyMeta = (() => {
+        if (!order.loyalty_meta && !order.loyaltyMeta) return null;
+        const raw = order.loyalty_meta || order.loyaltyMeta;
+        if (typeof raw === 'object') return raw;
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    })();
     return {
         ...order,
         order_ref: order.order_ref || order.orderRef || '',
@@ -139,6 +149,10 @@ const normalizeOrderForCache = (order) => {
         coupon_type: order.coupon_type || order.couponType || '',
         coupon_discount_value: Number(order.coupon_discount_value ?? order.couponDiscountValue ?? 0),
         coupon_meta: couponMeta,
+        loyalty_tier: String(order.loyalty_tier || order.loyaltyTier || 'regular').toLowerCase(),
+        loyalty_discount_total: Number(order.loyalty_discount_total ?? order.loyaltyDiscountTotal ?? 0),
+        loyalty_shipping_discount_total: Number(order.loyalty_shipping_discount_total ?? order.loyaltyShippingDiscountTotal ?? 0),
+        loyalty_meta: loyaltyMeta,
         source_channel: order.source_channel || order.sourceChannel || '',
         is_abandoned_recovery: Boolean(order.is_abandoned_recovery ?? order.isAbandonedRecovery ?? false),
         abandoned_journey_id: order.abandoned_journey_id ?? order.abandonedJourneyId ?? null,
@@ -329,6 +343,14 @@ const removeAdminEntityFromCache = ({ id, entityType = 'order' } = {}) => {
 };
 
 export const orderService = {
+    getCheckoutSummary: async ({ shippingAddress, couponCode } = {}) => {
+        const res = await fetch(`${API_URL}/summary`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ shippingAddress, couponCode })
+        });
+        return handleResponse(res);
+    },
     createRazorpayOrder: async ({ billingAddress, shippingAddress, notes, couponCode } = {}) => {
         const res = await fetch(`${API_URL}/razorpay/order`, {
             method: 'POST',

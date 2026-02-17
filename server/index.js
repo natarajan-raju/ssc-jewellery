@@ -22,13 +22,17 @@ const cartRoutes = require('./routes/cartRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const shippingRoutes = require('./routes/shippingRoutes');
 const orderRoutes = require('./routes/orderRoutes');
+const wishlistRoutes = require('./routes/wishlistRoutes');
 const Order = require('./models/Order');
+const User = require('./models/User');
 const { PaymentAttempt } = require('./models/PaymentAttempt');
+const { sendOrderLifecycleCommunication } = require('./services/communications/communicationService');
 const {
     startAbandonedCartRecoveryScheduler,
     startAbandonedCartMaintenanceScheduler,
     setKnownPublicOriginFromRequest
 } = require('./services/abandonedCartRecoveryService');
+const { runMonthlyLoyaltyReassessment } = require('./services/loyaltyService');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -82,6 +86,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/wishlist', wishlistRoutes);
 app.use('/uploads', express.static(path.join(__dirname, '../client/public/uploads')));
 // Serve Frontend
 app.use(express.static(path.join(__dirname, '../client/dist')));
@@ -99,7 +104,25 @@ const scheduleMidnightJob = () => {
     const delay = next.getTime() - now.getTime();
     setTimeout(async () => {
         try {
-            await Order.markStaleAsPending();
+            const result = await Order.markStaleAsPending();
+            const ids = Array.isArray(result?.ids) ? result.ids : [];
+            if (ids.length > 0) {
+                for (const orderId of ids) {
+                    try {
+                        const order = await Order.getById(orderId);
+                        if (!order?.user_id) continue;
+                        const customer = await User.findById(order.user_id);
+                        if (!customer?.email) continue;
+                        await sendOrderLifecycleCommunication({
+                            stage: 'pending_delay',
+                            customer,
+                            order
+                        });
+                    } catch (error) {
+                        console.error(`Pending-delay email failed for order ${orderId}:`, error?.message || error);
+                    }
+                }
+            }
         } catch (error) {
             console.error('Order pending job failed:', error);
         }
@@ -121,6 +144,44 @@ const schedulePaymentAttemptExpiryJob = () => {
 };
 
 schedulePaymentAttemptExpiryJob();
+const scheduleMonthlyLoyaltyReassessment = () => {
+    let lastRunKey = '';
+    const runIfWindow = async () => {
+        try {
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).formatToParts(now).reduce((acc, part) => {
+                if (part.type !== 'literal') acc[part.type] = part.value;
+                return acc;
+            }, {});
+            const year = parts.year;
+            const month = parts.month;
+            const day = Number(parts.day || 0);
+            const hour = Number(parts.hour || 0);
+            const minute = Number(parts.minute || 0);
+            const runKey = `${year}-${month}`;
+            const inWindow = day === 1 && hour === 0 && minute >= 30 && minute < 45;
+            if (!inWindow || lastRunKey === runKey) return;
+            const result = await runMonthlyLoyaltyReassessment();
+            lastRunKey = runKey;
+            console.log('Monthly loyalty reassessment completed:', result);
+        } catch (error) {
+            console.error('Monthly loyalty reassessment failed:', error);
+        }
+    };
+
+    setInterval(runIfWindow, 15 * 60 * 1000);
+    runIfWindow();
+};
+
+scheduleMonthlyLoyaltyReassessment();
 startAbandonedCartRecoveryScheduler({
     onJourneyUpdate: (payload = {}) => {
         io.to('admin').emit('abandoned_cart:journey:update', {

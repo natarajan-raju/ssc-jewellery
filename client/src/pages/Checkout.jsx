@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, Ticket } from 'lucide-react';
+import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, Sparkles, Ticket, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
@@ -9,6 +9,8 @@ import { orderService } from '../services/orderService';
 import { useShipping } from '../context/ShippingContext';
 import logo from '../assets/logo.webp';
 import cartIllustration from '../assets/cart.svg';
+import successDing from '../assets/success_ding.mp3';
+import { burstConfetti, playCue } from '../utils/celebration';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -37,57 +39,6 @@ const ensureRazorpayScript = () => {
     });
 };
 
-const burstConfetti = () => {
-    if (typeof window === 'undefined' || typeof document === 'undefined') return;
-    const canvas = document.createElement('canvas');
-    canvas.style.position = 'fixed';
-    canvas.style.inset = '0';
-    canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '120';
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    document.body.appendChild(canvas);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-        canvas.remove();
-        return;
-    }
-
-    const colors = ['#f59e0b', '#ef4444', '#10b981', '#3b82f6', '#ec4899'];
-    const particles = Array.from({ length: 140 }).map(() => ({
-        x: canvas.width / 2,
-        y: canvas.height / 3,
-        vx: (Math.random() - 0.5) * 11,
-        vy: Math.random() * -10 - 3,
-        size: Math.random() * 4 + 2,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 90 + Math.random() * 25
-    }));
-
-    let frame = 0;
-    const tick = () => {
-        frame += 1;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        particles.forEach((p) => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.vy += 0.17;
-            p.life -= 1;
-            if (p.life <= 0) return;
-            ctx.globalAlpha = Math.max(0, p.life / 115);
-            ctx.fillStyle = p.color;
-            ctx.fillRect(p.x, p.y, p.size, p.size);
-        });
-        ctx.globalAlpha = 1;
-        if (frame < 120) {
-            requestAnimationFrame(tick);
-        } else {
-            canvas.remove();
-        }
-    };
-    requestAnimationFrame(tick);
-};
-
 const hasCompleteAddress = (address = null) => {
     const value = address || {};
     return Boolean(
@@ -103,6 +54,14 @@ const normalizeStateKey = (value) => String(value || '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
 
+const TIER_THEME = {
+    regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
+    bronze: { card: 'from-amber-700 via-orange-600 to-amber-700', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
+    silver: { card: 'from-slate-500 via-zinc-400 to-slate-500', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
+    gold: { card: 'from-yellow-700 via-amber-500 to-yellow-700', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    platinum: { card: 'from-sky-700 via-blue-500 to-sky-700', chip: 'bg-sky-100 text-sky-800 border-sky-200' }
+};
+
 export default function Checkout() {
     const { user, loading, updateUser } = useAuth();
     const { items, subtotal, itemCount, clearCart } = useCart();
@@ -115,11 +74,16 @@ export default function Checkout() {
     const [isSaving, setIsSaving] = useState(false);
     const [coupon, setCoupon] = useState('');
     const [appliedCoupon, setAppliedCoupon] = useState(null);
+    const [checkoutSummary, setCheckoutSummary] = useState(null);
+    const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+    const [loyaltyStatus, setLoyaltyStatus] = useState(null);
     const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
     const [isPlacingOrder, setIsPlacingOrder] = useState(false);
     const [orderResult, setOrderResult] = useState(null);
     const [activeAttemptId, setActiveAttemptId] = useState(null);
+    const orderCelebratedRef = useRef(false);
     const autoCouponAttemptsRef = useRef(new Set());
+    const lastTierSeenRef = useRef(String(user?.loyaltyTier || 'regular').toLowerCase());
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -143,6 +107,7 @@ export default function Checkout() {
 
     useEffect(() => {
         if (!user) return;
+        lastTierSeenRef.current = String(user?.loyaltyTier || 'regular').toLowerCase();
         setForm({
             name: user.name || '',
             email: user.email || '',
@@ -188,6 +153,56 @@ export default function Checkout() {
             setIsApplyingCoupon(false);
         });
     }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount]);
+
+    useEffect(() => {
+        if (!user || itemCount <= 0) {
+            setCheckoutSummary(null);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            setIsSummaryLoading(true);
+            try {
+                const [summaryRes, loyaltyRes] = await Promise.all([
+                    orderService.getCheckoutSummary({
+                        shippingAddress: form.address,
+                        couponCode: appliedCoupon?.code || null
+                    }),
+                    authService.getLoyaltyStatus()
+                ]);
+                const summary = summaryRes?.summary || null;
+                const status = loyaltyRes?.status || null;
+                setCheckoutSummary(summary);
+                setLoyaltyStatus(status);
+
+                const prevTier = String(lastTierSeenRef.current || 'regular').toLowerCase();
+                const nextTier = String(status?.tier || prevTier).toLowerCase();
+                if (prevTier !== nextTier) {
+                    lastTierSeenRef.current = nextTier;
+                    if (['bronze', 'silver', 'gold', 'platinum'].includes(nextTier)) {
+                        burstConfetti();
+                        playCue(successDing);
+                        toast.success(`Membership upgraded to ${status?.profile?.label || nextTier}!`);
+                    }
+                }
+            } catch {
+                setCheckoutSummary(null);
+            } finally {
+                setIsSummaryLoading(false);
+            }
+        }, 280);
+        return () => clearTimeout(timer);
+    }, [user, itemCount, form.address, appliedCoupon?.code, toast]);
+
+    useEffect(() => {
+        if (!orderResult?.id) {
+            orderCelebratedRef.current = false;
+            return;
+        }
+        if (orderCelebratedRef.current) return;
+        orderCelebratedRef.current = true;
+        burstConfetti();
+        playCue(successDing);
+    }, [orderResult?.id]);
 
     const handleFieldChange = (e) => {
         const { name, value } = e.target;
@@ -272,7 +287,7 @@ export default function Checkout() {
         return sum + (Number(item.weightKg || 0) * Number(item.quantity || 0));
     }, 0), [lineItems]);
 
-    const shippingFee = useMemo(() => {
+    const fallbackShippingFee = useMemo(() => {
         if (!zones || zones.length === 0) return 0;
         const state = normalizeStateKey(form.address?.state);
         if (!state) return 0;
@@ -298,19 +313,39 @@ export default function Checkout() {
         return Number(eligible[0].rate || 0);
     }, [zones, form.address?.state, subtotal, totalWeightKg]);
 
-    const couponDiscount = useMemo(() => Number(appliedCoupon?.discountTotal || 0), [appliedCoupon?.discountTotal]);
+    const shippingFee = useMemo(
+        () => Number(checkoutSummary?.shippingFee ?? fallbackShippingFee ?? 0),
+        [checkoutSummary?.shippingFee, fallbackShippingFee]
+    );
+    const couponDiscount = useMemo(
+        () => Number(checkoutSummary?.couponDiscountTotal ?? appliedCoupon?.discountTotal ?? 0),
+        [checkoutSummary?.couponDiscountTotal, appliedCoupon?.discountTotal]
+    );
+    const loyaltyDiscount = useMemo(
+        () => Number(checkoutSummary?.loyaltyDiscountTotal ?? 0),
+        [checkoutSummary?.loyaltyDiscountTotal]
+    );
+    const loyaltyShippingDiscount = useMemo(
+        () => Number(checkoutSummary?.loyaltyShippingDiscountTotal ?? 0),
+        [checkoutSummary?.loyaltyShippingDiscountTotal]
+    );
     const grandTotal = useMemo(() => {
+        if (checkoutSummary?.total != null) return Number(checkoutSummary.total || 0);
         const gross = Number(subtotal || 0) + Number(shippingFee || 0);
-        return Math.max(0, gross - Number(couponDiscount || 0));
-    }, [subtotal, shippingFee, couponDiscount]);
+        return Math.max(0, gross - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0));
+    }, [checkoutSummary?.total, subtotal, shippingFee, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]);
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
     const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
-    const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment);
+    const hasUnavailableItems = useMemo(() => (
+        lineItems.some((item) => String(item?.status || '').toLowerCase() !== 'active' || Boolean(item?.isOutOfStock))
+    ), [lineItems]);
+    const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment) && !hasUnavailableItems;
 
     const handlePayNow = async () => {
         if (lineItems.length === 0) return toast.error('Your cart is empty');
         if (isPlacingOrder) return;
+        if (hasUnavailableItems) return toast.error('Some items are unavailable. Please review your cart before payment.');
         if (isMobileMissingOnProfile && !hasMobileForPayment) return toast.error('Please add mobile number before payment');
         if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
         if (!hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
@@ -399,7 +434,6 @@ export default function Checkout() {
                             setOrderResult(verification.order);
                             setActiveAttemptId(null);
                             await clearCart();
-                            burstConfetti();
                             toast.success('Payment successful, order placed');
                             markSettled();
                             resolve(verification.order);
@@ -433,6 +467,10 @@ export default function Checkout() {
     };
 
     if (!user) return null;
+    const tier = String(loyaltyStatus?.tier || checkoutSummary?.loyaltyTier || user?.loyaltyTier || 'regular').toLowerCase();
+    const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
+    const progressPct = Number(loyaltyStatus?.progress?.progressPct || 0);
+    const nextTierLabel = loyaltyStatus?.nextTierProfile?.label || loyaltyStatus?.progress?.nextTier || '';
 
     return (
         <div className="min-h-screen bg-secondary">
@@ -468,6 +506,29 @@ export default function Checkout() {
                                     <span>Payment</span>
                                     <span>Done</span>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className={`rounded-2xl text-white p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <p className="text-xs uppercase tracking-[0.24em] text-white/70 font-semibold">Membership</p>
+                                <p className="text-xl font-semibold mt-1">{loyaltyStatus?.profile?.label || tier} Tier</p>
+                                <p className="text-sm text-white/85 mt-2">
+                                    {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
+                                </p>
+                            </div>
+                            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 border border-white/20">
+                                <Sparkles size={14} /> Extra member pricing
+                            </span>
+                        </div>
+                        <div className="mt-4">
+                            <div className="h-2 rounded-full bg-white/20 overflow-hidden">
+                                <div className="h-full rounded-full bg-white" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                            </div>
+                            <div className="mt-2 flex items-center justify-between text-xs text-white/80">
+                                <span>{progressPct}% to next tier</span>
+                                <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
                             </div>
                         </div>
                     </div>
@@ -687,13 +748,18 @@ export default function Checkout() {
                                             const hasDiscount = mrp > price;
                                             const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
                                             return (
-                                                <div key={item.key} className="flex gap-4 items-center">
+                                                <div key={item.key} className={`flex gap-4 items-center ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
                                                     <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden">
                                                         {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
                                                         {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                                        {item.isOutOfStock && (
+                                                            <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
+                                                                Out of Stock
+                                                            </span>
+                                                        )}
                                                         <p className="text-xs text-gray-400 mt-1">
                                                             ₹{price.toLocaleString()} x {item.quantity}
                                                         </p>
@@ -719,6 +785,11 @@ export default function Checkout() {
                                 )}
 
                                 <div className="border-t border-gray-100 mt-6 pt-4 space-y-2 text-sm">
+                                    {isSummaryLoading && (
+                                        <div className="text-[11px] text-gray-500 flex items-center gap-1">
+                                            <TrendingUp size={12} /> Refreshing member pricing...
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-gray-500">
                                         <span>Subtotal</span>
                                         <span className="font-semibold text-gray-800">₹{subtotal.toLocaleString()}</span>
@@ -731,6 +802,18 @@ export default function Checkout() {
                                         <div className="flex items-center justify-between text-emerald-700">
                                             <span>Coupon ({appliedCoupon?.code || 'Applied'})</span>
                                             <span className="font-semibold">- ₹{Number(couponDiscount || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    {loyaltyDiscount > 0 && (
+                                        <div className="flex items-center justify-between text-blue-700">
+                                            <span>Member Discount ({loyaltyStatus?.profile?.label || tier})</span>
+                                            <span className="font-semibold">- ₹{Number(loyaltyDiscount || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    {loyaltyShippingDiscount > 0 && (
+                                        <div className="flex items-center justify-between text-blue-700">
+                                            <span>Member Shipping Benefit</span>
+                                            <span className="font-semibold">- ₹{Number(loyaltyShippingDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     <div className="flex items-center justify-between text-gray-500">
@@ -759,6 +842,11 @@ export default function Checkout() {
                                 {!isAddressReadyForPayment && (
                                     <p className="text-[11px] text-amber-700 text-center mt-2">
                                         Complete shipping and billing address to continue payment.
+                                    </p>
+                                )}
+                                {hasUnavailableItems && (
+                                    <p className="text-[11px] text-red-700 text-center mt-2">
+                                        Some cart items are inactive or out of stock. Remove them to continue.
                                     </p>
                                 )}
                                 <p className="text-[11px] text-gray-400 text-center mt-2">
@@ -841,6 +929,18 @@ export default function Checkout() {
                                 <div className="flex items-center justify-between text-sm mt-2">
                                     <span className="text-gray-500">Discount{orderResult.couponCode || orderResult.coupon_code ? ` (${orderResult.couponCode || orderResult.coupon_code})` : ''}</span>
                                     <span className="font-semibold text-emerald-700">-₹{Number(orderResult.discountTotal || orderResult.discount_total || 0).toLocaleString()}</span>
+                                </div>
+                            )}
+                            {Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0) > 0 && (
+                                <div className="flex items-center justify-between text-sm mt-2">
+                                    <span className="text-gray-500">Member Discount ({String(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular').toUpperCase()})</span>
+                                    <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0).toLocaleString()}</span>
+                                </div>
+                            )}
+                            {Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0) > 0 && (
+                                <div className="flex items-center justify-between text-sm mt-2">
+                                    <span className="text-gray-500">Member Shipping Discount</span>
+                                    <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0).toLocaleString()}</span>
                                 </div>
                             )}
                             <div className="flex items-center justify-between text-base font-semibold mt-3 text-gray-800">

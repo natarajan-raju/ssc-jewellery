@@ -36,6 +36,15 @@ const formatDate = (value) => {
     });
 };
 
+const getTierTheme = (tier) => {
+    const t = String(tier || 'regular').toLowerCase();
+    if (t === 'platinum') return { label: 'Platinum', color: '#0EA5E9' };
+    if (t === 'gold') return { label: 'Gold', color: '#CA8A04' };
+    if (t === 'silver') return { label: 'Silver', color: '#6B7280' };
+    if (t === 'bronze') return { label: 'Bronze', color: '#B45309' };
+    return { label: 'Regular', color: '#4B5563' };
+};
+
 const normalizeAddressLines = (address) => {
     const source = parseObject(address) || {};
     const line1 = source.line1 || source.addressLine1 || source.address || '';
@@ -282,9 +291,13 @@ const buildInvoicePdfBuffer = async (order = {}) => {
 
     const subtotal = toNumber(order.subtotal, items.reduce((sum, item) => sum + item.lineTotal, 0));
     const shippingFee = toNumber(order.shipping_fee, 0);
-    const couponDiscount = toNumber(order.discount_total, 0);
-    const total = toNumber(order.total, subtotal + shippingFee - couponDiscount);
+    const couponDiscount = toNumber(order.coupon_discount_value, 0);
+    const loyaltyDiscount = toNumber(order.loyalty_discount_total, 0);
+    const loyaltyShippingDiscount = toNumber(order.loyalty_shipping_discount_total, 0);
+    const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
+    const total = toNumber(order.total, subtotal + shippingFee - totalDiscount);
     const couponCode = String(order.coupon_code || order.couponCode || '').trim();
+    const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
 
     const logoPath = resolveLogoPath();
     if (logoPath) {
@@ -336,8 +349,10 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     doc.font('Helvetica-Bold').fillColor('#111827').text(` ${String(order.payment_gateway || 'razorpay').toUpperCase()}`);
     doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Payment Status:', 392, 270, { continued: true });
     doc.font('Helvetica-Bold').fillColor('#111827').text(` ${String(order.payment_status || '—').toUpperCase()}`, { align: 'right' });
+    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Membership:', 42, 286, { continued: true });
+    doc.font('Helvetica-Bold').fillColor(tierTheme.color).text(` ${tierTheme.label}`);
 
-    let cursorY = drawItemsTable(doc, fonts, 292, items);
+    let cursorY = drawItemsTable(doc, fonts, 304, items);
 
     doc.y = cursorY + 12;
     ensureSpace(doc, 180, 52);
@@ -356,10 +371,13 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         `- ${inr(couponDiscount)}`,
         totalsY + 36
     );
-    doc.moveTo(totalsX, totalsY + 58).lineTo(totalsX + 215, totalsY + 58).strokeColor('#D1D5DB').stroke();
-    writeTotal('Grand Total', inr(total), totalsY + 66, true);
+    writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, totalsY + 54);
+    writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, totalsY + 72);
+    writeTotal('Total Discounts', `- ${inr(totalDiscount)}`, totalsY + 90);
+    doc.moveTo(totalsX, totalsY + 112).lineTo(totalsX + 215, totalsY + 112).strokeColor('#D1D5DB').stroke();
+    writeTotal('Grand Total', inr(total), totalsY + 120, true);
 
-    doc.y = totalsY + 102;
+    doc.y = totalsY + 156;
     ensureSpace(doc, 120, 52);
 
     const policyTop = doc.y;

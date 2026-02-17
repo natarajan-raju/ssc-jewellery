@@ -103,6 +103,18 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         if (!status) return '—';
         return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
     };
+    const getTierLabel = (order) => {
+        const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
+        return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
+    };
+    const getTierBadgeClasses = (order) => {
+        const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
+        if (tier === 'platinum') return 'bg-sky-100 text-sky-800';
+        if (tier === 'gold') return 'bg-yellow-100 text-yellow-800';
+        if (tier === 'silver') return 'bg-slate-100 text-slate-700';
+        if (tier === 'bronze') return 'bg-amber-100 text-amber-800';
+        return 'bg-gray-100 text-gray-600';
+    };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
     const isFailedRow = (order) => String(order?.status || '').toLowerCase() === 'failed';
@@ -938,6 +950,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                 <option value="oldest">Oldest First</option>
                                 <option value="amount_high">Amount: High to Low</option>
                                 <option value="amount_low">Amount: Low to High</option>
+                                <option value="priority">Fulfillment Priority (Tier)</option>
                             </select>
                         </div>
                         <div className="relative w-full md:w-auto order-3 md:order-2">
@@ -1012,7 +1025,12 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                             </td>
                                             <td className="px-6 py-4 text-sm text-gray-700">
                                                 <div className="font-medium">{order.customer_name || 'Guest'}</div>
-                                                <div className="text-xs text-gray-400">{order.customer_mobile || '—'}</div>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-xs text-gray-400">{order.customer_mobile || '—'}</span>
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(order)}`}>
+                                                        {getTierLabel(order)}
+                                                    </span>
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{formatAdminDate(order.created_at)}</td>
                                             <td className="px-6 py-4 text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</td>
@@ -1102,7 +1120,12 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                         </div>
                                         <div className="space-y-1">
                                             <p className="text-sm font-medium text-gray-700">{order.customer_name || 'Guest'}</p>
-                                            <p className="text-xs text-gray-400">{order.customer_mobile || '—'}</p>
+                                            <div className="flex items-center gap-2">
+                                                <p className="text-xs text-gray-400">{order.customer_mobile || '—'}</p>
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(order)}`}>
+                                                    {getTierLabel(order)}
+                                                </span>
+                                            </div>
                                             <p className="text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</p>
                                             <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Payment</p>
                                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
@@ -1378,9 +1401,13 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                         <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                                             <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
                                             <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                <p><span className="text-gray-500">Membership Tier:</span> {getTierLabel(selectedOrder)}</p>
                                                 <p><span className="text-gray-500">Coupon:</span> {selectedOrder.coupon_code || '—'}</p>
                                                 <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
-                                                <p><span className="text-gray-500">Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || selectedOrder.discount_total || 0).toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Coupon Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Member Discount:</span> ₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Member Shipping Discount:</span> ₹{Number(selectedOrder.loyalty_shipping_discount_total || 0).toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Total Discount:</span> ₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</p>
                                                 <p><span className="text-gray-500">Source:</span> {isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout')}</p>
                                             </div>
                                         </div>
@@ -1428,6 +1455,10 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                     <div className="flex items-center justify-between">
                                         <span className="text-gray-500">Discount</span>
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-500">Member Discount</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between text-base font-semibold">
                                         <span>Total</span>

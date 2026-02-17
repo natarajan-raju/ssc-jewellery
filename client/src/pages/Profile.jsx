@@ -20,6 +20,13 @@ import { useMyOrders } from '../context/OrderContext';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
+const TIER_THEME = {
+    regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
+    bronze: { card: 'from-amber-700 via-orange-600 to-amber-700', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
+    silver: { card: 'from-slate-500 via-zinc-400 to-slate-500', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
+    gold: { card: 'from-yellow-700 via-amber-500 to-yellow-700', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    platinum: { card: 'from-sky-700 via-blue-500 to-sky-700', chip: 'bg-sky-100 text-sky-800 border-sky-200' }
+};
 
 export default function Profile() {
     const { user, loading, updateUser } = useAuth();
@@ -31,6 +38,7 @@ export default function Profile() {
     const [isUploading, setIsUploading] = useState(false);
     const [sameAsBilling, setSameAsBilling] = useState(false);
     const [profileImage, setProfileImage] = useState('');
+    const [loyaltyStatus, setLoyaltyStatus] = useState(null);
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -69,6 +77,13 @@ export default function Profile() {
         const billing = { ...emptyAddress, ...(user.billingAddress || user.address || {}) };
         const isSame = JSON.stringify(addr) === JSON.stringify(billing);
         setSameAsBilling(isSame);
+    }, [user]);
+
+    useEffect(() => {
+        if (!user) return;
+        authService.getLoyaltyStatus().then((data) => {
+            if (data?.status) setLoyaltyStatus(data.status);
+        }).catch(() => {});
     }, [user]);
 
     const handleFieldChange = (e) => {
@@ -175,6 +190,9 @@ export default function Profile() {
 
     if (!user) return null;
     const dobLocked = !!user.dobLocked;
+    const tier = String(loyaltyStatus?.tier || user?.loyaltyTier || 'regular').toLowerCase();
+    const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
+    const progressPct = Number(loyaltyStatus?.progress?.progressPct || 0);
 
     return (
         <div className="bg-secondary min-h-screen">
@@ -217,17 +235,23 @@ export default function Profile() {
                             </div>
                         </div>
 
-                        <div className="bg-gradient-to-br from-primary/90 via-primary to-primary-dark text-white rounded-2xl p-6 shadow-xl">
+                        <div className={`bg-gradient-to-br ${tierTheme.card} text-white rounded-2xl p-6 shadow-xl`}>
                             <div className="flex items-center gap-3">
                                 <Sparkles size={18} className="text-accent" />
                                 <p className="text-xs uppercase tracking-[0.3em] text-white/70 font-semibold">Member Perks</p>
                             </div>
                             <p className="text-lg font-semibold mt-3">
-                                Early access to new collections and exclusive previews.
+                                {loyaltyStatus?.profile?.label || 'Regular'} tier active.
                             </p>
                             <p className="text-sm text-white/80 mt-2">
-                                Keep your profile updated to receive curated offers.
+                                {loyaltyStatus?.progress?.message || 'Keep your profile updated to receive curated offers.'}
                             </p>
+                            <div className="mt-4 h-2 rounded-full bg-white/20 overflow-hidden">
+                                <div className="h-full bg-white rounded-full" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                            </div>
+                            <div className="mt-2 text-xs text-white/80">
+                                {progressPct}% to {loyaltyStatus?.nextTierProfile?.label || 'next tier'}
+                            </div>
                             <Link to="/shop" className="inline-flex items-center justify-center mt-5 px-4 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors text-sm font-semibold text-white">
                                 Explore Collections
                             </Link>
@@ -248,6 +272,10 @@ export default function Profile() {
                                     View Orders
                                     <CreditCard size={16} className="text-primary" />
                                 </button>
+                                <Link to="/wishlist" className="flex items-center justify-between w-full px-4 py-3 rounded-xl border border-gray-200 hover:border-primary/40 hover:bg-primary/5 transition-all text-sm font-semibold text-gray-700">
+                                    My Wishlist
+                                    <Package size={16} className="text-primary" />
+                                </Link>
                             </div>
                         </div>
                     </div>
@@ -277,6 +305,34 @@ export default function Profile() {
 
                             {activeTab === 'profile' && (
                                 <div className="mt-8 space-y-6">
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5">
+                                            <div className="flex items-center justify-between gap-3">
+                                                <p className="text-sm font-semibold text-gray-800">Current Benefits</p>
+                                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.chip}`}>
+                                                    {(loyaltyStatus?.profile?.label || tier).toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <div className="mt-3 space-y-2">
+                                                {(loyaltyStatus?.profile?.benefits || ['Standard pricing', 'Progress tracking']).map((benefit) => (
+                                                    <p key={benefit} className="text-sm text-gray-600">- {benefit}</p>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="rounded-2xl border border-gray-100 bg-white p-5">
+                                            <p className="text-sm font-semibold text-gray-800">Next Tier Benefits</p>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                {loyaltyStatus?.nextTierProfile?.label
+                                                    ? `${loyaltyStatus.nextTierProfile.label} unlocks these perks`
+                                                    : 'You are already at the highest tier'}
+                                            </p>
+                                            <div className="mt-3 space-y-2">
+                                                {(loyaltyStatus?.nextTierProfile?.benefits || ['Highest tier reached']).map((benefit) => (
+                                                    <p key={benefit} className="text-sm text-gray-600">- {benefit}</p>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-lg font-semibold text-gray-800">Personal Information</h3>
                                         {!isEditing ? (
@@ -450,7 +506,7 @@ export default function Profile() {
                                     </div>
 
                                     <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 text-sm text-primary-dark">
-                                        Updates are saved to your device for now. Server sync can be added when profile APIs are available.
+                                        Member pricing and eligibility are recalculated monthly, with live progress shown here after each purchase.
                                     </div>
                                 </div>
                             )}

@@ -171,6 +171,10 @@ const initDB = async () => {
                 coupon_type VARCHAR(30),
                 coupon_discount_value DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 coupon_meta JSON,
+                loyalty_tier VARCHAR(20) DEFAULT 'regular',
+                loyalty_discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                loyalty_shipping_discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                loyalty_meta JSON,
                 source_channel VARCHAR(30),
                 is_abandoned_recovery TINYINT(1) NOT NULL DEFAULT 0,
                 abandoned_journey_id BIGINT NULL,
@@ -224,6 +228,18 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN coupon_meta JSON');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE orders ADD COLUMN loyalty_tier VARCHAR(20) DEFAULT 'regular'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN loyalty_discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN loyalty_shipping_discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN loyalty_meta JSON');
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN source_channel VARCHAR(30)');
@@ -534,6 +550,48 @@ const initDB = async () => {
                 max_value DECIMAL(10,2) DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (zone_id) REFERENCES shipping_zones(id) ON DELETE CASCADE
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS wishlist_items (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                product_id VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_user_product_wishlist (user_id, product_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS user_loyalty (
+                user_id VARCHAR(50) PRIMARY KEY,
+                tier VARCHAR(20) NOT NULL DEFAULT 'regular',
+                evaluated_at TIMESTAMP NULL DEFAULT NULL,
+                spend_30d DECIMAL(12,2) NOT NULL DEFAULT 0,
+                spend_60d DECIMAL(12,2) NOT NULL DEFAULT 0,
+                spend_90d DECIMAL(12,2) NOT NULL DEFAULT 0,
+                spend_365d DECIMAL(12,2) NOT NULL DEFAULT 0,
+                progress_json JSON,
+                benefits_json JSON,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS user_loyalty_history (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                previous_tier VARCHAR(20) NOT NULL DEFAULT 'regular',
+                new_tier VARCHAR(20) NOT NULL DEFAULT 'regular',
+                reason VARCHAR(60) NOT NULL DEFAULT 'monthly_reassessment',
+                meta_json JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_loyalty_history_user_date (user_id, created_at)
             )
         `);
 

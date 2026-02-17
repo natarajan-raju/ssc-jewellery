@@ -7,6 +7,7 @@ const {
     sendWhatsapp
 } = require('./communications/communicationService');
 const { createStandardPaymentLink } = require('./razorpayPaymentLinkService');
+const { getUserLoyaltyStatus, getLoyaltyProfileByTier } = require('./loyaltyService');
 
 const RECOVERY_JOB_INTERVAL_MS = Math.max(
     30 * 1000,
@@ -553,9 +554,12 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
 
                 const user = await User.findById(workingJourney.user_id);
                 const discountPercent = AbandonedCart.resolveDiscountPercent(campaign, attemptNo);
+                const loyaltyStatus = await getUserLoyaltyStatus(workingJourney.user_id).catch(() => ({ tier: 'regular' }));
+                const loyaltyProfile = getLoyaltyProfileByTier(loyaltyStatus?.tier || 'regular');
+                const loyaltyBoostPercent = Math.max(0, Number(loyaltyProfile?.abandonedCartBoostPct || 0));
                 const minDiscountCartSubunits = Math.max(0, Number(campaign?.minDiscountCartSubunits || 0));
                 const eligibleDiscountPercent = Number(latestSummary.totalSubunits || 0) >= minDiscountCartSubunits
-                    ? discountPercent
+                    ? (discountPercent + loyaltyBoostPercent)
                     : 0;
                 const discount = buildDiscountSummary({
                     percent: eligibleDiscountPercent,

@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { createOrderFromCheckout, createRazorpayOrder, retryRazorpayPayment, verifyRazorpayPayment, handleRazorpayWebhook, getAdminOrders, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, validateRecoveryCoupon, downloadMyInvoicePdf, downloadAdminInvoicePdf } = require('../controllers/orderController');
+const { createOrderFromCheckout, createRazorpayOrder, getCheckoutSummary, retryRazorpayPayment, verifyRazorpayPayment, handleRazorpayWebhook, getAdminOrders, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, validateRecoveryCoupon, downloadMyInvoicePdf, downloadAdminInvoicePdf } = require('../controllers/orderController');
 
 router.post('/checkout', protect, createOrderFromCheckout);
 router.post('/razorpay/order', protect, createRazorpayOrder);
+router.post('/summary', protect, getCheckoutSummary);
 router.post('/coupon/validate', protect, validateRecoveryCoupon);
 router.post('/razorpay/retry', protect, retryRazorpayPayment);
 router.post('/razorpay/verify', protect, verifyRazorpayPayment);
