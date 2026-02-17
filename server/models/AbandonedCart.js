@@ -170,6 +170,23 @@ const normalizeNonNegativeNumber = (value, field) => {
 };
 
 class AbandonedCart {
+    static async invalidateActiveDiscountsByJourney({
+        journeyId,
+        connection = db
+    } = {}) {
+        const id = Number(journeyId || 0);
+        if (!Number.isFinite(id) || id <= 0) return 0;
+        const [result] = await connection.execute(
+            `UPDATE abandoned_cart_discounts
+             SET status = 'invalidated',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE journey_id = ?
+               AND status = 'active'`,
+            [id]
+        );
+        return Number(result?.affectedRows || 0);
+    }
+
     static getDefaultCampaign() {
         return { ...DEFAULT_CAMPAIGN };
     }
@@ -513,6 +530,12 @@ class AbandonedCart {
         reason = null
     }) {
         const markRecovered = String(status || '').toLowerCase() === 'recovered' ? 1 : 0;
+        const [activeRows] = await db.execute(
+            `SELECT id
+             FROM abandoned_cart_journeys
+             WHERE user_id = ? AND status = 'active'`,
+            [userId]
+        );
         const [result] = await db.execute(
             `UPDATE abandoned_cart_journeys
              SET status = ?,
@@ -524,6 +547,11 @@ class AbandonedCart {
              WHERE user_id = ? AND status = 'active'`,
             [status, recoveredOrderId, markRecovered, reason ? String(reason).slice(0, 200) : null, userId]
         );
+        if (['recovered', 'cancelled', 'expired'].includes(String(status || '').toLowerCase())) {
+            for (const row of activeRows) {
+                await AbandonedCart.invalidateActiveDiscountsByJourney({ journeyId: row.id, connection: db });
+            }
+        }
         return Number(result?.affectedRows || 0);
     }
 
@@ -535,6 +563,19 @@ class AbandonedCart {
     }) {
         if (!userId) return 0;
         const hours = maxAgeHours != null ? Math.max(1, Number(maxAgeHours || 0)) : null;
+        const [targetRows] = await db.execute(
+            `SELECT id
+             FROM abandoned_cart_journeys
+             WHERE user_id = ?
+               AND status IN ('active', 'cancelled')
+               AND recovered_order_id IS NULL
+               ${hours ? 'AND created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)' : ''}
+             ORDER BY created_at DESC
+             LIMIT 1`,
+            hours ? [userId, hours] : [userId]
+        );
+        if (!targetRows.length) return 0;
+        const targetJourneyId = Number(targetRows[0].id || 0);
         const [result] = await db.execute(
             `UPDATE abandoned_cart_journeys
              SET status = 'recovered',
@@ -543,16 +584,12 @@ class AbandonedCart {
                  recovery_reason = ?,
                  next_attempt_at = NULL,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE user_id = ?
-               AND status IN ('active', 'cancelled')
-               AND recovered_order_id IS NULL
-               ${hours ? 'AND created_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)' : ''}
-             ORDER BY created_at DESC
-             LIMIT 1`,
-            hours
-                ? [recoveredOrderId || null, String(reason || 'order_paid').slice(0, 200), userId, hours]
-                : [recoveredOrderId || null, String(reason || 'order_paid').slice(0, 200), userId]
+             WHERE id = ?`,
+            [recoveredOrderId || null, String(reason || 'order_paid').slice(0, 200), targetJourneyId]
         );
+        if (Number(result?.affectedRows || 0) > 0) {
+            await AbandonedCart.invalidateActiveDiscountsByJourney({ journeyId: targetJourneyId, connection: db });
+        }
         return Number(result?.affectedRows || 0);
     }
 
@@ -566,9 +603,12 @@ class AbandonedCart {
                  recovery_reason = ?,
                  next_attempt_at = NULL,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?`,
+            WHERE id = ?`,
             [recoveredOrderId || null, String(reason || 'order_paid').slice(0, 200), Number(journeyId)]
         );
+        if (Number(result?.affectedRows || 0) > 0) {
+            await AbandonedCart.invalidateActiveDiscountsByJourney({ journeyId, connection: db });
+        }
         return Number(result?.affectedRows || 0);
     }
 
@@ -593,6 +633,17 @@ class AbandonedCart {
     }
 
     static async closeActiveJourneysWithEmptyCarts() {
+        const [rows] = await db.execute(
+            `SELECT j.id
+             FROM abandoned_cart_journeys j
+             LEFT JOIN (
+                SELECT user_id, COUNT(*) as item_count
+                FROM cart_items
+                GROUP BY user_id
+             ) c ON c.user_id = j.user_id
+             WHERE j.status = 'active'
+               AND COALESCE(c.item_count, 0) = 0`
+        );
         const [result] = await db.execute(
             `UPDATE abandoned_cart_journeys j
              LEFT JOIN (
@@ -607,10 +658,20 @@ class AbandonedCart {
              WHERE j.status = 'active'
                AND COALESCE(c.item_count, 0) = 0`
         );
+        for (const row of rows) {
+            await AbandonedCart.invalidateActiveDiscountsByJourney({ journeyId: row.id, connection: db });
+        }
         return Number(result?.affectedRows || 0);
     }
 
     static async closeExpiredJourneys() {
+        const [expiringRows] = await db.execute(
+            `SELECT id
+             FROM abandoned_cart_journeys
+             WHERE status = 'active'
+               AND expires_at IS NOT NULL
+               AND expires_at <= NOW()`
+        );
         const [result] = await db.execute(
             `UPDATE abandoned_cart_journeys
              SET status = 'expired',
@@ -621,6 +682,9 @@ class AbandonedCart {
                AND expires_at IS NOT NULL
                AND expires_at <= NOW()`
         );
+        for (const row of expiringRows) {
+            await AbandonedCart.invalidateActiveDiscountsByJourney({ journeyId: row.id, connection: db });
+        }
         return Number(result?.affectedRows || 0);
     }
 
@@ -767,7 +831,7 @@ class AbandonedCart {
     }
 
     static async markJourneyAttempted({ journeyId, nextAttemptNo, nextAttemptAt, markExpired = false }) {
-        await db.execute(
+        const [result] = await db.execute(
             `UPDATE abandoned_cart_journeys
              SET last_attempt_no = ?,
                  next_attempt_at = ?,
@@ -781,6 +845,9 @@ class AbandonedCart {
                 journeyId
             ]
         );
+        if (markExpired && Number(result?.affectedRows || 0) > 0) {
+            await AbandonedCart.invalidateActiveDiscountsByJourney({ journeyId, connection: db });
+        }
     }
 
     static async listJourneys({ status = 'all', limit = 50, offset = 0 } = {}) {

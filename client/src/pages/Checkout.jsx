@@ -820,24 +820,24 @@ export default function Checkout() {
                                                     onClick={() => handleApplyAvailableCoupon(entry.code)}
                                                     className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''}`}
                                                 >
-                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_168px] min-h-[92px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
-                                                        <div className="bg-primary px-3 py-3 flex flex-col justify-center">
+                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_152px] h-[84px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
+                                                        <div className="bg-primary px-3 py-2.5 flex flex-col justify-center">
                                                             <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
                                                             <p className="text-sm font-bold mt-1 text-white break-words leading-5">{entry.code}</p>
                                                         </div>
-                                                        <div className="bg-accent px-3 py-3 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
-                                                            <p className="text-[12px] font-extrabold tracking-wide">
+                                                        <div className="bg-accent px-3 py-2.5 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
+                                                            <p className="text-[15px] font-extrabold tracking-wide">
                                                                 {entry.discountType === 'fixed'
                                                                     ? `₹${Number(entry.discountValue || 0).toLocaleString('en-IN')} OFF`
                                                                     : `${Number(entry.discountValue || 0)}% OFF`}
                                                             </p>
-                                                            <p className="text-[12px] mt-1 text-primary/80 font-medium">
+                                                            <p className="text-[11px] mt-1 text-primary/80 font-medium">
                                                                 {entry.expiresAt ? `Expires ${formatLongDate(entry.expiresAt)}` : 'No expiry'}
                                                             </p>
                                                         </div>
                                                     </div>
-                                                    <span style={{ left: 'calc(100% - 168px)' }} className="absolute top-0 -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200 z-10" />
-                                                    <span style={{ left: 'calc(100% - 168px)' }} className="absolute bottom-0 -translate-x-1/2 translate-y-1/2 h-4 w-4 rounded-full bg-white border border-gray-200 z-10" />
+                                                    <span style={{ left: 'calc(100% - 152px)' }} className="absolute top-2 h-3 w-3 -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
+                                                    <span style={{ left: 'calc(100% - 152px)' }} className="absolute bottom-2 h-3 w-3 -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
                                                 </button>
                                             ))}
                                         </div>

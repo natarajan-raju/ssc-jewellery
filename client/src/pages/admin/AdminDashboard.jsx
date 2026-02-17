@@ -248,7 +248,7 @@ export default function AdminDashboard() {
             <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col">
                 {/* Mobile Header */}
                 <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
-                    <img src={logo} className="w-8" alt="Logo" />
+                    <img src="/assets/logo_light.webp" className="w-10 h-auto" alt="Logo" />
                     <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
                 </div>
 

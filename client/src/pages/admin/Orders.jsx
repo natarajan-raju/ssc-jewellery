@@ -118,6 +118,10 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
+    const formatRangeDate = (value) => {
+        if (!value) return '—';
+        return formatAdminDate(`${value}T00:00:00`);
+    };
     const isFailedRow = (order) => String(order?.status || '').toLowerCase() === 'failed';
     const getRowKey = (order) => {
         if (isAttemptEntry(order)) return `attempt:${order?.attempt_id || order?.id}`;
@@ -390,11 +394,21 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                 'Order Date',
                 'Customer',
                 'Mobile',
+                'Member Tier',
                 'Status',
+                'Payment Status',
+                'Payment Ref',
+                'Settlement Status',
+                'Settlement Date',
                 'Subtotal',
                 'Shipping',
+                'Coupon Discount',
+                'Member Discount',
+                'Member Shipping Benefit',
                 'Discount',
-                'Total'
+                'Total',
+                'Coupon Code',
+                'Source Channel'
             ].join(',');
 
             const lines = exportRows.map((order) => ([
@@ -402,11 +416,21 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                 toCsvCell(formatAdminDate(order.created_at)),
                 toCsvCell(order.customer_name || 'Guest'),
                 toCsvCell(order.customer_mobile || ''),
+                toCsvCell(getTierLabel(order)),
                 toCsvCell(order.status || 'pending'),
+                toCsvCell(getPaymentStatusLabel(order)),
+                toCsvCell(getPaymentReference(order)),
+                toCsvCell(order?.settlement_snapshot?.status || '—'),
+                toCsvCell(order?.settlement_snapshot?.created_at ? formatAdminDateTime(new Date(Number(order.settlement_snapshot.created_at) * 1000).toISOString()) : '—'),
                 toCsvCell(Number(order.subtotal || 0).toFixed(2)),
                 toCsvCell(Number(order.shipping_fee || 0).toFixed(2)),
+                toCsvCell(Number(order.coupon_discount_value || 0).toFixed(2)),
+                toCsvCell(Number(order.loyalty_discount_total || 0).toFixed(2)),
+                toCsvCell(Number(order.loyalty_shipping_discount_total || 0).toFixed(2)),
                 toCsvCell(Number(order.discount_total || 0).toFixed(2)),
-                toCsvCell(Number(order.total || 0).toFixed(2))
+                toCsvCell(Number(order.total || 0).toFixed(2)),
+                toCsvCell(order.coupon_code || ''),
+                toCsvCell(order.source_channel || '')
             ].join(',')));
 
             const csv = [header, ...lines].join('\n');
@@ -848,6 +872,17 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                             className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                         />
                     </div>
+                    {draftQuickRange === 'custom' && (
+                        <div className="order-2 md:order-2 text-xs text-gray-500">
+                            Range:
+                            {' '}
+                            {formatRangeDate(draftStartDate)}
+                            {' '}
+                            -
+                            {' '}
+                            {formatRangeDate(draftEndDate)}
+                        </div>
+                    )}
                     <button
                         type="button"
                         onClick={handleExport}

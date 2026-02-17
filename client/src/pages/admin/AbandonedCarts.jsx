@@ -56,14 +56,6 @@ const statusClass = (status) => {
     if (key === 'cancelled') return 'bg-gray-100 text-gray-600';
     return 'bg-gray-100 text-gray-600';
 };
-const reasonClass = (reason) => {
-    const key = String(reason || '').toLowerCase();
-    if (key.includes('paid') || key.includes('recovered')) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (key.includes('empty')) return 'bg-amber-50 text-amber-700 border-amber-200';
-    if (key.includes('failed')) return 'bg-red-50 text-red-700 border-red-200';
-    return 'bg-gray-100 text-gray-700 border-gray-200';
-};
-
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
 const JOURNEY_PAGE_SIZE = 20;
 const MAX_CAMPAIGN_ATTEMPTS = 6;
@@ -618,7 +610,6 @@ export default function AbandonedCarts() {
                                     <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500">Cart Value</th>
                                     <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500">Status</th>
                                     <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500">Attempts</th>
-                                    <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500">Reason</th>
                                     <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500">Last Activity</th>
                                     <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500">Next Attempt</th>
                                     <th className="px-5 py-3 text-xs uppercase tracking-wider text-gray-500 text-right">Action</th>
@@ -640,15 +631,6 @@ export default function AbandonedCarts() {
                                             )}
                                         </td>
                                         <td className="px-5 py-3 text-sm text-gray-700">{Number(journey.last_attempt_no || 0)}</td>
-                                        <td className="px-5 py-3 text-xs">
-                                            {journey.recovery_reason ? (
-                                                <span className={`inline-flex px-2 py-0.5 rounded-full border font-semibold ${reasonClass(journey.recovery_reason)}`}>
-                                                    {journey.recovery_reason}
-                                                </span>
-                                            ) : (
-                                                <span className="text-gray-400">—</span>
-                                            )}
-                                        </td>
                                         <td className="px-5 py-3 text-xs text-gray-500">{formatAdminDateTime(journey.computed_last_activity_at || journey.last_activity_at || journey.updated_at)}</td>
                                         <td className="px-5 py-3 text-xs text-gray-500">
                                             {journey.next_attempt_at ? (
@@ -687,10 +669,6 @@ export default function AbandonedCarts() {
                                         )}
                                         <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Attempts</p>
                                         <p className="text-sm text-gray-700">{Number(journey.last_attempt_no || 0)}</p>
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Reason</p>
-                                        {journey.recovery_reason ? (
-                                            <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${reasonClass(journey.recovery_reason)}`}>{journey.recovery_reason}</span>
-                                        ) : <p className="text-xs text-gray-400">—</p>}
                                         <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Last Activity</p>
                                         <p className="text-xs text-gray-500">{formatAdminDateTime(journey.computed_last_activity_at || journey.last_activity_at || journey.updated_at)}</p>
                                         <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Next Attempt</p>

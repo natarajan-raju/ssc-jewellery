@@ -428,12 +428,14 @@ class Coupon {
             });
         }
         const [recoveryRows] = await db.execute(
-            `SELECT code, discount_type, discount_percent, min_cart_subunits, expires_at
+            `SELECT d.code, d.discount_type, d.discount_percent, d.min_cart_subunits, d.expires_at
              FROM abandoned_cart_discounts
-             WHERE user_id = ?
-               AND status = 'active'
-               AND (expires_at IS NULL OR expires_at > NOW())
-             ORDER BY id DESC
+             INNER JOIN abandoned_cart_journeys j ON j.id = d.journey_id
+             WHERE d.user_id = ?
+               AND d.status = 'active'
+               AND j.status = 'active'
+               AND (d.expires_at IS NULL OR d.expires_at > NOW())
+             ORDER BY d.id DESC
              LIMIT 50`,
             [userId]
         );

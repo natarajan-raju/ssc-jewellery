@@ -605,7 +605,7 @@ export default function Customers({ onOpenLoyalty }) {
                                 </div>
                             )}
                             {paginatedCustomersOnly.length > 0 && (
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 gap-3">
                                     {paginatedCustomersOnly.map((user) => {
                                         const waLink = getWhatsappLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
