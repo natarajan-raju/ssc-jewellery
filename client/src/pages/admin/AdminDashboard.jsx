@@ -13,6 +13,7 @@ import ShippingSettings from './ShippingSettings';
 import Orders from './Orders';
 import AbandonedCarts from './AbandonedCarts';
 import CompanyInfo from './CompanyInfo';
+import LoyaltySettings from './LoyaltySettings';
 import { AdminKPIProvider } from '../../context/AdminKPIContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
 import orderIllustration from '../../assets/order.svg';
@@ -46,7 +47,7 @@ export default function AdminDashboard() {
         <button 
             onClick={() => setActiveTab(id)}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 
-            ${activeTab === id 
+            ${(activeTab === id || (id === 'customers' && activeTab === 'loyalty'))
                 ? 'bg-accent text-primary font-bold shadow-lg shadow-accent/20' 
                 : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
         >
@@ -189,9 +190,8 @@ export default function AdminDashboard() {
             
             {/* --- DESKTOP SIDEBAR --- */}
             <aside className="hidden md:flex flex-col w-64 bg-primary fixed h-full border-r border-white/10 shadow-2xl z-50">
-                <div className="p-6 flex flex-col items-center border-b border-white/10">
-                    <img src={logo} alt="Logo" className="w-16 h-auto mb-2 opacity-90" />
-                    <h2 className="text-white font-serif text-lg tracking-wide">Admin Panel</h2>
+                <div className="p-4 flex items-center justify-center border-b border-white/10">
+                    <img src={logo} alt="Logo" className="w-16 h-auto opacity-90" />
                 </div>
                 
                 <nav className="flex-1 p-4 space-y-2">
@@ -248,10 +248,7 @@ export default function AdminDashboard() {
             <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col">
                 {/* Mobile Header */}
                 <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
-                    <div className="flex items-center gap-2">
-                        <img src={logo} className="w-8" alt="Logo" />
-                        <span className="font-serif font-bold text-primary">SSC Admin</span>
-                    </div>
+                    <img src={logo} className="w-8" alt="Logo" />
                     <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
                 </div>
 
@@ -272,7 +269,7 @@ export default function AdminDashboard() {
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
                     {activeTab === 'products' && <Products onNavigate={setActiveTab} />}
                     {activeTab === 'categories' && <Categories />}
-                    {activeTab === 'customers' && <Customers />}
+                    {activeTab === 'customers' && <Customers onOpenLoyalty={() => setActiveTab('loyalty')} />}
                     {activeTab === 'shipping' && <ShippingSettings />}
                     {activeTab === 'cms' && <HeroCMS />}
                     {activeTab === 'dashboard' && (
@@ -284,6 +281,7 @@ export default function AdminDashboard() {
                     )}
                     {activeTab === 'orders' && <Orders focusOrderId={focusOrderId} onFocusHandled={() => setFocusOrderId(null)} />}
                     {activeTab === 'abandoned' && <AbandonedCarts />}
+                    {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('customers')} />}
                     {activeTab === 'companyInfo' && <CompanyInfo />}
                 </div>
 
@@ -302,7 +300,7 @@ export default function AdminDashboard() {
             <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-4 flex justify-between items-center z-40">
                 <MobileNavBtn icon={LayoutDashboard} label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
                 <MobileNavBtn icon={Package} label="Products" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
-                <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
+                <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers' || activeTab === 'loyalty'} onClick={() => setActiveTab('customers')} />
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
                 <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} onClick={() => setActiveTab('abandoned')} />
             </div>

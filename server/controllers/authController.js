@@ -229,6 +229,7 @@ exports.getProfile = async (req, res) => {
         try {
             const loyalty = await getUserLoyaltyStatus(user.id);
             user.loyaltyTier = loyalty.tier;
+            user.loyaltyProfile = loyalty.profile;
         } catch {}
         res.json({ user });
     } catch (error) {

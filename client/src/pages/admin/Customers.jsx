@@ -3,7 +3,7 @@ import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { 
     Loader2, Trash2, Search, Mail, Phone, Key, 
-    ShieldCheck, Plus, UserCog, Filter, ShoppingCart, X, Sparkles
+    ShieldCheck, Plus, UserCog, Filter, ShoppingCart, X, Sparkles, Settings
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import Modal from '../../components/Modal';
@@ -23,7 +23,7 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 
-export default function Customers() {
+export default function Customers({ onOpenLoyalty }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
     const [searchTerm, setSearchTerm] = useState('');
     const [page, setPage] = useState(1);
@@ -388,25 +388,14 @@ export default function Customers() {
                         />
                     </div>
                     
-                    <div className="flex gap-2">
-                        {currentUser?.role === 'admin' && (
-                            <button 
-                                onClick={() => setAddModalRole('staff')}
-                                className="bg-gray-800 hover:bg-gray-700 text-white font-bold px-4 py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 flex-1 md:flex-none"
-                            >
-                                <UserCog size={20} strokeWidth={2} />
-                                <span className="whitespace-nowrap">Add Staff</span>
-                            </button>
-                        )}
-
-                        <button 
-                            onClick={() => setAddModalRole('customer')}
-                            className="bg-primary hover:bg-primary-light text-accent font-bold px-4 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95 flex-1 md:flex-none"
-                        >
-                            <Plus size={20} strokeWidth={3} />
-                            <span className="whitespace-nowrap">Add Customer</span>
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onOpenLoyalty?.()}
+                        className="bg-white hover:bg-gray-50 text-gray-700 font-bold px-4 py-3 rounded-xl shadow-sm border border-gray-200 flex items-center justify-center gap-2 transition-all active:scale-95 flex-1 md:flex-none"
+                    >
+                        <Settings size={18} />
+                        <span className="whitespace-nowrap">Loyalty</span>
+                    </button>
                 </div>
             </div>
 
@@ -416,7 +405,18 @@ export default function Customers() {
                 <>
                     {/* MOBILE LIST: ADMINS/STAFF */}
                     <div className="md:hidden space-y-3">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Admins & Staff</h3>
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Admins & Staff</h3>
+                            {currentUser?.role === 'admin' && (
+                                <button
+                                    onClick={() => setAddModalRole('staff')}
+                                    className="bg-gray-800 hover:bg-gray-700 text-white font-bold px-3 py-2 rounded-lg text-xs shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                                >
+                                    <UserCog size={14} strokeWidth={2} />
+                                    <span className="whitespace-nowrap">Add Staff</span>
+                                </button>
+                            )}
+                        </div>
                         <div className="grid grid-cols-1 gap-4">
                             {staffAndAdmins.map((user) => (
                                 <div 
@@ -471,7 +471,16 @@ export default function Customers() {
 
                     {/* MOBILE LIST: CUSTOMERS */}
                     <div className="md:hidden space-y-3 mt-8">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Customers</h3>
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Customers</h3>
+                            <button
+                                onClick={() => setAddModalRole('customer')}
+                                className="bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                                <Plus size={14} strokeWidth={3} />
+                                <span className="whitespace-nowrap">Add Customer</span>
+                            </button>
+                        </div>
                         <div className="grid grid-cols-1 gap-4">
                             {paginatedCustomersOnly.map((user) => (
                                 <div 
@@ -527,8 +536,17 @@ export default function Customers() {
 
                     {/* DESKTOP TABLE: ADMINS/STAFF */}
                     <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                        <div className="px-6 py-4 border-b border-gray-100">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Admins & Staff</h3>
+                            {currentUser?.role === 'admin' && (
+                                <button
+                                    onClick={() => setAddModalRole('staff')}
+                                    className="bg-gray-800 hover:bg-gray-700 text-white font-bold px-3 py-2 rounded-lg text-xs shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                                >
+                                    <UserCog size={14} strokeWidth={2} />
+                                    <span className="whitespace-nowrap">Add Staff</span>
+                                </button>
+                            )}
                         </div>
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">
@@ -596,8 +614,15 @@ export default function Customers() {
 
                     {/* DESKTOP TABLE: CUSTOMERS */}
                     <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div className="px-6 py-4 border-b border-gray-100">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
+                            <button
+                                onClick={() => setAddModalRole('customer')}
+                                className="bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                            >
+                                <Plus size={14} strokeWidth={3} />
+                                <span className="whitespace-nowrap">Add Customer</span>
+                            </button>
                         </div>
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">

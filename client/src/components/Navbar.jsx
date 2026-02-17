@@ -7,6 +7,34 @@ import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import logo from '/logo.webp';
 
+const TIER_STYLES = {
+    regular: {
+        badge: 'bg-slate-100 text-slate-700 border-slate-200',
+        userBtn: 'text-slate-700 bg-slate-100 hover:bg-slate-200',
+        userBtnActive: 'text-white bg-slate-700'
+    },
+    bronze: {
+        badge: 'bg-amber-100 text-amber-800 border-amber-200',
+        userBtn: 'text-amber-900 bg-amber-100 hover:bg-amber-200',
+        userBtnActive: 'text-white bg-amber-800'
+    },
+    silver: {
+        badge: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+        userBtn: 'text-zinc-700 bg-zinc-100 hover:bg-zinc-200',
+        userBtnActive: 'text-white bg-zinc-700'
+    },
+    gold: {
+        badge: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        userBtn: 'text-yellow-900 bg-yellow-100 hover:bg-yellow-200',
+        userBtnActive: 'text-white bg-yellow-700'
+    },
+    platinum: {
+        badge: 'bg-sky-100 text-sky-800 border-sky-200',
+        userBtn: 'text-sky-900 bg-sky-100 hover:bg-sky-200',
+        userBtnActive: 'text-white bg-sky-700'
+    }
+};
+
 export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
@@ -138,6 +166,9 @@ export default function Navbar() {
 
     const isActive = (path) => location.pathname === path;
     const isShopActive = () => location.pathname === '/shop' || location.pathname.startsWith('/shop/');
+    const tier = String(user?.loyaltyTier || 'regular').toLowerCase();
+    const tierStyle = TIER_STYLES[tier] || TIER_STYLES.regular;
+    const tierLabel = String(user?.loyaltyProfile?.label || tier).toUpperCase();
 
     return (
         // [FIX] Dynamic Classes for Animation
@@ -259,6 +290,11 @@ export default function Navbar() {
 
                     {/* Actions */}
                     <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
+                        {user && (
+                            <span className={`px-2.5 py-1 rounded-full border text-[10px] tracking-widest font-bold ${tierStyle.badge}`}>
+                                {tierLabel}
+                            </span>
+                        )}
                         <button 
                             onClick={openCart}
                             className={`relative p-2 rounded-full hover:bg-gray-100 text-gray-600 hover:text-primary transition-colors ${shakeCart ? 'cart-shake' : ''}`}
@@ -272,7 +308,7 @@ export default function Navbar() {
                         </button>
                         {user ? (
                             <>
-                                <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className={`p-2 rounded-full transition-colors ${isUserMenuOpen ? 'bg-primary text-white' : 'hover:bg-gray-100 text-gray-600'}`}>
+                                <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className={`p-2 rounded-full transition-colors ${isUserMenuOpen ? tierStyle.userBtnActive : tierStyle.userBtn}`}>
                                     {user.profileImage ? (
                                         <img
                                             src={user.profileImage}
@@ -286,12 +322,12 @@ export default function Navbar() {
                                 {isUserMenuOpen && (
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                                         <div className="px-4 py-2 border-b border-gray-50">
-                                            <p className="text-xs text-gray-400 font-bold uppercase">Hi, {user.name}</p>
+                                            <p className="text-xs text-gray-500 font-bold uppercase">Hi, {user.name}</p>
                                         </div>
-                                        <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Profile</Link>
-                                        <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Wishlist</Link>
-                                        <Link to="/orders" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Orders</Link>
-                                        <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50 mt-1">
+                                        <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Profile</Link>
+                                        <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Wishlist</Link>
+                                        <Link to="/orders" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Orders</Link>
+                                        <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors flex items-center gap-2 border-t border-gray-100 mt-1">
                                             <LogOut size={16} /> Logout
                                         </button>
                                     </div>
@@ -306,6 +342,11 @@ export default function Navbar() {
 
                     {/* Mobile Actions */}
                     <div className="md:hidden flex items-center gap-2">
+                        {user && (
+                            <span className={`px-2 py-0.5 rounded-full border text-[10px] tracking-widest font-bold ${tierStyle.badge}`}>
+                                {tierLabel}
+                            </span>
+                        )}
                         <button 
                             onClick={openCart}
                             className={`relative p-2 text-primary ${shakeCart ? 'cart-shake' : ''}`}
@@ -358,6 +399,13 @@ export default function Navbar() {
                             >
                                 My Profile
                             </Link>
+                            <div className="text-xs text-gray-500 py-2 border-b border-gray-100">
+                                Tier:
+                                {' '}
+                                <span className={`inline-flex px-2 py-0.5 rounded-full border font-bold tracking-wider ${tierStyle.badge}`}>
+                                    {tierLabel}
+                                </span>
+                            </div>
                             <Link
                                 to="/wishlist"
                                 className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600 inline-flex items-center justify-center gap-2"

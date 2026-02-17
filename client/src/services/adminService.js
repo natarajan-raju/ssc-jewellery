@@ -196,6 +196,18 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    getLoyaltyConfig: async () => {
+        const res = await fetch(`${API_URL}/loyalty/config`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    updateLoyaltyConfig: async (config = []) => {
+        const res = await fetch(`${API_URL}/loyalty/config`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ config })
+        });
+        return handleResponse(res);
+    },
 
     patchAbandonedJourneyCache: (journey) => {
         if (!journey?.id) return;

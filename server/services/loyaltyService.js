@@ -4,7 +4,7 @@ const { sendOrderLifecycleCommunication, sendEmailCommunication } = require('./c
 
 const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
-const LOYALTY_CONFIG = {
+const DEFAULT_LOYALTY_CONFIG = {
     regular: {
         label: 'Regular',
         color: '#4B5563',
@@ -12,6 +12,7 @@ const LOYALTY_CONFIG = {
         windowDays: 30,
         extraDiscountPct: 0,
         shippingDiscountPct: 0,
+        birthdayDiscountPct: 10,
         abandonedCartBoostPct: 0,
         priorityWeight: 0,
         shippingPriority: 'standard',
@@ -24,6 +25,7 @@ const LOYALTY_CONFIG = {
         windowDays: 30,
         extraDiscountPct: 1,
         shippingDiscountPct: 5,
+        birthdayDiscountPct: 10,
         abandonedCartBoostPct: 2,
         priorityWeight: 1,
         shippingPriority: 'standard_plus',
@@ -36,6 +38,7 @@ const LOYALTY_CONFIG = {
         windowDays: 60,
         extraDiscountPct: 2,
         shippingDiscountPct: 10,
+        birthdayDiscountPct: 10,
         abandonedCartBoostPct: 4,
         priorityWeight: 2,
         shippingPriority: 'high',
@@ -48,6 +51,7 @@ const LOYALTY_CONFIG = {
         windowDays: 90,
         extraDiscountPct: 3,
         shippingDiscountPct: 15,
+        birthdayDiscountPct: 10,
         abandonedCartBoostPct: 6,
         priorityWeight: 3,
         shippingPriority: 'higher',
@@ -60,23 +64,139 @@ const LOYALTY_CONFIG = {
         windowDays: 365,
         extraDiscountPct: 5,
         shippingDiscountPct: 25,
+        birthdayDiscountPct: 10,
         abandonedCartBoostPct: 10,
         priorityWeight: 4,
         shippingPriority: 'highest',
         benefits: ['5% extra member discount', '25% shipping fee discount', 'Top priority dispatch + premium concierge']
     }
 };
+const LOYALTY_CONFIG_CACHE = {
+    loadedAt: 0,
+    expiresAt: 0,
+    byTier: { ...DEFAULT_LOYALTY_CONFIG }
+};
+const LOYALTY_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const toMoney = (value) => {
     const n = Number(value);
     return Number.isFinite(n) ? Number(n.toFixed(2)) : 0;
 };
 
+const normalizeBenefits = (value, fallback = []) => {
+    if (Array.isArray(value)) return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+    if (typeof value === 'string') {
+        try {
+            const parsed = JSON.parse(value);
+            if (Array.isArray(parsed)) return parsed.map((entry) => String(entry || '').trim()).filter(Boolean);
+        } catch {}
+    }
+    return Array.isArray(fallback) ? fallback : [];
+};
+
+const normalizeShippingPriority = (value = 'standard') => {
+    const v = String(value || '').toLowerCase();
+    if (['standard', 'standard_plus', 'high', 'higher', 'highest'].includes(v)) return v;
+    return 'standard';
+};
+
+const buildBenefitsFromValues = (tier, config = {}) => {
+    const t = String(tier || 'regular').toLowerCase();
+    if (t === 'regular') {
+        return ['Standard pricing', 'Standard shipping', 'Progress tracking to next tier'];
+    }
+    const extraDiscountPct = toMoney(config.extraDiscountPct ?? 0);
+    const shippingDiscountPct = toMoney(config.shippingDiscountPct ?? 0);
+    const birthdayDiscountPct = toMoney(config.birthdayDiscountPct ?? 10);
+    const abandonedCartBoostPct = toMoney(config.abandonedCartBoostPct ?? 0);
+    const priorityWeight = Number(config.priorityWeight ?? 0);
+    const shippingPriority = normalizeShippingPriority(config.shippingPriority || 'standard');
+    const shippingPriorityLabel = {
+        standard: 'Standard dispatch queue',
+        standard_plus: 'Standard+ dispatch queue',
+        high: 'High dispatch priority',
+        higher: 'Higher dispatch priority',
+        highest: 'Highest dispatch priority'
+    }[shippingPriority];
+    const priorityLine = priorityWeight > 0
+        ? `${shippingPriorityLabel} (weight ${priorityWeight})`
+        : shippingPriorityLabel;
+    return [
+        `${extraDiscountPct}% extra member discount`,
+        `${shippingDiscountPct}% shipping fee discount`,
+        `${birthdayDiscountPct}% birthday discount (overrides other discounts)`,
+        `${abandonedCartBoostPct}% abandoned cart offer boost`,
+        priorityLine
+    ];
+};
+
+const normalizeTierRecord = (tier, row = null) => {
+    const t = String(tier || '').toLowerCase();
+    const fallback = DEFAULT_LOYALTY_CONFIG[t] || DEFAULT_LOYALTY_CONFIG.regular;
+    if (!row) {
+        const out = { ...fallback, benefits: [...(fallback.benefits || [])] };
+        out.benefits = buildBenefitsFromValues(t, out);
+        return out;
+    }
+    const normalized = {
+        label: String(row.label || fallback.label || t),
+        color: String(row.color || fallback.color || '#4B5563'),
+        threshold: toMoney(row.threshold ?? fallback.threshold),
+        windowDays: Math.max(1, Number(row.window_days ?? fallback.windowDays) || fallback.windowDays),
+        extraDiscountPct: toMoney(row.extra_discount_pct ?? fallback.extraDiscountPct),
+        shippingDiscountPct: toMoney(row.shipping_discount_pct ?? fallback.shippingDiscountPct),
+        birthdayDiscountPct: toMoney(row.birthday_discount_pct ?? fallback.birthdayDiscountPct ?? 10),
+        abandonedCartBoostPct: toMoney(row.abandoned_cart_boost_pct ?? fallback.abandonedCartBoostPct),
+        priorityWeight: Number(row.priority_weight ?? fallback.priorityWeight ?? 0),
+        shippingPriority: normalizeShippingPriority(row.shipping_priority || fallback.shippingPriority || 'standard'),
+        benefits: normalizeBenefits(row.benefits_json, fallback.benefits)
+    };
+    normalized.benefits = buildBenefitsFromValues(t, normalized);
+    return normalized;
+};
+
+const setCachedLoyaltyConfig = (byTier = {}) => {
+    const merged = {};
+    for (const tier of TIER_ORDER) {
+        merged[tier] = normalizeTierRecord(tier, byTier[tier]);
+    }
+    LOYALTY_CONFIG_CACHE.byTier = merged;
+    LOYALTY_CONFIG_CACHE.loadedAt = Date.now();
+    LOYALTY_CONFIG_CACHE.expiresAt = Date.now() + LOYALTY_CACHE_TTL_MS;
+    return merged;
+};
+
+const ensureLoyaltyConfigLoaded = async ({ force = false } = {}) => {
+    if (!force && LOYALTY_CONFIG_CACHE.expiresAt > Date.now()) return LOYALTY_CONFIG_CACHE.byTier;
+    try {
+        const [rows] = await db.execute(
+            `SELECT tier, label, color, threshold, window_days, extra_discount_pct, shipping_discount_pct,
+                    birthday_discount_pct, abandoned_cart_boost_pct, priority_weight, shipping_priority, benefits_json
+             FROM loyalty_tier_config
+             WHERE is_active = 1`
+        );
+        const byTier = {};
+        for (const row of rows || []) {
+            const t = String(row.tier || '').toLowerCase();
+            if (!TIER_ORDER.includes(t)) continue;
+            byTier[t] = row;
+        }
+        return setCachedLoyaltyConfig(byTier);
+    } catch {
+        return setCachedLoyaltyConfig({});
+    }
+};
+
+const getActiveLoyaltyConfig = () => {
+    return LOYALTY_CONFIG_CACHE.byTier || DEFAULT_LOYALTY_CONFIG;
+};
+
 const computeTierFromSpends = ({ spend30 = 0, spend60 = 0, spend90 = 0, spend365 = 0 } = {}) => {
-    if (spend365 >= LOYALTY_CONFIG.platinum.threshold) return 'platinum';
-    if (spend90 >= LOYALTY_CONFIG.gold.threshold) return 'gold';
-    if (spend60 >= LOYALTY_CONFIG.silver.threshold) return 'silver';
-    if (spend30 >= LOYALTY_CONFIG.bronze.threshold) return 'bronze';
+    const cfg = getActiveLoyaltyConfig();
+    if (spend365 >= Number(cfg.platinum?.threshold || 0)) return 'platinum';
+    if (spend90 >= Number(cfg.gold?.threshold || 0)) return 'gold';
+    if (spend60 >= Number(cfg.silver?.threshold || 0)) return 'silver';
+    if (spend30 >= Number(cfg.bronze?.threshold || 0)) return 'bronze';
     return 'regular';
 };
 
@@ -94,7 +214,8 @@ const buildProgress = ({ tier = 'regular', spend30 = 0, spend60 = 0, spend90 = 0
         };
     }
 
-    const nextCfg = LOYALTY_CONFIG[nextTier];
+    const cfg = getActiveLoyaltyConfig();
+    const nextCfg = cfg[nextTier] || DEFAULT_LOYALTY_CONFIG[nextTier];
     const baseSpend = (() => {
         if (nextTier === 'bronze') return spend30;
         if (nextTier === 'silver') return spend60;
@@ -136,7 +257,8 @@ const getUserSpendWindows = async (userId, connection = db) => {
 };
 
 const getLoyaltyProfileByTier = (tier = 'regular') => {
-    return LOYALTY_CONFIG[tier] || LOYALTY_CONFIG.regular;
+    const cfg = getActiveLoyaltyConfig();
+    return cfg[tier] || cfg.regular || DEFAULT_LOYALTY_CONFIG.regular;
 };
 
 const calculateOrderLoyaltyAdjustments = ({ subtotal = 0, shippingFee = 0, couponDiscount = 0, tier = 'regular' } = {}) => {
@@ -153,11 +275,12 @@ const calculateOrderLoyaltyAdjustments = ({ subtotal = 0, shippingFee = 0, coupo
 };
 
 const getUserLoyaltyStatus = async (userId) => {
+    await ensureLoyaltyConfigLoaded();
     if (!userId) {
         const progress = buildProgress({ tier: 'regular' });
         return {
             tier: 'regular',
-            profile: LOYALTY_CONFIG.regular,
+            profile: getLoyaltyProfileByTier('regular'),
             spends: { spend30: 0, spend60: 0, spend90: 0, spend365: 0 },
             progress,
             nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null
@@ -293,6 +416,7 @@ const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendN
 };
 
 const runMonthlyLoyaltyReassessment = async () => {
+    await ensureLoyaltyConfigLoaded({ force: true });
     const [rows] = await db.execute("SELECT id FROM users WHERE role = 'customer'");
     let upgraded = 0;
     let changed = 0;
@@ -306,9 +430,71 @@ const runMonthlyLoyaltyReassessment = async () => {
     return { total: rows.length, changed, upgraded };
 };
 
+const getLoyaltyConfigForAdmin = async () => {
+    const cfg = await ensureLoyaltyConfigLoaded({ force: true });
+    return TIER_ORDER.map((tier) => ({
+        tier,
+        ...(cfg[tier] || DEFAULT_LOYALTY_CONFIG[tier] || DEFAULT_LOYALTY_CONFIG.regular)
+    }));
+};
+
+const updateLoyaltyConfigForAdmin = async (items = []) => {
+    const rows = Array.isArray(items) ? items : [];
+    for (const raw of rows) {
+        const tier = String(raw?.tier || '').toLowerCase();
+        if (!TIER_ORDER.includes(tier)) continue;
+        const fallback = DEFAULT_LOYALTY_CONFIG[tier] || DEFAULT_LOYALTY_CONFIG.regular;
+        const nextRecord = {
+            extraDiscountPct: toMoney(raw?.extraDiscountPct ?? fallback.extraDiscountPct),
+            shippingDiscountPct: toMoney(raw?.shippingDiscountPct ?? fallback.shippingDiscountPct),
+            birthdayDiscountPct: toMoney(raw?.birthdayDiscountPct ?? fallback.birthdayDiscountPct ?? 10),
+            abandonedCartBoostPct: toMoney(raw?.abandonedCartBoostPct ?? fallback.abandonedCartBoostPct),
+            priorityWeight: Number(raw?.priorityWeight ?? fallback.priorityWeight ?? 0),
+            shippingPriority: normalizeShippingPriority(raw?.shippingPriority || fallback.shippingPriority || 'standard')
+        };
+        const benefits = buildBenefitsFromValues(tier, nextRecord);
+        await db.execute(
+            `INSERT INTO loyalty_tier_config
+                (tier, label, color, threshold, window_days, extra_discount_pct, shipping_discount_pct, birthday_discount_pct, abandoned_cart_boost_pct, priority_weight, shipping_priority, benefits_json, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+             ON DUPLICATE KEY UPDATE
+                label = VALUES(label),
+                color = VALUES(color),
+                threshold = VALUES(threshold),
+                window_days = VALUES(window_days),
+                extra_discount_pct = VALUES(extra_discount_pct),
+                shipping_discount_pct = VALUES(shipping_discount_pct),
+                birthday_discount_pct = VALUES(birthday_discount_pct),
+                abandoned_cart_boost_pct = VALUES(abandoned_cart_boost_pct),
+                priority_weight = VALUES(priority_weight),
+                shipping_priority = VALUES(shipping_priority),
+                benefits_json = VALUES(benefits_json),
+                is_active = VALUES(is_active)`,
+            [
+                tier,
+                String(raw?.label || fallback.label || tier),
+                String(fallback.color || '#4B5563'),
+                toMoney(raw?.threshold ?? fallback.threshold),
+                Math.max(1, Number(raw?.windowDays ?? fallback.windowDays) || fallback.windowDays),
+                nextRecord.extraDiscountPct,
+                nextRecord.shippingDiscountPct,
+                nextRecord.birthdayDiscountPct,
+                nextRecord.abandonedCartBoostPct,
+                nextRecord.priorityWeight,
+                nextRecord.shippingPriority,
+                JSON.stringify(benefits)
+            ]
+        );
+    }
+    return getLoyaltyConfigForAdmin();
+};
+
 module.exports = {
     TIER_ORDER,
-    LOYALTY_CONFIG,
+    LOYALTY_CONFIG: DEFAULT_LOYALTY_CONFIG,
+    ensureLoyaltyConfigLoaded,
+    getLoyaltyConfigForAdmin,
+    updateLoyaltyConfigForAdmin,
     getLoyaltyProfileByTier,
     getUserLoyaltyStatus,
     calculateOrderLoyaltyAdjustments,

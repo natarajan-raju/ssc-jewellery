@@ -6,6 +6,7 @@ const {
     verifyEmailTransport,
     sendEmailCommunication
 } = require('../services/communications/communicationService');
+const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
 
 // --- 1. GET ALL USERS (PAGINATED) ---
 const getUsers = async (req, res) => {
@@ -214,6 +215,26 @@ const updateCompanyInfo = async (req, res) => {
     }
 };
 
+const getLoyaltyConfig = async (_req, res) => {
+    try {
+        const config = await getLoyaltyConfigForAdmin();
+        return res.json({ config });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch loyalty config' });
+    }
+};
+
+const updateLoyaltyConfig = async (req, res) => {
+    try {
+        const items = Array.isArray(req.body?.config) ? req.body.config : [];
+        const config = await updateLoyaltyConfigForAdmin(items);
+        await ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
+        return res.json({ config });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to update loyalty config' });
+    }
+};
+
 module.exports = {
     getUsers,
     createUser,
@@ -223,5 +244,7 @@ module.exports = {
     verifyEmailChannel,
     sendTestEmail,
     getCompanyInfo,
-    updateCompanyInfo
+    updateCompanyInfo,
+    getLoyaltyConfig,
+    updateLoyaltyConfig
 };

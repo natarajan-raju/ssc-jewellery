@@ -588,7 +588,7 @@ export default function Home() {
     };
 
     return (
-        <div className="pb-16">
+        <div className="pb-0">
             {showConfetti && (
                 <div className="fixed inset-0 z-[80] pointer-events-none overflow-hidden">
                     {confettiPieces.current.map((piece) => (
@@ -678,7 +678,7 @@ export default function Home() {
             )}
 
             {/* --- FEATURED CATEGORIES --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface rounded-none md:rounded-2xl">
                 <div className="text-center mb-10">
                     <h2 className="text-3xl font-serif text-primary">Featured Categories</h2>
                     <p className="text-gray-500 mt-2">Explore our wide range of handcrafted collections</p>
@@ -698,10 +698,10 @@ export default function Home() {
                             <Link 
                                 key={cat.id} 
                                 to={`/shop/${encodeURIComponent(cat.name)}`}
-                                className="group cursor-pointer relative flex flex-col items-center text-center gap-3 p-4 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-xl hover:border-accent/30 transition-all duration-300 hover:-translate-y-1"
+                                className="group cursor-pointer relative flex flex-col items-center text-center gap-3 p-4 rounded-2xl tier-card-surface border border-gray-100 shadow-sm hover:shadow-xl hover:border-accent/30 transition-all duration-300 hover:-translate-y-1"
                             >
                                 {/* Image Container */}
-                                <div className="w-24 h-24 md:w-32 md:h-32 rounded-full bg-gray-50 overflow-hidden border-2 border-white shadow-inner group-hover:scale-105 transition-transform duration-500 relative">
+                                <div className="w-24 h-24 md:w-32 md:h-32 rounded-full tier-muted-surface overflow-hidden border-2 border-white shadow-inner group-hover:scale-105 transition-transform duration-500 relative">
                                     {cat.image_url ? (
                                         <img 
                                             src={cat.image_url} 
@@ -864,7 +864,7 @@ export default function Home() {
             </section>
 
               {/* --- BEST SELLERS --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">Best Sellers</h2>
@@ -899,15 +899,15 @@ export default function Home() {
             </section>
 
             {/* --- HOME BANNER --- */}
-            <section className="w-full">
+            <section className="w-full tier-surface">
                 {isLoadingBanner ? (
-                    <div className="w-full bg-gray-100 animate-pulse pt-[56.25%]" />
+                    <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
                     (() => {
                         const link = homeBanner?.link || '';
                         const imageUrl = homeBanner?.image_url || '/placeholder_banner.jpg';
                         const content = (
-                            <div className="relative w-full bg-gray-100 overflow-hidden">
+                            <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
                                 <div className="pt-[56.25%]" />
                                 <img
                                     src={imageUrl}
@@ -936,7 +936,7 @@ export default function Home() {
             </section>
 
             {/* --- NEW ARRIVALS --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">New Arrivals</h2>
@@ -971,15 +971,15 @@ export default function Home() {
             </section>
 
             {/* --- SECOND HOME BANNER --- */}
-            <section className="w-full">
+            <section className="w-full tier-surface">
                 {isLoadingSecondaryBanner ? (
-                    <div className="w-full bg-gray-100 animate-pulse pt-[56.25%]" />
+                    <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
                     (() => {
                         const link = secondaryBanner?.link || '';
                         const imageUrl = secondaryBanner?.image_url || '/placeholder_banner.jpg';
                         const content = (
-                            <div className="relative w-full bg-gray-100 overflow-hidden">
+                            <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
                                 <div className="pt-[56.25%]" />
                                 <img
                                     src={imageUrl}
@@ -1008,7 +1008,7 @@ export default function Home() {
             </section>
 
             {/* --- FEATURED CATEGORY SECTION --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
                 {isLoadingFeaturedSection ? (
                     <div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />
                 ) : (

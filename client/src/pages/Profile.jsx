@@ -21,11 +21,61 @@ import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const TIER_THEME = {
-    regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
-    bronze: { card: 'from-amber-700 via-orange-600 to-amber-700', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
-    silver: { card: 'from-slate-500 via-zinc-400 to-slate-500', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
-    gold: { card: 'from-yellow-700 via-amber-500 to-yellow-700', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    platinum: { card: 'from-sky-700 via-blue-500 to-sky-700', chip: 'bg-sky-100 text-sky-800 border-sky-200' }
+    regular: {
+        card: 'from-slate-700 via-slate-600 to-slate-700',
+        chip: 'bg-slate-100 text-slate-700 border-slate-200',
+        profileBorder: 'border-slate-200',
+        profileImageBorder: 'border-slate-300',
+        profileRibbon: 'bg-slate-700 text-white',
+        title: 'text-white',
+        body: 'text-slate-100',
+        caption: 'text-slate-200',
+        button: 'bg-white/20 text-white hover:bg-white hover:text-slate-800'
+    },
+    bronze: {
+        card: 'from-amber-800 via-orange-700 to-amber-800',
+        chip: 'bg-amber-100 text-amber-800 border-amber-200',
+        profileBorder: 'border-amber-300',
+        profileImageBorder: 'border-amber-400',
+        profileRibbon: 'bg-amber-700 text-white',
+        title: 'text-white',
+        body: 'text-amber-50',
+        caption: 'text-amber-100',
+        button: 'bg-white/20 text-white hover:bg-white hover:text-amber-900'
+    },
+    silver: {
+        card: 'from-slate-600 via-zinc-500 to-slate-600',
+        chip: 'bg-slate-100 text-slate-700 border-slate-200',
+        profileBorder: 'border-slate-300',
+        profileImageBorder: 'border-slate-400',
+        profileRibbon: 'bg-slate-600 text-white',
+        title: 'text-white',
+        body: 'text-slate-100',
+        caption: 'text-slate-200',
+        button: 'bg-white/20 text-white hover:bg-white hover:text-slate-800'
+    },
+    gold: {
+        card: 'from-yellow-700 via-amber-500 to-yellow-700',
+        chip: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+        profileBorder: 'border-yellow-300',
+        profileImageBorder: 'border-yellow-400',
+        profileRibbon: 'bg-yellow-600 text-amber-950',
+        title: 'text-amber-950',
+        body: 'text-amber-950',
+        caption: 'text-amber-900',
+        button: 'bg-amber-100/80 text-amber-950 hover:bg-white hover:text-amber-950'
+    },
+    platinum: {
+        card: 'from-sky-700 via-blue-500 to-sky-700',
+        chip: 'bg-sky-100 text-sky-800 border-sky-200',
+        profileBorder: 'border-sky-300',
+        profileImageBorder: 'border-sky-400',
+        profileRibbon: 'bg-sky-700 text-white',
+        title: 'text-white',
+        body: 'text-sky-50',
+        caption: 'text-sky-100',
+        button: 'bg-white/20 text-white hover:bg-white hover:text-sky-900'
+    }
 };
 
 export default function Profile() {
@@ -199,10 +249,13 @@ export default function Profile() {
             <div className="max-w-6xl mx-auto px-4 md:px-8 py-10 md:py-14">
                 <div className="flex flex-col lg:flex-row gap-8">
                     <div className="lg:w-1/3 space-y-6">
-                        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
+                        <div className={`relative bg-white rounded-2xl shadow-xl border-2 ${tierTheme.profileBorder} p-6 overflow-hidden`}>
+                            <span className={`absolute top-0 right-0 px-3 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] rounded-bl-xl ${tierTheme.profileRibbon}`}>
+                                {(loyaltyStatus?.profile?.label || tier)}
+                            </span>
                             <div className="flex items-start gap-4">
                                 <div className="relative">
-                                    <div className="w-20 h-20 rounded-2xl bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center">
+                                    <div className={`w-20 h-20 rounded-2xl bg-gray-100 border-2 ${tierTheme.profileImageBorder} overflow-hidden flex items-center justify-center`}>
                                         {profileImage ? (
                                             <img src={profileImage} alt={user.name || 'Profile'} className="w-full h-full object-cover" />
                                         ) : (
@@ -235,24 +288,24 @@ export default function Profile() {
                             </div>
                         </div>
 
-                        <div className={`bg-gradient-to-br ${tierTheme.card} text-white rounded-2xl p-6 shadow-xl`}>
+                        <div className={`bg-gradient-to-br ${tierTheme.card} rounded-2xl p-6 shadow-xl`}>
                             <div className="flex items-center gap-3">
                                 <Sparkles size={18} className="text-accent" />
-                                <p className="text-xs uppercase tracking-[0.3em] text-white/70 font-semibold">Member Perks</p>
+                                <p className={`!mb-0 text-xs uppercase tracking-[0.3em] font-semibold ${tierTheme.caption}`}>Member Perks</p>
                             </div>
-                            <p className="text-lg font-semibold mt-3">
+                            <p className={`!mb-0 text-lg font-semibold mt-3 ${tierTheme.title}`}>
                                 {loyaltyStatus?.profile?.label || 'Regular'} tier active.
                             </p>
-                            <p className="text-sm text-white/80 mt-2">
+                            <p className={`!mb-0 text-sm mt-2 ${tierTheme.body}`}>
                                 {loyaltyStatus?.progress?.message || 'Keep your profile updated to receive curated offers.'}
                             </p>
                             <div className="mt-4 h-2 rounded-full bg-white/20 overflow-hidden">
                                 <div className="h-full bg-white rounded-full" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
                             </div>
-                            <div className="mt-2 text-xs text-white/80">
+                            <div className={`mt-2 text-xs ${tierTheme.caption}`}>
                                 {progressPct}% to {loyaltyStatus?.nextTierProfile?.label || 'next tier'}
                             </div>
-                            <Link to="/shop" className="inline-flex items-center justify-center mt-5 px-4 py-2 rounded-lg bg-white/15 hover:bg-white/25 transition-colors text-sm font-semibold text-white">
+                            <Link to="/shop" className={`inline-flex items-center justify-center mt-5 px-4 py-2 rounded-lg transition-colors text-sm font-semibold ${tierTheme.button}`}>
                                 Explore Collections
                             </Link>
                         </div>

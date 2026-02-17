@@ -65,7 +65,7 @@ export default function ProductCard({ product }) {
 
     const { displayPrice, originalPrice, label } = getPriceDetails();
     const loyaltyTier = String(user?.loyaltyTier || 'regular').toLowerCase();
-    const memberPct = Number(EXTRA_DISCOUNT_BY_TIER[loyaltyTier] || 0);
+    const memberPct = Number(user?.loyaltyProfile?.extraDiscountPct ?? EXTRA_DISCOUNT_BY_TIER[loyaltyTier] ?? 0);
     const memberPrice = Math.max(0, Number(displayPrice || 0) * (1 - (memberPct / 100)));
 
     // --- 2. Discount Calculation for Ribbon ---
@@ -247,7 +247,7 @@ export default function ProductCard({ product }) {
     };
 
     return (
-        <div className={`group relative bg-white rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate ${isOutOfStock ? 'grayscale opacity-80' : ''}`}
+        <div className={`group relative tier-card-surface rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate ${isOutOfStock ? 'grayscale opacity-80' : ''}`}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
             onClick={() => navigate(`/product/${product.id}`)}
@@ -278,7 +278,7 @@ export default function ProductCard({ product }) {
             </button>
 
             {/* --- IMAGE AREA --- */}
-            <div className="relative aspect-[4/5] bg-gray-50 overflow-hidden rounded-t-2xl">
+            <div className="relative aspect-[4/5] tier-muted-surface overflow-hidden rounded-t-2xl">
                 <img 
                     src={mainImage} 
                     alt={product.title}

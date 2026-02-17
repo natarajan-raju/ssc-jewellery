@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 import { ProductProvider } from './context/ProductContext';
@@ -42,10 +43,23 @@ const AdminRoute = ({ children }) => {
 // Changed 'pt-20 md:pt-24' to 'pt-[74px]'
 // This perfectly matches the initial height of the Navbar (72px + border)
 const PublicLayout = () => {
+  const { user } = useAuth();
+  const tier = String(user?.loyaltyTier || 'regular').toLowerCase();
+
+  useEffect(() => {
+    const tiers = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
+    document.body.classList.remove(...tiers.map((entry) => `tier-${entry}`));
+    document.body.classList.add(`tier-${tiers.includes(tier) ? tier : 'regular'}`);
+    return () => {
+      document.body.classList.remove(...tiers.map((entry) => `tier-${entry}`));
+      document.body.classList.add('tier-regular');
+    };
+  }, [tier]);
+
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-secondary pt-[74px]"> 
+      <main className="min-h-screen bg-secondary pt-[74px] tier-surface"> 
         <Outlet />
       </main>
       <FloatingWhatsApp />

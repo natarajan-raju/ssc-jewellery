@@ -32,7 +32,7 @@ const {
     startAbandonedCartMaintenanceScheduler,
     setKnownPublicOriginFromRequest
 } = require('./services/abandonedCartRecoveryService');
-const { runMonthlyLoyaltyReassessment } = require('./services/loyaltyService');
+const { runMonthlyLoyaltyReassessment, ensureLoyaltyConfigLoaded } = require('./services/loyaltyService');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -144,6 +144,7 @@ const schedulePaymentAttemptExpiryJob = () => {
 };
 
 schedulePaymentAttemptExpiryJob();
+ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
 const scheduleMonthlyLoyaltyReassessment = () => {
     let lastRunKey = '';
     const runIfWindow = async () => {

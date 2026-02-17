@@ -595,6 +595,39 @@ const initDB = async () => {
             )
         `);
 
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS loyalty_tier_config (
+                tier VARCHAR(20) PRIMARY KEY,
+                label VARCHAR(40) NOT NULL,
+                color VARCHAR(20) NOT NULL DEFAULT '#4B5563',
+                threshold DECIMAL(12,2) NOT NULL DEFAULT 0,
+                window_days INT NOT NULL DEFAULT 30,
+                extra_discount_pct DECIMAL(8,2) NOT NULL DEFAULT 0,
+                shipping_discount_pct DECIMAL(8,2) NOT NULL DEFAULT 0,
+                birthday_discount_pct DECIMAL(8,2) NOT NULL DEFAULT 10,
+                abandoned_cart_boost_pct DECIMAL(8,2) NOT NULL DEFAULT 0,
+                priority_weight INT NOT NULL DEFAULT 0,
+                shipping_priority VARCHAR(30) NOT NULL DEFAULT 'standard',
+                benefits_json JSON,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE loyalty_tier_config ADD COLUMN birthday_discount_pct DECIMAL(8,2) NOT NULL DEFAULT 10');
+        } catch {}
+        await connection.execute(
+            `INSERT INTO loyalty_tier_config
+                (tier, label, color, threshold, window_days, extra_discount_pct, shipping_discount_pct, birthday_discount_pct, abandoned_cart_boost_pct, priority_weight, shipping_priority, benefits_json, is_active)
+             VALUES
+                ('regular', 'Regular', '#4B5563', 0, 30, 0, 0, 10, 0, 0, 'standard', JSON_ARRAY('Standard pricing','Standard shipping','Progress tracking to next tier'), 1),
+                ('bronze', 'Bronze', '#CD7F32', 5000, 30, 1, 5, 10, 2, 1, 'standard_plus', JSON_ARRAY('1% extra member discount','5% shipping fee discount','Priority support queue'), 1),
+                ('silver', 'Silver', '#9CA3AF', 10000, 60, 2, 10, 10, 4, 2, 'high', JSON_ARRAY('2% extra member discount','10% shipping fee discount','High priority dispatch queue'), 1),
+                ('gold', 'Gold', '#D4AF37', 25000, 90, 3, 15, 10, 6, 3, 'higher', JSON_ARRAY('3% extra member discount','15% shipping fee discount','Faster dispatch + premium support'), 1),
+                ('platinum', 'Platinum', '#60A5FA', 100000, 365, 5, 25, 10, 10, 4, 'highest', JSON_ARRAY('5% extra member discount','25% shipping fee discount','Top priority dispatch + premium concierge'), 1)
+             ON DUPLICATE KEY UPDATE tier = tier`
+        );
+
         // 6. [NEW] PRODUCT_CATEGORIES (Junction Table)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS product_categories (

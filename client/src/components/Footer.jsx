@@ -69,7 +69,7 @@ export default function Footer() {
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
 
     return (
-        <footer className="bg-primary text-white mt-16">
+        <footer className="bg-primary text-white mt-0">
             <div className="container mx-auto px-4 py-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
                     <div className="space-y-4">
