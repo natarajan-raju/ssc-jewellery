@@ -55,11 +55,11 @@ const normalizeStateKey = (value) => String(value || '')
     .replace(/[^a-z0-9]/g, '');
 
 const TIER_THEME = {
-    regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
-    bronze: { card: 'from-amber-700 via-orange-600 to-amber-700', chip: 'bg-amber-100 text-amber-800 border-amber-200' },
-    silver: { card: 'from-slate-500 via-zinc-400 to-slate-500', chip: 'bg-slate-100 text-slate-700 border-slate-200' },
-    gold: { card: 'from-yellow-700 via-amber-500 to-yellow-700', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    platinum: { card: 'from-sky-700 via-blue-500 to-sky-700', chip: 'bg-sky-100 text-sky-800 border-sky-200' }
+    regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/25', fill: 'bg-white', tag: 'bg-white/20 border-white/35 text-white' },
+    bronze: { card: 'from-amber-800 via-orange-700 to-amber-800', chip: 'bg-amber-100 text-amber-800 border-amber-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/20', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' },
+    silver: { card: 'from-slate-600 via-zinc-500 to-slate-600', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/22', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' },
+    gold: { card: 'from-amber-900 via-amber-800 to-amber-900', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', title: 'text-amber-50', body: 'text-amber-100', caption: 'text-amber-200', track: 'bg-amber-200/40', fill: 'bg-white', tag: 'bg-amber-200/20 border-amber-200/40 text-amber-50' },
+    platinum: { card: 'from-sky-800 via-blue-700 to-sky-800', chip: 'bg-sky-100 text-sky-800 border-sky-200', title: 'text-white', body: 'text-sky-100', caption: 'text-sky-200', track: 'bg-white/22', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' }
 };
 
 export default function Checkout() {
@@ -542,24 +542,24 @@ export default function Checkout() {
                             </div>
                         </div>
                     </div>
-                    <div className={`rounded-2xl text-white p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
+                    <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <p className="text-xs uppercase tracking-[0.24em] text-white/70 font-semibold">Membership</p>
-                                <p className="text-xl font-semibold mt-1">{loyaltyStatus?.profile?.label || tier} Tier</p>
-                                <p className="text-sm text-white/85 mt-2">
+                                <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
+                                <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{loyaltyStatus?.profile?.label || tier} Tier</p>
+                                <p className={`text-sm mt-2 ${tierTheme.body}`}>
                                     {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
                                 </p>
                             </div>
-                            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-white/15 border border-white/20">
+                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
                                 <Sparkles size={14} /> Extra member pricing
                             </span>
                         </div>
                         <div className="mt-4">
-                            <div className="h-2 rounded-full bg-white/20 overflow-hidden">
-                                <div className="h-full rounded-full bg-white" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                            <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
+                                <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
                             </div>
-                            <div className="mt-2 flex items-center justify-between text-xs text-white/80">
+                            <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
                                 <span>{progressPct}% to next tier</span>
                                 <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
                             </div>
