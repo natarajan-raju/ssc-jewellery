@@ -13,7 +13,7 @@ const dedupeById = (products = []) => {
     return next;
 };
 
-export const useCartRecommendations = ({ items = [], limit = 6 }) => {
+export const useCartRecommendations = ({ items = [], wishlistProductIds = [], limit = 6 }) => {
     const [recommendations, setRecommendations] = useState([]);
     const [loading, setLoading] = useState(false);
 
@@ -34,11 +34,23 @@ export const useCartRecommendations = ({ items = [], limit = 6 }) => {
         return Array.from(names);
     }, [items]);
 
+    const normalizedWishlistIds = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    (Array.isArray(wishlistProductIds) ? wishlistProductIds : [])
+                        .map((id) => String(id || '').trim())
+                        .filter(Boolean)
+                )
+            ),
+        [wishlistProductIds]
+    );
+
     useEffect(() => {
         let cancelled = false;
 
         const load = async () => {
-            if (!items.length || !categoryNames.length) {
+            if (!categoryNames.length && !normalizedWishlistIds.length) {
                 setRecommendations([]);
                 return;
             }
@@ -46,16 +58,34 @@ export const useCartRecommendations = ({ items = [], limit = 6 }) => {
             setLoading(true);
             try {
                 const targetCategories = categoryNames.slice(0, 3);
-                const responses = await Promise.all(
-                    targetCategories.map((category) =>
-                        productService.getProducts(1, category, 'active', 'newest', 16)
-                    )
-                );
+                const [categoryResponses, wishlistProducts] = await Promise.all([
+                    targetCategories.length
+                        ? Promise.all(
+                            targetCategories.map((category) =>
+                                productService.getProducts(1, category, 'active', 'newest', 16)
+                            )
+                        )
+                        : Promise.resolve([]),
+                    normalizedWishlistIds.length
+                        ? Promise.all(
+                            normalizedWishlistIds
+                                .slice(0, 12)
+                                .map((productId) =>
+                                    productService.getProduct(productId).catch(() => null)
+                                )
+                        )
+                        : Promise.resolve([])
+                ]);
 
-                const combined = responses.flatMap((res) => (Array.isArray(res?.products) ? res.products : []));
-                const unique = dedupeById(combined).filter(
-                    (product) => !cartProductIds.has(String(product.id || ''))
+                const categoryProducts = categoryResponses.flatMap((res) =>
+                    Array.isArray(res?.products) ? res.products : []
                 );
+                const combined = [...wishlistProducts.filter(Boolean), ...categoryProducts];
+                const unique = dedupeById(combined).filter((product) => {
+                    const productId = String(product?.id || '');
+                    const isActive = String(product?.status || 'active').toLowerCase() === 'active';
+                    return productId && isActive && !cartProductIds.has(productId);
+                });
                 if (!cancelled) {
                     setRecommendations(unique.slice(0, limit));
                 }
@@ -72,8 +102,7 @@ export const useCartRecommendations = ({ items = [], limit = 6 }) => {
         return () => {
             cancelled = true;
         };
-    }, [cartProductIds, categoryNames, items.length, limit]);
+    }, [cartProductIds, categoryNames, normalizedWishlistIds, limit]);
 
     return { recommendations, loading };
 };
-

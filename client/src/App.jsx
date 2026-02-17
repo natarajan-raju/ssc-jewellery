@@ -6,6 +6,7 @@ import { CartProvider } from './context/CartContext';
 import { CustomerProvider } from './context/CustomerContext';
 import { ShippingProvider } from './context/ShippingContext';
 import { OrderProvider } from './context/OrderContext';
+import { WishlistProvider } from './context/WishlistContext';
 import { useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
 import CategoryStore from './pages/CategoryStore';
@@ -24,6 +25,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import ProductPage from './pages/ProductPage';
 import Contact from './pages/Contact';
 import Profile from './pages/Profile';
+import Wishlist from './pages/Wishlist';
 import Checkout from './pages/Checkout';
 import CartPage from './pages/CartPage';
 import Orders from './pages/Orders';
@@ -62,6 +64,7 @@ function App() {
               <OrderProvider>
                 <CustomerProvider>
                   <ShippingProvider>
+                    <WishlistProvider>
                     <CartProvider>
                   <Routes>
               
@@ -72,6 +75,7 @@ function App() {
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/wishlist" element={<Wishlist />} />
                 <Route path="/orders" element={<Orders />} />
                 <Route path="/cart" element={<CartPage />} />
                 <Route path="/checkout" element={<Checkout />} />
@@ -100,6 +104,7 @@ function App() {
               <Route path="*" element={<Navigate to="/" />} />
                   </Routes>
                     </CartProvider>
+                    </WishlistProvider>
                   </ShippingProvider>
                 </CustomerProvider>
               </OrderProvider>

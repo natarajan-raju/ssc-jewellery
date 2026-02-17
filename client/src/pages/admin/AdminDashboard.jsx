@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
@@ -16,6 +16,8 @@ import CompanyInfo from './CompanyInfo';
 import { AdminKPIProvider } from '../../context/AdminKPIContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
 import orderIllustration from '../../assets/order.svg';
+import receivedOrderAudio from '../../assets/received_order.mp3';
+import { burstConfetti } from '../../utils/celebration';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
 
@@ -27,6 +29,7 @@ export default function AdminDashboard() {
     const [focusOrderId, setFocusOrderId] = useState(null);
     const [incomingOrders, setIncomingOrders] = useState([]);
     const [incomingModalOpen, setIncomingModalOpen] = useState(false);
+    const playedOrderSoundRef = useRef(false);
     const navigate = useNavigate();
     const toast = useToast();
     const { logout, user } = useAuth();
@@ -144,6 +147,23 @@ export default function AdminDashboard() {
         const totalValue = incomingOrders.reduce((sum, order) => sum + Number(order?.total || 0), 0);
         return { count, totalValue };
     }, [incomingOrders]);
+
+    useEffect(() => {
+        if (!incomingModalOpen || incomingSummary.count <= 0) {
+            playedOrderSoundRef.current = false;
+            return;
+        }
+        if (playedOrderSoundRef.current) return;
+        playedOrderSoundRef.current = true;
+        burstConfetti();
+        try {
+            const audio = new Audio(receivedOrderAudio);
+            audio.volume = 0.9;
+            void audio.play().catch(() => {});
+        } catch {
+            // ignore autoplay/audio errors
+        }
+    }, [incomingModalOpen, incomingSummary.count]);
 
     const openOrdersFromModal = (orderId = null) => {
         setActiveTab('orders');

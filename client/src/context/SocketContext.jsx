@@ -81,19 +81,31 @@ export const SocketProvider = ({ children }) => {
             notifyApp(payload);
         };
 
-        const handleOrderCreate = (payload = {}) => {
-            if (payload?.order) {
-                orderService.patchMyOrdersCache(payload.order);
+        const handleOrderCreate = async (payload = {}) => {
+            let finalOrder = payload?.order || null;
+            if (finalOrder) {
+                orderService.patchMyOrdersCache(finalOrder);
             }
             if (user && (user.role === 'admin' || user.role === 'staff')) {
-                const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || ''}`;
+                const orderId = finalOrder?.id || payload?.orderId || null;
+                if (orderId) {
+                    try {
+                        const detail = await orderService.getAdminOrder(orderId);
+                        if (detail?.order) {
+                            finalOrder = detail.order;
+                        }
+                    } catch {
+                        // fallback to socket payload
+                    }
+                }
+                const orderRef = finalOrder?.order_ref || finalOrder?.orderRef || `#${finalOrder?.id || orderId || ''}`;
                 toast.success(`New order received: ${orderRef}`);
-                if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('admin:new-order', { detail: payload.order || null }));
+                if (typeof window !== 'undefined' && finalOrder) {
+                    window.dispatchEvent(new CustomEvent('admin:new-order', { detail: finalOrder }));
                 }
             }
             orderService.clearAdminListCache();
-            notifyApp(payload);
+            notifyApp({ ...payload, order: finalOrder || payload?.order || null });
         };
 
         const handlePaymentUpdate = (payload = {}) => {

@@ -2,23 +2,46 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
     Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, 
-    AlertTriangle, Check, ArrowRight, Home, ShieldCheck,
+    AlertTriangle, Check, ArrowRight, Home, ShieldCheck, Truck,
     MessageCircle, Facebook, Twitter, Send, Copy
 } from 'lucide-react';
 import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
-import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useCart } from '../context/CartContext';
+import { useWishlist } from '../context/WishlistContext';
 import ProductCard from '../components/ProductCard';
 import placeholderImg from '../assets/placeholder.jpg'
+import { vibrateTap } from '../utils/haptics';
+
+const toBool = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const toNumber = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+const effectivePrice = (item = {}) => toNumber(item.discount_price || item.price || item.mrp || 0, 0);
+const isVariantOutOfStock = (variant = {}, parent = {}) => {
+    const tracked = variant.track_quantity ?? parent.track_quantity;
+    const qty = variant.quantity ?? 0;
+    return Boolean(toBool(tracked) && toNumber(qty, 0) <= 0);
+};
+const isProductOutOfStock = (product = {}, activeVariantId = null) => {
+    if (!product || String(product.status || '').toLowerCase() !== 'active') return true;
+    const variants = Array.isArray(product.variants) ? product.variants : [];
+    if (variants.length > 0) {
+        const selected = activeVariantId ? variants.find((v) => String(v.id) === String(activeVariantId)) : null;
+        if (selected) return isVariantOutOfStock(selected, product);
+        return variants.every((v) => isVariantOutOfStock(v, product));
+    }
+    return Boolean(toBool(product.track_quantity) && toNumber(product.quantity, 0) <= 0);
+};
 
 export default function ProductPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { socket } = useSocket();
-    const { user } = useAuth(); // Assuming cart logic might need user later
     const { addItem } = useCart();
+    const { toggleWishlist, isWishlisted } = useWishlist();
     const toast = useToast();
 
     // --- State ---
@@ -34,6 +57,7 @@ export default function ProductPage() {
     const [justAddedToCart, setJustAddedToCart] = useState(false);
     const shareRef = useRef(null);
     const cartFeedbackTimerRef = useRef(null);
+    const relatedReloadTimerRef = useRef(null);
 
     // [FIX] Helper to normalize socket data (Strings -> Arrays)
     const normalizeSocketData = (data) => {
@@ -210,18 +234,39 @@ export default function ProductPage() {
         }
     };
 
+    const scheduleRelatedReload = (data) => {
+        if (!data) return;
+        if (relatedReloadTimerRef.current) clearTimeout(relatedReloadTimerRef.current);
+        relatedReloadTimerRef.current = setTimeout(() => {
+            loadRelatedProducts(data);
+        }, 180);
+    };
+
     const handleAddToCart = async () => {
         if (!product) return;
         try {
+            if (String(product.status || '').toLowerCase() !== 'active') {
+                toast.error('This product is inactive and unavailable.');
+                return;
+            }
             if (product.variants && product.variants.length > 0) {
                 if (!activeVariant) {
                     toast.error('Please select a variant');
                     return;
                 }
+                if (isVariantOutOfStock(activeVariant, product)) {
+                    toast.warning('Selected variant is out of stock.');
+                    return;
+                }
                 await addItem({ product, variant: activeVariant, quantity: 1 });
             } else {
+                if (isProductOutOfStock(product)) {
+                    toast.warning('This product is currently out of stock.');
+                    return;
+                }
                 await addItem({ product, quantity: 1 });
             }
+            vibrateTap();
             setJustAddedToCart(true);
             if (cartFeedbackTimerRef.current) clearTimeout(cartFeedbackTimerRef.current);
             cartFeedbackTimerRef.current = setTimeout(() => setJustAddedToCart(false), 1200);
@@ -300,8 +345,14 @@ export default function ProductPage() {
                 const currentVarId = activeVariantIdRef.current;
                 
                 let newSelectedId = null;
-                let shouldNotify = false;
                 let oldPrice = 0, newPrice = 0, priceLabel = updatedProduct.title;
+                let oldOutOfStock = false;
+                let newOutOfStock = false;
+                let oldStatus = 'active';
+                let newStatus = String(updatedProduct.status || 'active').toLowerCase();
+                let oldQty = 0;
+                let newQty = 0;
+                let shouldCheckPrice = false;
 
                 // --- SMART RECOVERY LOGIC ---
                 if (oldData && oldData.variants && updatedProduct.variants && currentVarId) {
@@ -317,23 +368,41 @@ export default function ProductPage() {
                             priceLabel = newVar.variant_title;
 
                             // Compare Prices
-                            oldPrice = Number(oldVar.discount_price || oldVar.price);
-                            newPrice = Number(newVar.discount_price || newVar.price);
-                            shouldNotify = true;
+                            oldPrice = effectivePrice(oldVar);
+                            newPrice = effectivePrice(newVar);
+                            shouldCheckPrice = true;
+                            oldOutOfStock = isVariantOutOfStock(oldVar, oldData);
+                            newOutOfStock = isVariantOutOfStock(newVar, updatedProduct);
+                            oldQty = toNumber(oldVar.quantity, 0);
+                            newQty = toNumber(newVar.quantity, 0);
                         }
                     }
                 } 
                 else if (!currentVarId && oldData) {
-                    oldPrice = Number(oldData.discount_price || oldData.mrp);
-                    newPrice = Number(updatedProduct.discount_price || updatedProduct.mrp);
-                    shouldNotify = true;
+                    oldPrice = effectivePrice(oldData);
+                    newPrice = effectivePrice(updatedProduct);
+                    shouldCheckPrice = true;
+                    oldOutOfStock = isProductOutOfStock(oldData, null);
+                    newOutOfStock = isProductOutOfStock(updatedProduct, null);
+                    oldQty = toNumber(oldData.quantity, 0);
+                    newQty = toNumber(updatedProduct.quantity, 0);
                 }
+                oldStatus = String(oldData?.status || 'active').toLowerCase();
 
-                if (shouldNotify) {
+                if (shouldCheckPrice) {
                     const diff = newPrice - oldPrice;
                     if (diff < 0) toast.success(`Price drop on ${priceLabel}! Saved ₹${Math.abs(diff).toLocaleString()}`);
                     else if (diff > 0) toast.error(`Price increased on ${priceLabel} by ₹${Math.abs(diff).toLocaleString()}`);
-                    else toast.success("Product information updated");
+                }
+                if (oldStatus === 'active' && newStatus !== 'active') {
+                    toast.warning('This product is now inactive.');
+                }
+                if (!oldOutOfStock && newOutOfStock) {
+                    toast.warning(`${priceLabel} is now out of stock.`);
+                } else if (oldOutOfStock && !newOutOfStock) {
+                    toast.success(`${priceLabel} is back in stock.`);
+                } else if (!newOutOfStock && oldQty !== newQty && newQty >= 0) {
+                    toast.info(`Stock updated for ${priceLabel}: ${newQty} left.`);
                 }
                 
                 if (newSelectedId) {
@@ -344,23 +413,33 @@ export default function ProductPage() {
                 setProduct(prev => ({ ...prev, ...updatedProduct }));
 
                 const completeData = { ...(productRef.current || {}), ...updatedProduct };
-                loadRelatedProducts(completeData);
+                scheduleRelatedReload(completeData);
             } 
             
             // [SCENARIO 2] Update Related Cards
             const existsInRelated = relatedProductsRef.current.find(p => String(p.id) === msgId);
+            const relatedCategory = String(relatedCategoryRef.current || '').trim().toLowerCase();
+            const updatedCategories = Array.isArray(updatedProduct?.categories) ? updatedProduct.categories : [];
+            const touchesRelatedCategory = relatedCategory
+                ? updatedCategories.some((entry) => String(entry || '').trim().toLowerCase() === relatedCategory)
+                : false;
             if (existsInRelated) {
                 // Check if the update makes it INVALID (Inactive or OOS)
                 const isInactive = updatedProduct.status !== 'active';
-                const isOOS = updatedProduct.track_quantity && updatedProduct.quantity <= 0;
+                const hasVariants = Array.isArray(updatedProduct.variants) && updatedProduct.variants.length > 0;
+                const isOOS = hasVariants
+                    ? updatedProduct.variants.every((variant) => isVariantOutOfStock(variant, updatedProduct))
+                    : (toBool(updatedProduct.track_quantity) && toNumber(updatedProduct.quantity, 0) <= 0);
 
                 if (isInactive || isOOS) {
                     console.log("🚫 Related product became invalid (OOS/Inactive). Refreshing list...");
-                    // Clear cache to ensure we fetch a fresh list without this item
-                    productService.clearCache();
+                    const relatedCategory = relatedCategoryRef.current;
+                    if (relatedCategory) {
+                        productService.clearProductsCache({ category: relatedCategory });
+                    }
                     // Reload to fill the gap with a new product
                     if (productRef.current) {
-                        loadRelatedProducts(productRef.current);
+                        scheduleRelatedReload(productRef.current);
                     }
                 } else {
                     // Valid Update: Just update price/image in place
@@ -369,22 +448,32 @@ export default function ProductPage() {
                         prevRelated.map(p => String(p.id) === msgId ? { ...p, ...updatedProduct } : p)
                     );
                 }
+            } else if (touchesRelatedCategory && msgId !== currentId) {
+                const targetCategory = relatedCategoryRef.current;
+                if (targetCategory) {
+                    productService.clearProductsCache({ category: targetCategory });
+                }
+                if (productRef.current) {
+                    scheduleRelatedReload(productRef.current);
+                }
             }
             
         };
 
         // B. [NEW] Handler for Category Changes (Reorder / Add / Remove)
         const handleCategoryChange = (payload) => {
-            const currentRelatedCat = relatedCategoryRef.current;
+            const currentRelatedCat = String(relatedCategoryRef.current || '').trim();
             
             // Check if the event affects the category we are displaying
-            if (currentRelatedCat && payload.categoryName === currentRelatedCat) {
+            if (currentRelatedCat && String(payload?.categoryName || '').trim().toLowerCase() === currentRelatedCat.toLowerCase()) {
                 console.log("🔄 Related Category Updated:", payload.action);
-                productService.clearCache(); // Clear cache to ensure fresh data
+                if (payload.action === 'reorder' || payload.action === 'count_update' || payload.action === 'remove' || payload.action === 'add') {
+                    productService.clearProductsCache({ category: currentRelatedCat });
+                }
                 
                 // Reload using the current product data
                 if (productRef.current) {
-                    loadRelatedProducts(productRef.current);
+                    scheduleRelatedReload(productRef.current);
                 }
             }
         };
@@ -397,6 +486,10 @@ export default function ProductPage() {
             socket.off('product:update', handleUpdate);
             socket.off('refresh:categories', handleCategoryChange);
             socket.off('product:category_change', handleCategoryChange);
+            if (relatedReloadTimerRef.current) {
+                clearTimeout(relatedReloadTimerRef.current);
+                relatedReloadTimerRef.current = null;
+            }
         };
     }, [socket, id, toast]);
     
@@ -705,9 +798,9 @@ export default function ProductPage() {
                             </button>
                             <button 
                                 className="px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-colors"
-                                onClick={() => toast.success("Added to Wishlist")}
+                                onClick={async () => { await toggleWishlist(product.id); }}
                             >
-                                <Heart size={24} />
+                                <Heart size={24} className={isWishlisted(product?.id) ? 'fill-red-500 text-red-500' : ''} />
                             </button>
                         </div>
 
@@ -716,12 +809,24 @@ export default function ProductPage() {
                             {/* Standard Guarantee Item */}
                             <div className="border-b">
                                 <button className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 text-left" onClick={() => setActiveAccordion(activeAccordion === 'guarantee' ? null : 'guarantee')}>
-                                    <span className="font-bold flex items-center gap-2"><ShieldCheck size={18}/> Quality Guarantee</span>
+                                    <span className="font-bold flex items-center gap-3"><ShieldCheck size={22}/> 100% Quality Guarantee</span>
                                     {activeAccordion === 'guarantee' ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                                 </button>
                                 {activeAccordion === 'guarantee' && (
                                     <div className="px-5 pb-4 text-gray-600 text-sm animate-fade-in">
                                         All our products go through rigorous quality checks. We provide up to 12 months of polish warranty on selected items.
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="border-b">
+                                <button className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 text-left" onClick={() => setActiveAccordion(activeAccordion === 'shipping' ? null : 'shipping')}>
+                                    <span className="font-bold flex items-center gap-3"><Truck size={22}/> Pan India Shipping</span>
+                                    {activeAccordion === 'shipping' ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                                </button>
+                                {activeAccordion === 'shipping' && (
+                                    <div className="px-5 pb-4 text-gray-600 text-sm animate-fade-in">
+                                        We deliver across India with secure packaging. Orders are shipped within 2-3 working days.
                                     </div>
                                 )}
                             </div>

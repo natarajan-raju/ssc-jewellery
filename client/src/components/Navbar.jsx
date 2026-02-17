@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useSocket } from '../context/SocketContext';
@@ -289,6 +289,7 @@ export default function Navbar() {
                                             <p className="text-xs text-gray-400 font-bold uppercase">Hi, {user.name}</p>
                                         </div>
                                         <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Profile</Link>
+                                        <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Wishlist</Link>
                                         <Link to="/orders" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">My Orders</Link>
                                         <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 border-t border-gray-50 mt-1">
                                             <LogOut size={16} /> Logout
@@ -349,9 +350,25 @@ export default function Navbar() {
                         </Link>
                     ))}
                     {user ? (
-                        <button onClick={handleLogout} className="flex items-center justify-center gap-2 text-red-500 font-bold pt-4">
-                            <LogOut size={20} /> Logout
-                        </button>
+                        <>
+                            <Link
+                                to="/profile"
+                                className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                My Profile
+                            </Link>
+                            <Link
+                                to="/wishlist"
+                                className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600 inline-flex items-center justify-center gap-2"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <Heart size={18} /> My Wishlist
+                            </Link>
+                            <button onClick={handleLogout} className="flex items-center justify-center gap-2 text-red-500 font-bold pt-4">
+                                <LogOut size={20} /> Logout
+                            </button>
+                        </>
                     ) : (
                         <Link to="/login" className="flex items-center justify-center gap-2 text-primary font-bold pt-4" onClick={() => setIsOpen(false)}>
                             <User size={20} /> Login

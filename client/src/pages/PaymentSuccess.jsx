@@ -4,6 +4,8 @@ import { orderService } from '../services/orderService';
 import { useToast } from '../context/ToastContext';
 import { useCart } from '../context/CartContext';
 import logo from '../assets/logo.webp';
+import successDing from '../assets/success_ding.mp3';
+import { burstConfetti, playCue } from '../utils/celebration';
 
 export default function PaymentSuccess() {
     const toast = useToast();
@@ -16,6 +18,7 @@ export default function PaymentSuccess() {
     const [isLoading, setIsLoading] = useState(true);
     const [order, setOrder] = useState(null);
     const clearedRecoveryCartRef = useRef(false);
+    const celebratedRef = useRef(false);
 
     useEffect(() => {
         let ignore = false;
@@ -75,6 +78,17 @@ export default function PaymentSuccess() {
         clearedRecoveryCartRef.current = true;
         clearCart().catch(() => {});
     }, [clearCart, isFailed, isRecoveryOrder, order?.id]);
+
+    useEffect(() => {
+        if (isFailed || !order?.id) {
+            celebratedRef.current = false;
+            return;
+        }
+        if (celebratedRef.current) return;
+        celebratedRef.current = true;
+        burstConfetti();
+        playCue(successDing);
+    }, [isFailed, order?.id]);
 
     return (
         <div className="min-h-screen bg-secondary flex items-center justify-center px-4">

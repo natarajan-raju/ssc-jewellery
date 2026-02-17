@@ -7,6 +7,15 @@ import { ChevronDown, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter,
 
 const PAGE_LIMIT = 20;
 
+const mergeUniqueProducts = (base = [], incoming = []) => {
+    const map = new Map();
+    [...base, ...incoming].forEach((item) => {
+        if (!item || item.id == null) return;
+        map.set(String(item.id), item);
+    });
+    return Array.from(map.values());
+};
+
 export default function Shop() {
     const { socket } = useSocket();
     const [categories, setCategories] = useState([]);
@@ -18,6 +27,7 @@ export default function Shop() {
     const [sortBy, setSortBy] = useState('default');
     const [jumbotronImage, setJumbotronImage] = useState('/placeholder_banner.jpg');
     const loadingRef = useRef(false);
+    const productsRef = useRef([]);
     const sentinelRef = useRef(null);
     const [showFilters, setShowFilters] = useState(false);
     const [inStockOnly, setInStockOnly] = useState(false);
@@ -28,6 +38,11 @@ export default function Shop() {
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [isCategoryOpen, setIsCategoryOpen] = useState(false);
     const categoryDropdownRef = useRef(null);
+    const loadedPagesRef = useRef(new Set());
+    const searchPrefetchingRef = useRef(false);
+    const requestKeyRef = useRef('');
+    const manualRefreshTimerRef = useRef(null);
+    const [isFetchingAllForSearch, setIsFetchingAllForSearch] = useState(false);
 
     const loadCategories = useCallback(async () => {
         try {
@@ -114,29 +129,40 @@ export default function Shop() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const fetchProducts = useCallback(async (currentPage, append = false) => {
-        if (loadingRef.current) return;
+    const fetchProducts = useCallback(async (
+        currentPage,
+        { append = false, skipLoading = false, force = false } = {}
+    ) => {
+        if (loadingRef.current && !force) return [];
         loadingRef.current = true;
-        if (!append) setIsLoading(true);
+        if (!append && !skipLoading) setIsLoading(true);
 
+        const requestKey = `${selectedCategory}::${sortBy}`;
+        requestKeyRef.current = requestKey;
         try {
             const categoryParam = selectedCategory === 'all' ? 'all' : selectedCategory;
             const serverSort = sortBy === 'default'
                 ? (categoryParam === 'all' ? 'newest' : 'manual')
                 : sortBy;
             const data = await productService.getProducts(currentPage, categoryParam, 'active', serverSort, PAGE_LIMIT);
-            const newItems = data.products || [];
+            if (requestKeyRef.current !== requestKey) return [];
+
+            const newItems = Array.isArray(data?.products) ? data.products : [];
+            loadedPagesRef.current.add(currentPage);
             if (append) {
-                setProducts(prev => [...prev, ...newItems]);
+                setProducts(prev => mergeUniqueProducts(prev, newItems));
             } else {
-                setProducts(newItems);
+                setProducts(mergeUniqueProducts([], newItems));
             }
+            setPage((prev) => Math.max(prev, currentPage));
             setHasMore(newItems.length >= PAGE_LIMIT);
+            return newItems;
         } catch (err) {
             console.error('Failed to load products', err);
+            return [];
         } finally {
             loadingRef.current = false;
-            setIsLoading(false);
+            if (!skipLoading) setIsLoading(false);
         }
     }, [selectedCategory, sortBy]);
 
@@ -147,22 +173,51 @@ export default function Shop() {
     useEffect(() => {
         setPage(1);
         setHasMore(true);
-        fetchProducts(1, false);
+        loadedPagesRef.current = new Set();
+        searchPrefetchingRef.current = false;
+        setIsFetchingAllForSearch(false);
+        requestKeyRef.current = `${selectedCategory}::${sortBy}`;
+        fetchProducts(1, { append: false, force: true });
     }, [selectedCategory, sortBy, fetchProducts]);
 
     useEffect(() => {
         if (!sentinelRef.current) return;
         const observer = new IntersectionObserver((entries) => {
             const entry = entries[0];
-            if (entry.isIntersecting && hasMore && !loadingRef.current) {
-                const nextPage = page + 1;
-                setPage(nextPage);
-                fetchProducts(nextPage, true);
+            if (entry.isIntersecting && hasMore && !loadingRef.current && !searchTerm.trim()) {
+                const loaded = Array.from(loadedPagesRef.current);
+                const nextPage = (loaded.length ? Math.max(...loaded) : page) + 1;
+                fetchProducts(nextPage, { append: true });
             }
         }, { rootMargin: '200px' });
         observer.observe(sentinelRef.current);
         return () => observer.disconnect();
-    }, [page, hasMore, fetchProducts]);
+    }, [page, hasMore, fetchProducts, searchTerm]);
+
+    const fetchAllRemainingPages = useCallback(async () => {
+        if (!hasMore || searchPrefetchingRef.current) return;
+        searchPrefetchingRef.current = true;
+        setIsFetchingAllForSearch(true);
+        try {
+            while (true) {
+                const loaded = Array.from(loadedPagesRef.current);
+                const nextPage = (loaded.length ? Math.max(...loaded) : 0) + 1;
+                const newItems = await fetchProducts(nextPage, { append: true, skipLoading: true, force: true });
+                if (newItems.length < PAGE_LIMIT) {
+                    setHasMore(false);
+                    break;
+                }
+            }
+        } finally {
+            searchPrefetchingRef.current = false;
+            setIsFetchingAllForSearch(false);
+        }
+    }, [fetchProducts, hasMore]);
+
+    useEffect(() => {
+        if (!searchTerm.trim() || !hasMore) return;
+        fetchAllRemainingPages();
+    }, [searchTerm, hasMore, fetchAllRemainingPages]);
 
     const shouldItemBeVisible = useCallback((item) => {
         if (!item || item.status !== 'active') return false;
@@ -171,25 +226,95 @@ export default function Shop() {
         return item.categories && item.categories.some(c => String(c).toLowerCase() === clean);
     }, [selectedCategory]);
 
+    const currentServerSort = useMemo(() => (
+        sortBy === 'default'
+            ? (selectedCategory === 'all' ? 'newest' : 'manual')
+            : sortBy
+    ), [selectedCategory, sortBy]);
+    const isStableSort = useMemo(() => currentServerSort === 'newest', [currentServerSort]);
+    const isManualSort = useMemo(
+        () => currentServerSort === 'manual' && selectedCategory !== 'all',
+        [currentServerSort, selectedCategory]
+    );
+
+    useEffect(() => {
+        productsRef.current = products;
+    }, [products]);
+
+    const refreshLoadedPagesInCurrentSort = useCallback(async () => {
+        if (!isManualSort || loadingRef.current) return;
+        loadingRef.current = true;
+        try {
+            const requestKey = `${selectedCategory}::${sortBy}`;
+            requestKeyRef.current = requestKey;
+            const loaded = Array.from(loadedPagesRef.current).sort((a, b) => a - b);
+            const pagesToLoad = loaded.length ? loaded : [1];
+            let merged = [];
+            let lastBatchSize = PAGE_LIMIT;
+
+            for (const pg of pagesToLoad) {
+                const data = await productService.getProducts(pg, selectedCategory, 'active', currentServerSort, PAGE_LIMIT);
+                if (requestKeyRef.current !== requestKey) return;
+                const batch = Array.isArray(data?.products) ? data.products : [];
+                merged = mergeUniqueProducts(merged, batch);
+                lastBatchSize = batch.length;
+            }
+
+            setProducts(merged);
+            setPage(Math.max(...pagesToLoad));
+            setHasMore(lastBatchSize >= PAGE_LIMIT);
+        } catch (err) {
+            console.error('Failed to refresh ordered shop list', err);
+        } finally {
+            loadingRef.current = false;
+        }
+    }, [currentServerSort, isManualSort, selectedCategory, sortBy]);
+
+    const scheduleManualRefresh = useCallback(() => {
+        if (!isManualSort) return;
+        if (manualRefreshTimerRef.current) clearTimeout(manualRefreshTimerRef.current);
+        manualRefreshTimerRef.current = setTimeout(() => {
+            refreshLoadedPagesInCurrentSort();
+        }, 180);
+    }, [isManualSort, refreshLoadedPagesInCurrentSort]);
+
     useEffect(() => {
         if (!socket) return;
 
-        const handleCategoryRefresh = () => {
-            productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
+        const handleCategoryRefresh = (payload = {}) => {
+            if (payload.action === 'reorder') {
+                productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
+            }
             loadCategories();
         };
 
         const handleProductCreate = (product) => {
             if (!shouldItemBeVisible(product)) return;
+            if (isManualSort) {
+                productService.clearProductsCache({ category: selectedCategory });
+                scheduleManualRefresh();
+                return;
+            }
             setProducts(prev => {
-                if (prev.find(p => p.id === product.id)) return prev;
-                if (sortBy === 'newest') return [product, ...prev];
-                return [...prev, product];
+                if (sortBy === 'newest') return mergeUniqueProducts([product], prev);
+                return mergeUniqueProducts(prev, [product]);
             });
-            productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
         };
 
         const handleProductUpdate = (updated) => {
+            const currentCategory = selectedCategory.toLowerCase();
+            const incomingCategories = Array.isArray(updated?.categories) ? updated.categories : [];
+            const touchesCurrentCategory = incomingCategories.some(
+                (entry) => String(entry || '').toLowerCase() === currentCategory
+            );
+            const existsInCurrent = productsRef.current.some(
+                (item) => String(item?.id || '') === String(updated?.id || '')
+            );
+            if (isManualSort && (touchesCurrentCategory || existsInCurrent)) {
+                productService.clearProductsCache({ category: selectedCategory });
+                scheduleManualRefresh();
+                return;
+            }
             setProducts(prev => {
                 const exists = prev.find(p => p.id === updated.id);
                 const isVisible = shouldItemBeVisible(updated);
@@ -197,15 +322,19 @@ export default function Shop() {
                     if (!isVisible) return prev.filter(p => p.id !== updated.id);
                     return prev.map(p => p.id === updated.id ? { ...p, ...updated } : p);
                 }
-                if (isVisible) return [...prev, updated];
+                if (isVisible) return mergeUniqueProducts(prev, [updated]);
                 return prev;
             });
-            productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
+            if (isStableSort) {
+                productService.patchProductInProductsCache(updated, { sorts: [currentServerSort] });
+            }
         };
 
         const handleProductDelete = ({ id }) => {
+            if (isManualSort) {
+                productService.clearProductsCache({ category: selectedCategory });
+            }
             setProducts(prev => prev.filter(p => p.id !== id));
-            productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
         };
 
         const handleCategoryChange = (payload = {}) => {
@@ -213,13 +342,15 @@ export default function Shop() {
             const product = payload.product;
             const name = payload.categoryName || '';
             if (selectedCategory !== 'all' && name.toLowerCase() !== selectedCategory.toLowerCase()) return;
+            if (isManualSort) {
+                productService.clearProductsCache({ category: selectedCategory });
+                scheduleManualRefresh();
+                return;
+            }
             if (!shouldItemBeVisible(product)) {
                 setProducts(prev => prev.filter(p => p.id !== product.id));
             } else {
-                setProducts(prev => {
-                    if (prev.find(p => p.id === product.id)) return prev;
-                    return [...prev, product];
-                });
+                setProducts(prev => mergeUniqueProducts(prev, [product]));
             }
             productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
         };
@@ -236,8 +367,12 @@ export default function Shop() {
             socket.off('product:update', handleProductUpdate);
             socket.off('product:delete', handleProductDelete);
             socket.off('product:category_change', handleCategoryChange);
+            if (manualRefreshTimerRef.current) {
+                clearTimeout(manualRefreshTimerRef.current);
+                manualRefreshTimerRef.current = null;
+            }
         };
-    }, [socket, selectedCategory, sortBy, shouldItemBeVisible, loadCategories]);
+    }, [socket, selectedCategory, sortBy, shouldItemBeVisible, loadCategories, isStableSort, currentServerSort, isManualSort, scheduleManualRefresh]);
 
     const categoryOptions = useMemo(() => {
         const list = categories
@@ -469,6 +604,9 @@ export default function Shop() {
                                     </div>
                                 </div>
                             </div>
+                            <div className="px-2 text-xs text-gray-500">
+                                {filteredAndSortedProducts.length} results
+                            </div>
 
                             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-40 opacity-100 mt-3 pb-2' : 'max-h-0 opacity-0'}`}>
                                 <div className="flex flex-wrap items-center gap-4 md:gap-8 pt-3 border-t border-gray-100">
@@ -528,7 +666,12 @@ export default function Shop() {
                                         <ProductCard key={product.id} product={product} />
                                     ))}
                                 </div>
-                                {filteredAndSortedProducts.length === 0 && (
+                                {isFetchingAllForSearch && searchTerm.trim() && (
+                                    <div className="col-span-full py-4 text-center text-sm text-gray-500">
+                                        Searching across all product pages...
+                                    </div>
+                                )}
+                                {filteredAndSortedProducts.length === 0 && !isFetchingAllForSearch && (
                                     <div className="col-span-full py-10 text-center text-gray-400">
                                         No products available.
                                     </div>

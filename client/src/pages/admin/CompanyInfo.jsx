@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Save, Building2 } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -64,8 +64,8 @@ export default function CompanyInfo() {
                 <p className="text-gray-500 text-sm mt-1">These values are used for invoices and public footer details.</p>
             </div>
 
-            <form onSubmit={handleSave} className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-                <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
+            <form onSubmit={handleSave} className="grid grid-cols-1 gap-5">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field
                             label="Company Display Name"
@@ -135,22 +135,6 @@ export default function CompanyInfo() {
                             <Save size={16} />
                             {isSaving ? 'Saving...' : 'Save Company Info'}
                         </button>
-                    </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
-                    <div className="flex items-center gap-2 text-primary">
-                        <Building2 size={18} />
-                        <h2 className="font-semibold">Invoice Preview Info</h2>
-                    </div>
-                    <div className="mt-4 space-y-2 text-sm text-gray-600">
-                        <p className="font-semibold text-gray-800">{form.displayName || 'SSC Jewellery'}</p>
-                        {form.address && <p>{form.address}</p>}
-                        {form.contactNumber && <p>Phone: {form.contactNumber}</p>}
-                        {form.supportEmail && <p>Email: {form.supportEmail}</p>}
-                        {!form.address && !form.contactNumber && !form.supportEmail && (
-                            <p className="text-gray-400">Update details to reflect them in invoices/footer.</p>
-                        )}
                     </div>
                 </div>
             </form>

@@ -1,16 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Heart, ShoppingCart, Check, Minus, Plus } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useWishlist } from '../context/WishlistContext';
+import { vibrateTap } from '../utils/haptics';
+import { useAuth } from '../context/AuthContext';
+
+const EXTRA_DISCOUNT_BY_TIER = {
+    regular: 0,
+    bronze: 1,
+    silver: 2,
+    gold: 3,
+    platinum: 5
+};
 
 export default function ProductCard({ product }) {
     const [isHovered, setIsHovered] = useState(false);
     const [quickAddAdded, setQuickAddAdded] = useState(false);
     const [isUpdatingQty, setIsUpdatingQty] = useState(false);
     const resetTimerRef = useRef(null);
-    const { user } = useAuth();
     const { items, addItem, updateQuantity, openQuickAdd } = useCart();
+    const { isWishlisted, toggleWishlist } = useWishlist();
+    const { user } = useAuth();
     const navigate = useNavigate();
 
     // --- 1. Pricing Logic ---
@@ -53,6 +64,9 @@ export default function ProductCard({ product }) {
     };
 
     const { displayPrice, originalPrice, label } = getPriceDetails();
+    const loyaltyTier = String(user?.loyaltyTier || 'regular').toLowerCase();
+    const memberPct = Number(EXTRA_DISCOUNT_BY_TIER[loyaltyTier] || 0);
+    const memberPrice = Math.max(0, Number(displayPrice || 0) * (1 - (memberPct / 100)));
 
     // --- 2. Discount Calculation for Ribbon ---
     const calculateDiscountPercentage = () => {
@@ -79,22 +93,33 @@ export default function ProductCard({ product }) {
         return null;
     }, [product.variants, productCartItems]);
     const canAdjustInlineQty = Boolean(inlineCartItem);
+    const isInactive = String(product?.status || '').toLowerCase() !== 'active';
+    const isOutOfStock = useMemo(() => {
+        const variants = Array.isArray(product?.variants) ? product.variants : [];
+        if (variants.length > 0) {
+            return variants.every((variant) => {
+                const tracked = String(variant?.track_quantity) === '1' || String(variant?.track_quantity) === 'true' || variant?.track_quantity === true;
+                if (!tracked) return false;
+                return Number(variant?.quantity || 0) <= 0;
+            });
+        }
+        const tracked = String(product?.track_quantity) === '1' || String(product?.track_quantity) === 'true' || product?.track_quantity === true;
+        if (!tracked) return false;
+        return Number(product?.quantity || 0) <= 0;
+    }, [product]);
+    const isUnavailable = isInactive || isOutOfStock;
+    const wishlisted = isWishlisted(product?.id);
 
     // --- 3. Image Logic (Based on your JSON 'media' array) ---
     const mainImage = product.media && product.media.length > 0 
         ? product.media[0].url 
         : '../assets/placeholder.jpg';
 
-    const handleWishlist = (e) => {
+    const handleWishlist = async (e) => {
         e.stopPropagation();
         e.preventDefault();
         
-        if (!user) {
-            const currentPath = encodeURIComponent(window.location.pathname + window.location.search);
-            navigate(`/login?redirect=${currentPath}`);
-            return;
-        }
-        console.log(`Add product ${product.id} to user ${user.id}'s wishlist`);
+        await toggleWishlist(product.id);
     };
 
     useEffect(() => {
@@ -120,20 +145,24 @@ export default function ProductCard({ product }) {
         e.preventDefault();
         e.stopPropagation();
         if (product.variants && product.variants.length > 0) {
+            if (isUnavailable) return;
             openQuickAdd(product);
             return;
         }
+        if (isUnavailable) return;
+        vibrateTap();
         await addItem({ product, quantity: 1 });
     };
 
     const handleIncrement = async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (isUpdatingQty) return;
+        if (isUpdatingQty || isUnavailable) return;
         if (!canAdjustInlineQty) {
             openQuickAdd(product);
             return;
         }
+        vibrateTap();
         setIsUpdatingQty(true);
         try {
             await updateQuantity({
@@ -149,7 +178,7 @@ export default function ProductCard({ product }) {
     const handleDecrement = async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (isUpdatingQty || !canAdjustInlineQty) return;
+        if (isUpdatingQty || !canAdjustInlineQty || isUnavailable) return;
         const nextQty = Number(inlineCartItem.quantity || 0) - 1;
         setIsUpdatingQty(true);
         try {
@@ -173,7 +202,14 @@ export default function ProductCard({ product }) {
 
         return (
             <div className={wrapperClasses}>
-                {productCartQty > 0 && canAdjustInlineQty ? (
+                {isUnavailable ? (
+                    <button
+                        disabled
+                        className={`${buttonClasses} bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed`}
+                    >
+                        {isInactive ? 'Unavailable' : 'Out of Stock'}
+                    </button>
+                ) : productCartQty > 0 && canAdjustInlineQty ? (
                     <div className={`w-full rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 flex items-center justify-between px-2 ${isMobile ? 'py-1.5' : 'py-2'}`}>
                         <button
                             onClick={handleDecrement}
@@ -211,7 +247,7 @@ export default function ProductCard({ product }) {
     };
 
     return (
-        <div className="group relative bg-white rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate"            
+        <div className={`group relative bg-white rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate ${isOutOfStock ? 'grayscale opacity-80' : ''}`}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
             onClick={() => navigate(`/product/${product.id}`)}
@@ -238,7 +274,7 @@ export default function ProductCard({ product }) {
                 onClick={handleWishlist}
                 className="absolute top-3 right-3 z-20 p-2 bg-white/80 backdrop-blur-sm rounded-full text-gray-400 hover:text-red-500 hover:bg-white transition-all shadow-sm active:scale-95"
             >
-                <Heart size={20} className={product.is_wishlisted ? "fill-red-500 text-red-500" : ""} />
+                <Heart size={20} className={wishlisted ? 'fill-red-500 text-red-500' : ''} />
             </button>
 
             {/* --- IMAGE AREA --- */}
@@ -249,6 +285,13 @@ export default function ProductCard({ product }) {
                     className={`w-full h-full object-cover transition-transform duration-700 ${isHovered ? 'scale-110' : 'scale-100'}`}
                     onError={(e) => e.target.src = '../assets/placeholder.jpg'}
                 />
+                {isUnavailable && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">
+                        <span className="bg-black/80 text-white text-xs md:text-sm font-bold px-3 py-1.5 rounded-lg uppercase tracking-wider backdrop-blur-sm shadow-md">
+                            {isInactive ? 'Unavailable' : 'Out of Stock'}
+                        </span>
+                    </div>
+                )}
                 
                 {/* Quick Add Overlay */}
                 <div className="hidden md:block absolute inset-x-0 bottom-0 p-4">
@@ -284,6 +327,11 @@ export default function ProductCard({ product }) {
                         </span>
                     )}
                 </div>
+                {memberPct > 0 && (
+                    <p className="text-[11px] text-blue-700 mt-1">
+                        {loyaltyTier.toUpperCase()} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
+                    </p>
+                )}
                 <div className="md:hidden">
                     {renderQuickAction(true)}
                 </div>

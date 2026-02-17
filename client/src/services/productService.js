@@ -10,6 +10,32 @@ let productCache = {};
 const buildProductsCacheKey = (page, category, status, sort, limit) =>
     `page${page}_limit${limit}_cat${category}_stat${status}_sort${sort}`;
 
+const parseProductsCacheKey = (key = '') => {
+    const match = /^page(\d+)_limit(\d+)_cat(.+)_stat(.+)_sort(.+)$/.exec(String(key));
+    if (!match) return null;
+    return {
+        page: Number(match[1]),
+        limit: Number(match[2]),
+        category: match[3],
+        status: match[4],
+        sort: match[5]
+    };
+};
+
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+const matchesCategory = (product, category) => {
+    if (normalizeText(category) === 'all') return true;
+    const categories = Array.isArray(product?.categories) ? product.categories : [];
+    const wanted = normalizeText(category);
+    return categories.some((entry) => normalizeText(entry) === wanted);
+};
+
+const matchesStatus = (product, status) => {
+    if (normalizeText(status) === 'all') return true;
+    return normalizeText(product?.status) === normalizeText(status);
+};
+
 // --- AUTH HEADER HELPER ---
 const getAuthHeader = () => {
     let token = null;
@@ -76,6 +102,56 @@ export const productService = {
             if (limit && !key.includes(`_limit${limit}_`)) return;
             delete productCache[key];
         });
+    },
+    patchProductInProductsCache: (updatedProduct, { sorts = [] } = {}) => {
+        if (!updatedProduct || updatedProduct.id == null) return;
+        const allowedSorts = Array.isArray(sorts) && sorts.length ? new Set(sorts.map((v) => String(v))) : null;
+        const productId = String(updatedProduct.id);
+        const keys = Object.keys(productCache);
+
+        keys.forEach((key) => {
+            if (!key.startsWith('page')) return;
+            const meta = parseProductsCacheKey(key);
+            if (!meta) return;
+            if (allowedSorts && !allowedSorts.has(String(meta.sort))) return;
+
+            const entry = productCache[key];
+            const data = entry?.data;
+            const list = Array.isArray(data?.products) ? data.products : null;
+            if (!list || list.length === 0) return;
+
+            let touched = false;
+            const nextProducts = [];
+            list.forEach((product) => {
+                if (String(product?.id) !== productId) {
+                    nextProducts.push(product);
+                    return;
+                }
+                touched = true;
+                const merged = { ...product, ...updatedProduct };
+                const keep = matchesCategory(merged, meta.category) && matchesStatus(merged, meta.status);
+                if (keep) nextProducts.push(merged);
+            });
+
+            if (!touched) return;
+            productCache[key] = {
+                ...entry,
+                timestamp: Date.now(),
+                data: {
+                    ...data,
+                    products: nextProducts
+                }
+            };
+        });
+
+        const singleKey = `product_${productId}`;
+        if (productCache[singleKey]?.data) {
+            productCache[singleKey] = {
+                ...productCache[singleKey],
+                timestamp: Date.now(),
+                data: { ...productCache[singleKey].data, ...updatedProduct }
+            };
+        }
     },
 
     

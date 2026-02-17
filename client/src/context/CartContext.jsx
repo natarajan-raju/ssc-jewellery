@@ -26,6 +26,11 @@ const CartContext = createContext(defaultCartContext);
 const STORAGE_KEY = 'guest_cart_v1';
 
 const buildKey = (productId, variantId) => `${productId}__${variantId || ''}`;
+const toBool = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const toNumber = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
 
 const parseMedia = (media) => {
     try {
@@ -43,6 +48,9 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
     const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || 0);
     const compareAt = Number(variant?.price || product.mrp || 0);
     const weightKg = Number(variant?.weight_kg || product.weight_kg || 0);
+    const trackQuantity = variant ? toBool(variant.track_quantity) : toBool(product.track_quantity);
+    const availableQuantity = variant ? toNumber(variant.quantity, 0) : toNumber(product.quantity, 0);
+    const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
 
     return {
         key: buildKey(product.id, variant?.id || ''),
@@ -56,7 +64,10 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
         price,
         compareAt,
         variantTitle: variant?.variant_title || null,
-        weightKg
+        weightKg,
+        trackQuantity,
+        availableQuantity,
+        isOutOfStock
     };
 };
 
@@ -64,7 +75,21 @@ const loadGuestCart = () => {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : [];
-        return Array.isArray(parsed) ? parsed : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map((item) => {
+            const trackQuantity = toBool(item?.trackQuantity);
+            const availableQuantity = toNumber(item?.availableQuantity, 0);
+            const isOutOfStock = item?.isOutOfStock !== undefined
+                ? Boolean(item.isOutOfStock)
+                : Boolean(trackQuantity && availableQuantity <= 0);
+            return {
+                ...item,
+                status: item?.status || 'active',
+                trackQuantity,
+                availableQuantity,
+                isOutOfStock
+            };
+        });
     } catch {
         return [];
     }
@@ -129,6 +154,15 @@ export const CartProvider = ({ children }) => {
 
     const addItem = async ({ product, variant, quantity = 1 }) => {
         if (!product) return;
+        const snapshot = buildItemFromProduct(product, variant, quantity);
+        if (String(snapshot.status || '').toLowerCase() !== 'active') {
+            toast.error('This product is inactive and cannot be added to cart.');
+            return;
+        }
+        if (snapshot.isOutOfStock) {
+            toast.warning('This product is currently out of stock.');
+            return;
+        }
         if (user) {
             const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
             setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
@@ -140,7 +174,7 @@ export const CartProvider = ({ children }) => {
                 if (existing) {
                     return prev.map(p => p.key === key ? { ...p, quantity: p.quantity + quantity } : p);
                 }
-                return [...prev, buildItemFromProduct(product, variant, quantity)];
+                return [...prev, snapshot];
             });
             notifyCartItemAdded(product.id);
         }
@@ -193,6 +227,34 @@ export const CartProvider = ({ children }) => {
         const updateQueueRef = { current: new Map() };
         const deleteQueueRef = { current: new Set() };
         let debounceTimer = null;
+        let isSyncingRemovals = false;
+
+        const resolveProductSnapshotForItem = (item, product) => {
+            const variants = Array.isArray(product?.variants) ? product.variants : [];
+            const media = parseMedia(product?.media);
+            const variant = item.variantId ? variants.find(v => String(v.id) === String(item.variantId)) : null;
+            const imageUrl = variant?.image_url || media[0] || item.imageUrl;
+            const price = toNumber(variant?.discount_price || variant?.price || product?.discount_price || product?.mrp || item.price, 0);
+            const compareAt = toNumber(variant?.price || product?.mrp || item.compareAt, 0);
+            const trackQuantity = variant ? toBool(variant.track_quantity) : toBool(product?.track_quantity);
+            const availableQuantity = variant ? toNumber(variant.quantity, 0) : toNumber(product?.quantity, 0);
+            const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
+            const status = String(product?.status || item.status || '').toLowerCase() || 'active';
+
+            return {
+                ...item,
+                title: product?.title || item.title,
+                status,
+                categories: Array.isArray(product?.categories) ? product.categories : (item.categories || []),
+                variantTitle: variant?.variant_title || item.variantTitle,
+                imageUrl,
+                price,
+                compareAt,
+                trackQuantity,
+                availableQuantity,
+                isOutOfStock
+            };
+        };
 
         const flushUpdates = () => {
             const updates = updateQueueRef.current;
@@ -200,42 +262,68 @@ export const CartProvider = ({ children }) => {
             updateQueueRef.current = new Map();
             deleteQueueRef.current = new Set();
 
-            let affectedUpdate = false;
-            let affectedDelete = false;
+            let removedUnavailableCount = 0;
+            let removedDeletedCount = 0;
+            let priceChangedCount = 0;
+            let outOfStockBecameCount = 0;
+            const serverRemovals = [];
 
             setItems(prev => {
-                affectedDelete = prev.some(item => deletes.has(item.productId));
-                affectedUpdate = prev.some(item => updates.has(item.productId));
-                let next = prev.filter(item => !deletes.has(item.productId));
-                if (updates.size === 0) return next;
+                const next = [];
+                prev.forEach((item) => {
+                    if (deletes.has(item.productId)) {
+                        removedDeletedCount += 1;
+                        if (user) {
+                            serverRemovals.push({ productId: item.productId, variantId: item.variantId || '' });
+                        }
+                        return;
+                    }
 
-                return next.map(item => {
                     const product = updates.get(item.productId);
-                    if (!product) return item;
-                    const variants = Array.isArray(product.variants) ? product.variants : [];
-                    const media = parseMedia(product.media);
-                    const variant = item.variantId ? variants.find(v => String(v.id) === String(item.variantId)) : null;
-                    const imageUrl = variant?.image_url || media[0] || item.imageUrl;
-                    const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || item.price || 0);
-                    const compareAt = Number(variant?.price || product.mrp || item.compareAt || 0);
-                    return {
-                        ...item,
-                        title: product.title || item.title,
-                        status: product.status || item.status,
-                        categories: Array.isArray(product.categories) ? product.categories : (item.categories || []),
-                        variantTitle: variant?.variant_title || item.variantTitle,
-                        imageUrl,
-                        price,
-                        compareAt
-                    };
+                    if (!product) {
+                        next.push(item);
+                        return;
+                    }
+
+                    const nextItem = resolveProductSnapshotForItem(item, product);
+                    const isInactive = String(nextItem.status || '').toLowerCase() !== 'active';
+                    if (isInactive) {
+                        removedUnavailableCount += 1;
+                        if (user) {
+                            serverRemovals.push({ productId: item.productId, variantId: item.variantId || '' });
+                        }
+                        return;
+                    }
+
+                    if (Number(nextItem.price || 0) !== Number(item.price || 0)) {
+                        priceChangedCount += 1;
+                    }
+                    if (!item.isOutOfStock && nextItem.isOutOfStock) {
+                        outOfStockBecameCount += 1;
+                    }
+                    next.push(nextItem);
                 });
+                return next;
             });
 
+            if (user && serverRemovals.length > 0 && !isSyncingRemovals) {
+                isSyncingRemovals = true;
+                Promise.all(
+                    serverRemovals.map((entry) => cartService.removeItem(entry).catch(() => null))
+                ).finally(() => {
+                    isSyncingRemovals = false;
+                });
+            }
+
             if (!shouldShowCartToasts) return;
-            if (affectedDelete) {
-                toast.error('Some items were removed from your cart (no longer available).');
-            } else if (affectedUpdate) {
-                toast.success('Cart updated due to product changes.');
+            if (removedDeletedCount > 0 || removedUnavailableCount > 0) {
+                toast.warning(`${removedDeletedCount + removedUnavailableCount} item(s) were removed from your cart (inactive or unavailable).`);
+            }
+            if (outOfStockBecameCount > 0) {
+                toast.warning(`${outOfStockBecameCount} item(s) in your cart are now out of stock.`);
+            }
+            if (priceChangedCount > 0) {
+                toast.info(`Price updated for ${priceChangedCount} cart item(s).`);
             }
         };
 
@@ -263,7 +351,7 @@ export const CartProvider = ({ children }) => {
             socket.off('product:update', handleProductUpdate);
             socket.off('product:delete', handleProductDelete);
         };
-    }, [socket, shouldShowCartToasts]);
+    }, [socket, shouldShowCartToasts, user]);
 
     const itemCount = useMemo(() => items.reduce((sum, i) => sum + i.quantity, 0), [items]);
     const subtotal = useMemo(() => items.reduce((sum, i) => sum + (i.price * i.quantity), 0), [items]);

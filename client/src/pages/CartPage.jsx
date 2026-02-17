@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { Heart, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useShipping } from '../context/ShippingContext';
-import { useSocket } from '../context/SocketContext';
-import { useToast } from '../context/ToastContext';
+import { useWishlist } from '../context/WishlistContext';
 import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
+import { vibrateTap } from '../utils/haptics';
 
 export default function CartPage() {
     const { items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
     const { user } = useAuth();
     const { zones } = useShipping();
-    const { socket } = useSocket();
-    const toast = useToast();
+    const { addToWishlist, wishlist } = useWishlist();
     const navigate = useNavigate();
     const [showFreeShippingFx, setShowFreeShippingFx] = useState(false);
     const [struckShippingFee, setStruckShippingFee] = useState(null);
@@ -23,7 +22,7 @@ export default function CartPage() {
     const prevHasFreeShippingRef = useRef(false);
     const prevShippingFeeRef = useRef(0);
     const freeFxTimerRef = useRef(null);
-    const { recommendations } = useCartRecommendations({ items, limit: 6 });
+    const { recommendations } = useCartRecommendations({ items, wishlistProductIds: wishlist, limit: 6 });
 
     useEffect(() => {
         if (user && user.role === 'admin') {
@@ -31,27 +30,11 @@ export default function CartPage() {
         }
     }, [user, navigate]);
 
-    useEffect(() => {
-        if (!socket) return;
-
-        const handleProductUpdate = () => {};
-        const handleProductDelete = () => {};
-        const handleCategoryChange = () => {
-            toast.success('Collections updated.');
-        };
-
-        socket.on('product:update', handleProductUpdate);
-        socket.on('product:delete', handleProductDelete);
-        socket.on('refresh:categories', handleCategoryChange);
-        socket.on('product:category_change', handleCategoryChange);
-
-        return () => {
-            socket.off('product:update', handleProductUpdate);
-            socket.off('product:delete', handleProductDelete);
-            socket.off('refresh:categories', handleCategoryChange);
-            socket.off('product:category_change', handleCategoryChange);
-        };
-    }, [socket, toast]);
+    const moveToWishlist = async (item) => {
+        const moved = await addToWishlist(item.productId);
+        if (!moved) return;
+        await removeItem({ productId: item.productId, variantId: item.variantId });
+    };
 
     const totalWeightKg = useMemo(() => items.reduce((sum, item) => {
         const weight = Number(item.weightKg || 0);
@@ -208,7 +191,7 @@ export default function CartPage() {
                         )}
                         <div className="space-y-6">
                             {items.map(item => (
-                                <div key={item.key} className="border-b border-gray-100 pb-6">
+                                <div key={item.key} className={`border-b border-gray-100 pb-6 ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
                                     <div className="flex gap-4">
                                         <div className="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-gray-100 border border-gray-200 overflow-hidden shrink-0">
                                             {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
@@ -223,6 +206,11 @@ export default function CartPage() {
                                                     <>
                                                     <p className="text-base font-semibold text-gray-800 line-clamp-1">{item.title}</p>
                                                     {item.variantTitle && <p className="text-sm text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                                    {item.isOutOfStock && (
+                                                        <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
+                                                            Out of Stock
+                                                        </span>
+                                                    )}
                                                     <div className="mt-2 flex items-center gap-2 flex-wrap">
                                                         <p className="text-sm text-primary font-semibold">₹{price.toLocaleString()}</p>
                                                         {hasDiscount && (
@@ -252,23 +240,35 @@ export default function CartPage() {
                                             </button>
                                             <span className="min-w-[24px] text-center font-semibold text-gray-700">{item.quantity}</span>
                                             <button
-                                                onClick={() => updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity + 1 })}
-                                                className="p-1 rounded-lg hover:bg-gray-50"
+                                                onClick={() => {
+                                                    vibrateTap();
+                                                    updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity + 1 });
+                                                }}
+                                                disabled={item.isOutOfStock}
+                                                className="p-1 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 <Plus size={14} />
                                             </button>
                                         </div>
-                                        <button
-                                            onClick={() => removeItem({ productId: item.productId, variantId: item.variantId })}
-                                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
-                                        >
-                                            <Trash2 size={12} /> Remove
-                                        </button>
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                onClick={() => moveToWishlist(item)}
+                                                className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+                                            >
+                                                <Heart size={12} /> Move to wishlist
+                                            </button>
+                                            <button
+                                                onClick={() => removeItem({ productId: item.productId, variantId: item.variantId })}
+                                                className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                                            >
+                                                <Trash2 size={12} /> Remove
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
                         </div>
-                        {items.length > 0 && recommendations.length > 0 && (
+                        {(items.length > 0 || wishlist.length > 0) && recommendations.length > 0 && (
                             <div className="mt-8">
                                 <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-4">
                                     You may also like
@@ -295,6 +295,7 @@ export default function CartPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => {
+                                                        vibrateTap();
                                                         if (hasVariants) {
                                                             openQuickAdd(product);
                                                             return;

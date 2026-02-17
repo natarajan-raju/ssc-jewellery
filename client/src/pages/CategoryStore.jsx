@@ -1,18 +1,26 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
 import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home } from 'lucide-react';
 // import { io } from 'socket.io-client';
 
+const PAGE_LIMIT = 20;
+
+const mergeUniqueProducts = (base = [], incoming = []) => {
+    const map = new Map();
+    [...base, ...incoming].forEach((item) => {
+        if (!item || item.id == null) return;
+        map.set(String(item.id), item);
+    });
+    return Array.from(map.values());
+};
+
 export default function CategoryStore() {
     const { category } = useParams();
-    const navigate = useNavigate();
     const scrollRef = useRef(null);
 
-    const { user } = useAuth();
     const { socket } = useSocket();
     const [products, setProducts] = useState([]);
     const [categoryInfo, setCategoryInfo] = useState(null); 
@@ -24,9 +32,14 @@ export default function CategoryStore() {
     const [isHovered, setIsHovered] = useState(false);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const shareRef = useRef(null);
-    const pageRef = useRef(page);
+    const loadingRef = useRef(false);
+    const productsRef = useRef([]);
+    const loadedPagesRef = useRef(new Set());
+    const searchPrefetchingRef = useRef(false);
+    const requestKeyRef = useRef('');
+    const manualRefreshTimerRef = useRef(null);
     const [showTopBtn, setShowTopBtn] = useState(false);
-    const PAGE_LIMIT = 20;
+    const [isFetchingAllForSearch, setIsFetchingAllForSearch] = useState(false);
 
     const shareUrl = window.location.href;
     const shareText = `I found this category in SSC Impo jewellery website - ${shareUrl}`;
@@ -68,6 +81,15 @@ export default function CategoryStore() {
     const [inStockOnly, setInStockOnly] = useState(false);
     const [priceRange, setPriceRange] = useState({ min: '', max: '' });
     const [searchTerm, setSearchTerm] = useState('');
+    const currentServerSort = useMemo(() => (
+        sortBy === 'default' ? 'manual' : sortBy
+    ), [sortBy]);
+    const isStableSort = useMemo(() => currentServerSort === 'newest', [currentServerSort]);
+    const isManualSort = useMemo(() => currentServerSort === 'manual', [currentServerSort]);
+
+    useEffect(() => {
+        productsRef.current = products;
+    }, [products]);
 
     // Scroll Listener for "Back to Top" Button
     useEffect(() => {
@@ -90,10 +112,6 @@ export default function CategoryStore() {
             behavior: 'smooth',
         });
     };
-
-    useEffect(() => {
-        pageRef.current = page;
-    }, [page]);
 
     useEffect(() => {
         if (!isShareOpen) return;
@@ -120,28 +138,76 @@ export default function CategoryStore() {
     };
 
     // --- 2. Fetch Products ---
-    // [FIX] Added 'skipLoading' param to prevent premature spinner dismissal during Promise.all
-    const fetchProducts = async (currentPage, shouldAppend = false, skipLoading = false) => {
+    const fetchProducts = useCallback(async (
+        currentPage,
+        { shouldAppend = false, skipLoading = false, force = false } = {}
+    ) => {
+        if (loadingRef.current && !force) return [];
         if (!skipLoading) setIsLoading(true);
+        loadingRef.current = true;
+
+        const requestKey = `${decodeURIComponent(category).toLowerCase()}::${sortBy}`;
+        requestKeyRef.current = requestKey;
         try {
-            // [FIX] Pass 'sortBy' to the server (3rd arg is 'active' for clients)
             const serverSort = sortBy === 'default' ? 'manual' : sortBy;
             const data = await productService.getProducts(currentPage, category, 'active', serverSort, PAGE_LIMIT);
-            let newItems = data.products || [];            
+            if (requestKeyRef.current !== requestKey) return [];
 
+            const newItems = Array.isArray(data?.products) ? data.products : [];
+            loadedPagesRef.current.add(currentPage);
             if (shouldAppend) {
-                setProducts(prev => [...prev, ...newItems]);
+                setProducts((prev) => mergeUniqueProducts(prev, newItems));
             } else {
-                setProducts(newItems);
+                setProducts(mergeUniqueProducts([], newItems));
             }
-            
+            setPage((prev) => Math.max(prev, currentPage));
             setHasMore(newItems.length >= PAGE_LIMIT);
+            return newItems;
         } catch (error) {
             console.error("Store load error", error);
+            return [];
         } finally {
+            loadingRef.current = false;
             if (!skipLoading) setIsLoading(false);
         }
-    };
+    }, [category, sortBy]);
+
+    const refreshLoadedPagesInCurrentSort = useCallback(async () => {
+        if (loadingRef.current) return;
+        loadingRef.current = true;
+        try {
+            const requestKey = `${decodeURIComponent(category).toLowerCase()}::${sortBy}`;
+            requestKeyRef.current = requestKey;
+            const loaded = Array.from(loadedPagesRef.current).sort((a, b) => a - b);
+            const pagesToLoad = loaded.length ? loaded : [1];
+            let merged = [];
+            let lastBatchSize = PAGE_LIMIT;
+
+            for (const pg of pagesToLoad) {
+                const data = await productService.getProducts(pg, category, 'active', currentServerSort, PAGE_LIMIT);
+                if (requestKeyRef.current !== requestKey) return;
+                const batch = Array.isArray(data?.products) ? data.products : [];
+                merged = mergeUniqueProducts(merged, batch);
+                lastBatchSize = batch.length;
+            }
+
+            setProducts(merged);
+            setPage(Math.max(...pagesToLoad));
+            setHasMore(lastBatchSize >= PAGE_LIMIT);
+        } catch (error) {
+            console.error('Failed to refresh ordered category list', error);
+        } finally {
+            loadingRef.current = false;
+        }
+    }, [category, currentServerSort, sortBy]);
+
+    const scheduleManualRefresh = useCallback(() => {
+        if (!isManualSort) return;
+        if (manualRefreshTimerRef.current) clearTimeout(manualRefreshTimerRef.current);
+        manualRefreshTimerRef.current = setTimeout(() => {
+            refreshLoadedPagesInCurrentSort();
+        }, 180);
+    }, [isManualSort, refreshLoadedPagesInCurrentSort]);
 
     const reorderByIds = (items, orderedIds = []) => {
         if (!Array.isArray(orderedIds) || orderedIds.length === 0) return items;
@@ -157,18 +223,22 @@ export default function CategoryStore() {
             setIsLoading(true);
             setPage(1);
             setHasMore(true);
+            loadedPagesRef.current = new Set();
+            searchPrefetchingRef.current = false;
+            setIsFetchingAllForSearch(false);
+            requestKeyRef.current = `${decodeURIComponent(category).toLowerCase()}::${sortBy}`;
 
             // Execute both requests in parallel and wait for both to finish
             await Promise.all([
                 fetchCategoryMetadata(),
-                fetchProducts(1, false, true) // Pass true to skip internal loading toggle
+                fetchProducts(1, { shouldAppend: false, skipLoading: true, force: true })
             ]);
 
             setIsLoading(false);
         };
 
         loadInitialData();
-    }, [category, sortBy]);
+    }, [category, sortBy, fetchProducts]);
 
     // --- 3. Socket.io Sync (Optimized: Local Append/Patch) ---
     useEffect(() => {
@@ -193,6 +263,9 @@ export default function CategoryStore() {
             
             return belongsToCategory;
         };
+        const clearCurrentCategoryCache = () => {
+            productService.clearProductsCache({ category });
+        };
 
         // A. Handle Item Creation (APPEND/PREPEND LOCALLY)
         const handleProductCreate = (newProduct) => {
@@ -200,15 +273,17 @@ export default function CategoryStore() {
             
             // Only add if it belongs to this category and is active
             if (shouldItemBeVisible(newProduct)) {
+                if (isManualSort) {
+                    clearCurrentCategoryCache();
+                    scheduleManualRefresh();
+                    return;
+                }
                 setProducts(prev => {
-                    // Prevent duplicates
-                    if (prev.find(p => p.id === newProduct.id)) return prev;
-
                     // Logic: If sorting by 'newest', add to TOP. Else add to BOTTOM.
                     if (sortBy === 'newest') {
-                        return [newProduct, ...prev];
+                        return mergeUniqueProducts([newProduct], prev);
                     }
-                    return [...prev, newProduct];
+                    return mergeUniqueProducts(prev, [newProduct]);
                 });
             }
         };
@@ -216,6 +291,19 @@ export default function CategoryStore() {
         // B. Handle Item Updates (PATCH LOCALLY + REAPPEARANCE)
         const handleProductUpdate = (updatedItem) => {
             console.log("⚡ Item Update Received:", updatedItem.id);
+            const cleanCatParam = decodeURIComponent(category).toLowerCase();
+            const incomingCategories = Array.isArray(updatedItem?.categories) ? updatedItem.categories : [];
+            const touchesCurrentCategory = incomingCategories.some(
+                (entry) => String(entry || '').toLowerCase() === cleanCatParam
+            );
+            const existsInCurrent = productsRef.current.some(
+                (item) => String(item?.id || '') === String(updatedItem?.id || '')
+            );
+            if (isManualSort && (touchesCurrentCategory || existsInCurrent)) {
+                clearCurrentCategoryCache();
+                scheduleManualRefresh();
+                return;
+            }
             setProducts(prevProducts => {
                 const exists = prevProducts.find(p => p.id === updatedItem.id);
                 const isVisible = shouldItemBeVisible(updatedItem);
@@ -232,12 +320,15 @@ export default function CategoryStore() {
                     if (isVisible) {
                         // Case 3: Was HIDDEN -> Now Active (Reappearance)
                         // Inject it into the list without fetching
-                        if (sortBy === 'newest') return [updatedItem, ...prevProducts];
-                        return [...prevProducts, updatedItem];
+                        if (sortBy === 'newest') return mergeUniqueProducts([updatedItem], prevProducts);
+                        return mergeUniqueProducts(prevProducts, [updatedItem]);
                     }
                     return prevProducts; // Item irrelevant to this page
                 }
             });
+            if (isStableSort) {
+                productService.patchProductInProductsCache(updatedItem, { sorts: [currentServerSort] });
+            }
         };
 
         // C. Handle Deletes (REMOVE LOCALLY)
@@ -251,6 +342,11 @@ export default function CategoryStore() {
             const { id, categoryId, action } = payload || {};
             // Check if event relates to THIS category page
             if (categoryInfo && String(categoryInfo.id) === String(categoryId)) {
+                if (isManualSort) {
+                    clearCurrentCategoryCache();
+                    scheduleManualRefresh();
+                    return;
+                }
                 if (action === 'remove') {
                     // Locally remove
                     setProducts(prev => prev.filter(p => p.id !== id));
@@ -261,12 +357,12 @@ export default function CategoryStore() {
                     console.log("⚡ Product added to category. Refreshing...");
                     if (payload.product && shouldItemBeVisible(payload.product)) {
                         setProducts(prev => {
-                            if (prev.find(p => p.id === payload.product.id)) return prev;
-                            if (sortBy === 'newest') return [payload.product, ...prev];
-                            return [...prev, payload.product];
+                            if (sortBy === 'newest') return mergeUniqueProducts([payload.product], prev);
+                            return mergeUniqueProducts(prev, [payload.product]);
                         });
                     }
                 }
+                clearCurrentCategoryCache();
             }
         };
 
@@ -276,6 +372,13 @@ export default function CategoryStore() {
                 console.log('[Socket] refresh:categories', payload);
             }
             fetchCategoryMetadata();
+            if (payload.action === 'reorder') {
+                clearCurrentCategoryCache();
+                if (isManualSort) {
+                    scheduleManualRefresh();
+                    return;
+                }
+            }
             if (payload.action === 'reorder' && payload.orderedProductIds) {
                 const cleanCatParam = decodeURIComponent(category).toLowerCase();
                 const matchesByName = payload.categoryName && payload.categoryName.toLowerCase() === cleanCatParam;
@@ -307,8 +410,37 @@ export default function CategoryStore() {
             socket.off('refresh:categories', handleMetadataRefresh);
             socket.off('connect');
             socket.off('connect_error');
+            if (manualRefreshTimerRef.current) {
+                clearTimeout(manualRefreshTimerRef.current);
+                manualRefreshTimerRef.current = null;
+            }
         };
-    }, [socket, category, categoryInfo, sortBy]); // Removed 'products' dependency to prevent loop
+    }, [socket, category, categoryInfo, sortBy, isStableSort, currentServerSort, isManualSort, scheduleManualRefresh]); // Removed 'products' dependency to prevent loop
+
+    const fetchAllRemainingPages = useCallback(async () => {
+        if (!hasMore || searchPrefetchingRef.current) return;
+        searchPrefetchingRef.current = true;
+        setIsFetchingAllForSearch(true);
+        try {
+            while (true) {
+                const loaded = Array.from(loadedPagesRef.current);
+                const nextPage = (loaded.length ? Math.max(...loaded) : 0) + 1;
+                const newItems = await fetchProducts(nextPage, { shouldAppend: true, skipLoading: true, force: true });
+                if (newItems.length < PAGE_LIMIT) {
+                    setHasMore(false);
+                    break;
+                }
+            }
+        } finally {
+            searchPrefetchingRef.current = false;
+            setIsFetchingAllForSearch(false);
+        }
+    }, [fetchProducts, hasMore]);
+
+    useEffect(() => {
+        if (!searchTerm.trim() || !hasMore) return;
+        fetchAllRemainingPages();
+    }, [searchTerm, hasMore, fetchAllRemainingPages]);
     // --- 4. Carousel Auto-Slide Logic ---
     useEffect(() => {
         if (otherCategories.length === 0 || isHovered) return;
@@ -340,9 +472,10 @@ export default function CategoryStore() {
     };
 
     const handleLoadMore = () => {
-        const nextPage = page + 1;
-        setPage(nextPage);
-        fetchProducts(nextPage, true, false);
+        if (!hasMore || loadingRef.current) return;
+        const loaded = Array.from(loadedPagesRef.current);
+        const nextPage = (loaded.length ? Math.max(...loaded) : page) + 1;
+        fetchProducts(nextPage, { shouldAppend: true });
     };
 
     // --- CLIENT-SIDE FILTER & SORT LOGIC ---
@@ -483,6 +616,9 @@ export default function CategoryStore() {
                             <ChevronDown size={14} className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                         </div>
                     </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                        {filteredAndSortedProducts.length} results
+                    </div>
 
                     {/* Expandable Filter Panel */}
                     <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-40 opacity-100 mt-3 pb-2' : 'max-h-0 opacity-0'}`}>
@@ -553,33 +689,18 @@ export default function CategoryStore() {
                     <>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8">
                             {/* [FIX 2] Map over filteredAndSortedProducts */}
-                            {filteredAndSortedProducts.map((product) => {
-                                // 1. Calculate Out of Stock Logic
-                                const isTracked = String(product.track_quantity) === '1' || String(product.track_quantity) === 'true' || product.track_quantity === true;
-                                const isOutOfStock = isTracked && (product.quantity || 0) <= 0;
-
-                                return (
-                                    <div key={product.id} className="relative group">
-                                        {/* 2. Apply Grayscale if OOS */}
-                                        <div className={isOutOfStock ? "grayscale opacity-75 transition-all" : ""}>
-                                            <ProductCard product={product} />
-                                        </div>
-
-                                        {/* 3. Out of Stock Badge Overlay */}
-                                        {isOutOfStock && (
-                                            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-                                                <span className="bg-black/80 text-white text-xs md:text-sm font-bold px-3 py-1.5 rounded-lg uppercase tracking-wider backdrop-blur-sm shadow-md">
-                                                    Out of Stock
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                            {filteredAndSortedProducts.map((product) => (
+                                <ProductCard key={product.id} product={product} />
+                            ))}
                         </div>
                         
+                        {isFetchingAllForSearch && searchTerm.trim() && (
+                            <div className="mt-5 text-center text-sm text-gray-500">
+                                Searching across all product pages...
+                            </div>
+                        )}
                         {/* Load More Button (Only show if we haven't filtered everything out locally) */}
-                        {hasMore && filteredAndSortedProducts.length >= PAGE_LIMIT && (
+                        {hasMore && !searchTerm.trim() && filteredAndSortedProducts.length >= PAGE_LIMIT && (
                             <div className="mt-12 text-center">
                                 <button 
                                     onClick={handleLoadMore}
@@ -592,7 +713,7 @@ export default function CategoryStore() {
                         )}
                     </>
                 ) : (
-                    !isLoading && (
+                    !isLoading && !isFetchingAllForSearch && (
                         <div className="text-center py-24">
                             <SlidersHorizontal size={32} className="mx-auto text-gray-400 mb-4" />
                             <h3 className="text-xl font-bold text-gray-800 mb-2">No products found</h3>
@@ -612,6 +733,11 @@ export default function CategoryStore() {
                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-pulse">
                         {[...Array(4)].map((_,i) => <div key={i} className="bg-gray-200 h-64 rounded-xl"></div>)}
                      </div>
+                )}
+                {isFetchingAllForSearch && filteredAndSortedProducts.length === 0 && (
+                    <div className="flex justify-center py-12 text-sm text-gray-500">
+                        <Loader2 className="animate-spin mr-2" size={18} /> Searching all pages...
+                    </div>
                 )}
             </main>
 

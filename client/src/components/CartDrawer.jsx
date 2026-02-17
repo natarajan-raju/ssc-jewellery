@@ -2,15 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useShipping } from '../context/ShippingContext';
-import { X, Minus, Plus, ShoppingCart } from 'lucide-react';
+import { Heart, X, Minus, Plus, ShoppingCart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
+import { useWishlist } from '../context/WishlistContext';
+import { vibrateTap } from '../utils/haptics';
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
     const { user } = useAuth();
     const { zones } = useShipping();
+    const { addToWishlist, wishlist } = useWishlist();
     const [render, setRender] = useState(false);
     const [active, setActive] = useState(false);
     const [showFreeShippingFx, setShowFreeShippingFx] = useState(false);
@@ -20,7 +23,7 @@ export default function CartDrawer() {
     const prevHasFreeShippingRef = useRef(false);
     const prevShippingFeeRef = useRef(0);
     const freeFxTimerRef = useRef(null);
-    const { recommendations } = useCartRecommendations({ items, limit: 4 });
+    const { recommendations } = useCartRecommendations({ items, wishlistProductIds: wishlist, limit: 4 });
 
     const totalWeightKg = useMemo(() => items.reduce((sum, item) => {
         const weight = Number(item.weightKg || 0);
@@ -130,6 +133,12 @@ export default function CartDrawer() {
         };
     }, []);
 
+    const moveToWishlist = async (item) => {
+        const moved = await addToWishlist(item.productId);
+        if (!moved) return;
+        await removeItem({ productId: item.productId, variantId: item.variantId });
+    };
+
     useEffect(() => {
         if (isOpen) {
             setRender(true);
@@ -194,7 +203,7 @@ export default function CartDrawer() {
                         const hasDiscount = mrp > price;
                         const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
                         return (
-                            <div key={item.key} className="flex gap-3 items-center">
+                            <div key={item.key} className={`flex gap-3 items-center ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
                                 <div className="w-16 h-16 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
                                     {item.imageUrl ? (
                                         <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
@@ -202,6 +211,11 @@ export default function CartDrawer() {
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-bold text-gray-800 line-clamp-1">{item.title}</p>
+                                    {item.isOutOfStock && (
+                                        <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
+                                            Out of Stock
+                                        </span>
+                                    )}
                                     {item.variantTitle && (
                                         <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>
                                     )}
@@ -227,8 +241,12 @@ export default function CartDrawer() {
                                         </button>
                                         <span className="text-sm font-bold w-6 text-center">{item.quantity}</span>
                                         <button
-                                            onClick={() => updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity + 1 })}
-                                            className="p-1.5 rounded-md border border-gray-200 hover:bg-gray-50"
+                                            onClick={() => {
+                                                vibrateTap();
+                                                updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity + 1 });
+                                            }}
+                                            disabled={item.isOutOfStock}
+                                            className="p-1.5 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                                         >
                                             <Plus size={14} />
                                         </button>
@@ -239,11 +257,17 @@ export default function CartDrawer() {
                                     >
                                         Remove
                                     </button>
+                                    <button
+                                        onClick={() => moveToWishlist(item)}
+                                        className="text-xs text-primary hover:text-primary/80 inline-flex items-center gap-1"
+                                    >
+                                        <Heart size={10} /> Wishlist
+                                    </button>
                                 </div>
                             </div>
                         );
                     })}
-                    {items.length > 0 && recommendations.length > 0 && (
+                    {(items.length > 0 || wishlist.length > 0) && recommendations.length > 0 && (
                         <div className="pt-4 border-t border-gray-100">
                             <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
                                 You may also like
@@ -270,6 +294,7 @@ export default function CartDrawer() {
                                             <button
                                                 type="button"
                                                 onClick={() => {
+                                                    vibrateTap();
                                                     if (hasVariants) {
                                                         openQuickAdd(product);
                                                         closeCart();
