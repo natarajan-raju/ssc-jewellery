@@ -558,12 +558,22 @@ const initDB = async () => {
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 user_id VARCHAR(50) NOT NULL,
                 product_id VARCHAR(50) NOT NULL,
+                variant_id VARCHAR(50) NOT NULL DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE KEY uniq_user_product_wishlist (user_id, product_id),
+                UNIQUE KEY uniq_user_product_variant_wishlist (user_id, product_id, variant_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             )
         `);
+        try {
+            await connection.query("ALTER TABLE wishlist_items ADD COLUMN variant_id VARCHAR(50) NOT NULL DEFAULT ''");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE wishlist_items DROP INDEX uniq_user_product_wishlist');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE wishlist_items ADD UNIQUE INDEX uniq_user_product_variant_wishlist (user_id, product_id, variant_id)');
+        } catch {}
 
         await connection.query(`
             CREATE TABLE IF NOT EXISTS user_loyalty (

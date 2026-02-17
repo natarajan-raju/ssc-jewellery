@@ -1,5 +1,6 @@
 const Cart = require('../models/Cart');
 const AbandonedCart = require('../models/AbandonedCart');
+const Wishlist = require('../models/Wishlist');
 const { trackCartActivity } = require('../services/abandonedCartRecoveryService');
 
 const emitAbandonedCartUpdate = async (req, { userId, reason = 'cart_update', journeyId = null } = {}) => {
@@ -27,6 +28,17 @@ const emitAbandonedCartUpdate = async (req, { userId, reason = 'cart_update', jo
     }
 };
 
+const emitWishlistUpdateIfChanged = async (req, userId, removedCount = 0) => {
+    if (!userId || Number(removedCount || 0) <= 0) return;
+    const io = req.app.get('io');
+    if (!io) return;
+    const items = await Wishlist.getByUser(userId);
+    io.to(`user:${userId}`).emit('wishlist:update', {
+        items,
+        productIds: [...new Set(items.map((entry) => String(entry?.productId || '').trim()).filter(Boolean))]
+    });
+};
+
 const getCart = async (req, res) => {
     try {
         const items = await Cart.getByUser(req.user.id);
@@ -42,6 +54,8 @@ const addCartItem = async (req, res) => {
         const { productId, variantId, quantity } = req.body || {};
         if (!productId) return res.status(400).json({ message: 'productId required' });
         await Cart.addItem(req.user.id, productId, variantId, quantity);
+        const removedWishlistCount = await Wishlist.removeForCartAdd(req.user.id, productId, variantId);
+        await emitWishlistUpdateIfChanged(req, req.user.id, removedWishlistCount);
         const items = await Cart.getByUser(req.user.id);
         try {
             const tracked = await trackCartActivity(req.user.id, { reason: 'cart_add' });
@@ -130,6 +144,15 @@ const bulkAddCart = async (req, res) => {
     try {
         const { items } = req.body || {};
         await Cart.bulkAdd(req.user.id, items || []);
+        let removedWishlistCount = 0;
+        for (const item of Array.isArray(items) ? items : []) {
+            const productId = String(item?.productId || '').trim();
+            if (!productId) continue;
+            const variantId = String(item?.variantId || '').trim();
+            // Invalidate matching wishlist entries when product is moved to cart.
+            removedWishlistCount += await Wishlist.removeForCartAdd(req.user.id, productId, variantId);
+        }
+        await emitWishlistUpdateIfChanged(req, req.user.id, removedWishlistCount);
         const updated = await Cart.getByUser(req.user.id);
         try {
             const tracked = await trackCartActivity(req.user.id, { reason: 'cart_bulk_add' });
