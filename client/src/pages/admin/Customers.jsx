@@ -2,21 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import {
-    ChevronDown,
-    ChevronUp,
-    Key,
     Loader2,
-    Mail,
     MessageCircle,
-    Phone,
     Plus,
     Search,
-    ShieldCheck,
     ShoppingCart,
     Sparkles,
     TicketPercent,
     Trash2,
-    UserCog,
     X
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
@@ -62,7 +55,6 @@ export default function Customers({ onOpenLoyalty }) {
     const [tierFilter, setTierFilter] = useState('all');
     const [birthdayOnly, setBirthdayOnly] = useState(false);
     const [page, setPage] = useState(1);
-    const [adminAccordionOpen, setAdminAccordionOpen] = useState(false);
 
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'default', title: '', message: '', targetUser: null });
     const [addModalRole, setAddModalRole] = useState(null);
@@ -90,24 +82,12 @@ export default function Customers({ onOpenLoyalty }) {
         refreshUsers(false);
     }, [refreshUsers]);
 
-    const canResetPassword = (targetUser) => {
-        if (!currentUser) return false;
-        if (currentUser.role === 'admin' && targetUser.role !== 'customer') return true;
-        if (currentUser.role === 'staff' && targetUser.id === currentUser.id) return true;
-        return false;
-    };
-
     const canDeleteUser = (targetUser) => {
         if (!currentUser) return false;
         if (currentUser.role === 'admin' && targetUser.role !== 'admin') return true;
         if (currentUser.role === 'staff' && targetUser.role === 'customer') return true;
         return false;
     };
-
-    const staffAndAdmins = useMemo(
-        () => users.filter((u) => u.role === 'admin' || u.role === 'staff'),
-        [users]
-    );
 
     const customersOnly = useMemo(
         () => users.filter((u) => !u.role || u.role === 'customer'),
@@ -158,16 +138,10 @@ export default function Customers({ onOpenLoyalty }) {
 
     const handleAddUser = async (userData) => {
         const payload = { ...userData, role: addModalRole };
-        if (addModalRole === 'staff') {
-            delete payload.addressLine1;
-            delete payload.city;
-            delete payload.state;
-            delete payload.zip;
-        }
         await adminService.createUser(payload);
         await refreshUsers(true);
         setAddModalRole(null);
-        toast.success(`${addModalRole === 'staff' ? 'Staff' : 'Customer'} added successfully`);
+        toast.success('Customer added successfully');
     };
 
     const openDeleteModal = (user) => {
@@ -176,16 +150,6 @@ export default function Customers({ onOpenLoyalty }) {
             type: 'delete',
             title: 'Delete User?',
             message: `Are you sure you want to remove ${user.name}?`,
-            targetUser: user
-        });
-    };
-
-    const openResetModal = (user) => {
-        setModalConfig({
-            isOpen: true,
-            type: 'password',
-            title: 'Reset Password',
-            message: `Enter a new password for ${user.name}.`,
             targetUser: user
         });
     };
@@ -450,60 +414,6 @@ export default function Customers({ onOpenLoyalty }) {
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
             ) : (
                 <>
-                    <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                        <button type="button" onClick={() => setAdminAccordionOpen((prev) => !prev)} className="w-full px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Admins & Staff</h3>
-                            {adminAccordionOpen ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
-                        </button>
-                        {adminAccordionOpen && (
-                            <>
-                                <div className="px-6 py-3 border-b border-gray-100 flex justify-end">
-                                    {currentUser?.role === 'admin' && (
-                                        <button onClick={() => setAddModalRole('staff')} className="w-36 bg-gray-800 hover:bg-gray-700 text-white font-bold px-3 py-2 rounded-lg text-xs shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95">
-                                            <UserCog size={14} strokeWidth={2} /> Add Staff
-                                        </button>
-                                    )}
-                                </div>
-                                <table className="w-full text-left">
-                                    <thead className="bg-gray-50 border-b border-gray-200">
-                                        <tr>
-                                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">User</th>
-                                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
-                                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Role</th>
-                                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {staffAndAdmins.map((user) => (
-                                            <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${user.role === 'admin' ? 'bg-accent text-primary' : 'bg-blue-100 text-blue-700'}`}>
-                                                            {user.role === 'admin' ? <ShieldCheck size={14} /> : <UserCog size={14} />}
-                                                        </div>
-                                                        <span className="font-medium text-gray-900">{user.name}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="text-sm text-gray-900">{user.email}</div>
-                                                    <div className="text-xs text-gray-500">{user.mobile}</div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    {user.role === 'admin' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary text-accent">ADMIN</span>}
-                                                    {user.role === 'staff' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">STAFF</span>}
-                                                </td>
-                                                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                                                    {canResetPassword(user) && <button onClick={() => openResetModal(user)} className="text-gray-400 hover:text-accent-deep hover:bg-amber-50 p-2 rounded-lg transition-all" title="Reset Password"><Key size={18} /></button>}
-                                                    {canDeleteUser(user) && <button onClick={() => openDeleteModal(user)} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all" title="Delete User"><Trash2 size={18} /></button>}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </>
-                        )}
-                    </div>
-
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>

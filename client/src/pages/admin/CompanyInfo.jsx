@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Save } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Key, Plus, Save, ShieldCheck, Trash2, UserCog } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
+import { useCustomers } from '../../context/CustomerContext';
+import AddCustomerModal from '../../components/AddCustomerModal';
+import Modal from '../../components/Modal';
 
 const DEFAULT_FORM = {
     displayName: '',
@@ -16,9 +20,25 @@ const DEFAULT_FORM = {
 
 export default function CompanyInfo() {
     const toast = useToast();
+    const { user: currentUser } = useAuth();
+    const { users, refreshUsers } = useCustomers();
     const [form, setForm] = useState(DEFAULT_FORM);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isActionLoading, setIsActionLoading] = useState(false);
+    const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+    const [modalConfig, setModalConfig] = useState({
+        isOpen: false,
+        type: 'default',
+        title: '',
+        message: '',
+        targetUser: null
+    });
+
+    const staffAndAdmins = useMemo(
+        () => users.filter((u) => u.role === 'admin' || u.role === 'staff'),
+        [users]
+    );
 
     useEffect(() => {
         const load = async () => {
@@ -26,6 +46,7 @@ export default function CompanyInfo() {
             try {
                 const data = await adminService.getCompanyInfo();
                 setForm({ ...DEFAULT_FORM, ...(data?.company || {}) });
+                await refreshUsers(false);
             } catch (error) {
                 toast.error(error.message || 'Failed to load company info');
             } finally {
@@ -33,7 +54,20 @@ export default function CompanyInfo() {
             }
         };
         load();
-    }, [toast]);
+    }, [toast, refreshUsers]);
+
+    const canResetPassword = (targetUser) => {
+        if (!currentUser) return false;
+        if (currentUser.role === 'admin' && targetUser.role !== 'customer') return true;
+        if (currentUser.role === 'staff' && targetUser.id === currentUser.id) return true;
+        return false;
+    };
+
+    const canDeleteUser = (targetUser) => {
+        if (!currentUser) return false;
+        if (currentUser.role === 'admin' && targetUser.role !== 'admin') return true;
+        return false;
+    };
 
     const handleChange = (key, value) => {
         setForm((prev) => ({ ...prev, [key]: value }));
@@ -53,15 +87,161 @@ export default function CompanyInfo() {
         }
     };
 
+    const handleAddStaff = async (userData) => {
+        const payload = {
+            ...userData,
+            role: 'staff'
+        };
+        delete payload.addressLine1;
+        delete payload.city;
+        delete payload.state;
+        delete payload.zip;
+
+        await adminService.createUser(payload);
+        await refreshUsers(true);
+        setIsAddStaffOpen(false);
+        toast.success('Staff added successfully');
+    };
+
+    const openDeleteModal = (user) => {
+        setModalConfig({
+            isOpen: true,
+            type: 'delete',
+            title: 'Delete User?',
+            message: `Are you sure you want to remove ${user.name}?`,
+            targetUser: user
+        });
+    };
+
+    const openResetModal = (user) => {
+        setModalConfig({
+            isOpen: true,
+            type: 'password',
+            title: 'Reset Password',
+            message: `Enter a new password for ${user.name}.`,
+            targetUser: user
+        });
+    };
+
+    const handleModalConfirm = async (inputValue) => {
+        setIsActionLoading(true);
+        const { type, targetUser } = modalConfig;
+        try {
+            if (type === 'delete') {
+                await adminService.deleteUser(targetUser.id);
+                await refreshUsers(true);
+                toast.success('User deleted successfully');
+            } else if (type === 'password') {
+                if (!inputValue || inputValue.length < 6) {
+                    toast.error('Password must be at least 6 characters');
+                    setIsActionLoading(false);
+                    return;
+                }
+                await adminService.resetPassword(targetUser.id, inputValue);
+                toast.success('Password updated successfully');
+            }
+            setModalConfig((prev) => ({ ...prev, isOpen: false }));
+        } catch (error) {
+            toast.error(error?.message || 'Action failed');
+        } finally {
+            setIsActionLoading(false);
+        }
+    };
+
     if (isLoading) {
         return <div className="py-16 text-center text-gray-400">Loading company information...</div>;
     }
 
     return (
         <div className="animate-fade-in">
+            <Modal
+                isOpen={modalConfig.isOpen}
+                onClose={() => setModalConfig((prev) => ({ ...prev, isOpen: false }))}
+                onConfirm={handleModalConfirm}
+                title={modalConfig.title}
+                message={modalConfig.message}
+                type={modalConfig.type}
+                isLoading={isActionLoading}
+            />
+
+            <AddCustomerModal
+                isOpen={isAddStaffOpen}
+                onClose={() => setIsAddStaffOpen(false)}
+                onConfirm={handleAddStaff}
+                roleToAdd="staff"
+            />
+
             <div className="mb-6">
                 <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Company Info</h1>
                 <p className="text-gray-500 text-sm mt-1">These values are used for invoices and public footer details.</p>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Admins & Staff</h3>
+                    {currentUser?.role === 'admin' && (
+                        <button
+                            onClick={() => setIsAddStaffOpen(true)}
+                            className="w-36 bg-gray-800 hover:bg-gray-700 text-white font-bold px-3 py-2 rounded-lg text-xs shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                        >
+                            <Plus size={14} strokeWidth={3} /> Add Staff
+                        </button>
+                    )}
+                </div>
+                <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">User</th>
+                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
+                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Role</th>
+                            <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                        {staffAndAdmins.map((user) => (
+                            <tr key={user.id} className="hover:bg-gray-50/50 transition-colors">
+                                <td className="px-6 py-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${user.role === 'admin' ? 'bg-accent text-primary' : 'bg-blue-100 text-blue-700'}`}>
+                                            {user.role === 'admin' ? <ShieldCheck size={14} /> : <UserCog size={14} />}
+                                        </div>
+                                        <span className="font-medium text-gray-900">{user.name}</span>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    <div className="text-sm text-gray-900">{user.email}</div>
+                                    <div className="text-xs text-gray-500">{user.mobile}</div>
+                                </td>
+                                <td className="px-6 py-4">
+                                    {user.role === 'admin' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary text-accent">ADMIN</span>}
+                                    {user.role === 'staff' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">STAFF</span>}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                    <div className="flex justify-end gap-2">
+                                        {canResetPassword(user) && (
+                                            <button
+                                                onClick={() => openResetModal(user)}
+                                                className="text-gray-400 hover:text-accent-deep hover:bg-amber-50 p-2 rounded-lg transition-all"
+                                                title="Reset Password"
+                                            >
+                                                <Key size={18} />
+                                            </button>
+                                        )}
+                                        {canDeleteUser(user) && (
+                                            <button
+                                                onClick={() => openDeleteModal(user)}
+                                                className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all"
+                                                title="Delete User"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
 
             <form onSubmit={handleSave} className="grid grid-cols-1 gap-5">
