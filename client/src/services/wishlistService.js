@@ -30,19 +30,19 @@ export const wishlistService = {
         const res = await fetch(`${API_URL}`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
-    addItem: async (productId) => {
+    addItem: async (productId, variantId = '') => {
         const res = await fetch(`${API_URL}/items`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify({ productId })
+            body: JSON.stringify({ productId, variantId })
         });
         return handleResponse(res);
     },
-    removeItem: async (productId) => {
+    removeItem: async (productId, variantId = '', removeAllVariants = false) => {
         const res = await fetch(`${API_URL}/items`, {
             method: 'DELETE',
             headers: getAuthHeader(),
-            body: JSON.stringify({ productId })
+            body: JSON.stringify({ productId, variantId, removeAllVariants })
         });
         return handleResponse(res);
     },

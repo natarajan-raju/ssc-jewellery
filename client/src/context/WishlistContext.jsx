@@ -6,6 +6,7 @@ import { wishlistService } from '../services/wishlistService';
 
 const WishlistContext = createContext({
     wishlist: [],
+    wishlistItems: [],
     wishlistCount: 0,
     loading: false,
     isWishlisted: () => false,
@@ -18,32 +19,51 @@ export const WishlistProvider = ({ children }) => {
     const { user } = useAuth();
     const toast = useToast();
     const { socket } = useSocket();
-    const [wishlist, setWishlist] = useState([]);
+    const [wishlistItems, setWishlistItems] = useState([]);
     const [loading, setLoading] = useState(false);
+
+    const normalizeWishlistItems = useCallback((payload = {}) => {
+        const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+        if (rawItems.length > 0) {
+            return rawItems
+                .map((entry) => ({
+                    productId: String(entry?.productId || entry?.product_id || '').trim(),
+                    variantId: String(entry?.variantId || entry?.variant_id || '').trim()
+                }))
+                .filter((entry) => entry.productId);
+        }
+        const legacyIds = Array.isArray(payload?.productIds) ? payload.productIds : [];
+        return legacyIds
+            .map((id) => ({ productId: String(id || '').trim(), variantId: '' }))
+            .filter((entry) => entry.productId);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
             if (!user?.id) {
                 setLoading(false);
-                setWishlist((prev) => (prev.length ? [] : prev));
+                setWishlistItems((prev) => (prev.length ? [] : prev));
                 return;
             }
             setLoading(true);
             try {
                 const data = await wishlistService.getWishlist();
                 if (!cancelled) {
-                    const ids = Array.isArray(data?.productIds) ? data.productIds.map((id) => String(id)) : [];
-                    setWishlist((prev) => {
-                        if (prev.length === ids.length && prev.every((entry, idx) => entry === ids[idx])) {
+                    const nextItems = normalizeWishlistItems(data);
+                    setWishlistItems((prev) => {
+                        if (
+                            prev.length === nextItems.length
+                            && prev.every((entry, idx) => entry.productId === nextItems[idx]?.productId && entry.variantId === nextItems[idx]?.variantId)
+                        ) {
                             return prev;
                         }
-                        return ids;
+                        return nextItems;
                     });
                 }
             } catch (error) {
                 if (!cancelled) {
-                    setWishlist((prev) => (prev.length ? [] : prev));
+                    setWishlistItems((prev) => (prev.length ? [] : prev));
                     toast.error(error?.message || 'Failed to load wishlist');
                 }
             } finally {
@@ -54,84 +74,110 @@ export const WishlistProvider = ({ children }) => {
         return () => {
             cancelled = true;
         };
-    }, [user?.id]);
+    }, [user?.id, normalizeWishlistItems]);
 
     useEffect(() => {
         if (!socket || !user?.id) return;
         const handleWishlistUpdate = (payload = {}) => {
-            const ids = Array.isArray(payload?.productIds) ? payload.productIds : [];
-            setWishlist(ids.map((id) => String(id)));
+            setWishlistItems(normalizeWishlistItems(payload));
         };
         socket.on('wishlist:update', handleWishlistUpdate);
         return () => {
             socket.off('wishlist:update', handleWishlistUpdate);
         };
-    }, [socket, user?.id]);
+    }, [socket, user?.id, normalizeWishlistItems]);
 
-    const isWishlisted = useCallback((productId) => (
-        wishlist.includes(String(productId || ''))
-    ), [wishlist]);
+    const toPayload = useCallback((productOrObject, variantArg = '') => {
+        if (productOrObject && typeof productOrObject === 'object') {
+            return {
+                productId: String(productOrObject.productId || '').trim(),
+                variantId: String(productOrObject.variantId || '').trim()
+            };
+        }
+        return {
+            productId: String(productOrObject || '').trim(),
+            variantId: String(variantArg || '').trim()
+        };
+    }, []);
 
-    const addToWishlist = useCallback(async (productId) => {
+    const isWishlisted = useCallback((productOrObject, variantArg = '') => {
+        const { productId, variantId } = toPayload(productOrObject, variantArg);
+        if (!productId) return false;
+        if (!variantId) {
+            return wishlistItems.some((entry) => entry.productId === productId);
+        }
+        return wishlistItems.some((entry) => (
+            entry.productId === productId
+            && (entry.variantId === variantId || entry.variantId === '')
+        ));
+    }, [wishlistItems, toPayload]);
+
+    const addToWishlist = useCallback(async (productOrObject, variantArg = '') => {
         if (!user?.id) {
             toast.info('Please login to save products in wishlist');
             return false;
         }
-        const id = String(productId || '');
-        if (!id) return false;
-        if (wishlist.includes(id)) return false;
+        const { productId, variantId } = toPayload(productOrObject, variantArg);
+        if (!productId) return false;
+        if (isWishlisted(productId, variantId)) return false;
         try {
-            const data = await wishlistService.addItem(id);
-            const ids = Array.isArray(data?.productIds) ? data.productIds : [];
-            setWishlist(ids.map((entry) => String(entry)));
+            const data = await wishlistService.addItem(productId, variantId);
+            const nextItems = normalizeWishlistItems(data);
+            setWishlistItems(nextItems);
             toast.success('Added to wishlist');
             return true;
         } catch (error) {
             toast.error(error?.message || 'Failed to update wishlist');
             return false;
         }
-    }, [toast, user?.id, wishlist]);
+    }, [toast, user?.id, isWishlisted, normalizeWishlistItems, toPayload]);
 
-    const removeFromWishlist = useCallback(async (productId) => {
+    const removeFromWishlist = useCallback(async (productOrObject, variantArg = '', options = {}) => {
         if (!user?.id) {
             toast.info('Please login to manage wishlist');
             return false;
         }
-        const id = String(productId || '');
-        if (!id) return false;
-        if (!wishlist.includes(id)) return false;
+        const { silent = false, removeAllVariants = false } = options || {};
+        const { productId, variantId } = toPayload(productOrObject, variantArg);
+        if (!productId) return false;
+        if (!isWishlisted(productId, variantId)) return false;
         try {
-            const data = await wishlistService.removeItem(id);
-            const ids = Array.isArray(data?.productIds) ? data.productIds : [];
-            setWishlist(ids.map((entry) => String(entry)));
-            toast.info('Removed from wishlist');
+            const data = await wishlistService.removeItem(productId, variantId, removeAllVariants);
+            const nextItems = normalizeWishlistItems(data);
+            setWishlistItems(nextItems);
+            if (!silent) toast.info('Removed from wishlist');
             return true;
         } catch (error) {
             toast.error(error?.message || 'Failed to update wishlist');
             return false;
         }
-    }, [toast, user?.id, wishlist]);
+    }, [toast, user?.id, isWishlisted, normalizeWishlistItems, toPayload]);
 
-    const toggleWishlist = useCallback(async (productId) => {
-        const id = String(productId || '');
-        if (!id) return false;
-        if (wishlist.includes(id)) {
-            await removeFromWishlist(id);
+    const toggleWishlist = useCallback(async (productOrObject, variantArg = '') => {
+        const { productId, variantId } = toPayload(productOrObject, variantArg);
+        if (!productId) return false;
+        if (isWishlisted(productId, variantId)) {
+            await removeFromWishlist(productId, variantId);
             return false;
         }
-        await addToWishlist(id);
+        await addToWishlist(productId, variantId);
         return true;
-    }, [addToWishlist, removeFromWishlist, wishlist]);
+    }, [addToWishlist, removeFromWishlist, isWishlisted, toPayload]);
+
+    const wishlist = useMemo(() => (
+        Array.from(new Set(wishlistItems.map((entry) => entry.productId)))
+    ), [wishlistItems]);
 
     const value = useMemo(() => ({
         wishlist,
-        wishlistCount: wishlist.length,
+        wishlistItems,
+        wishlistCount: wishlistItems.length,
         loading,
         isWishlisted,
         addToWishlist,
         removeFromWishlist,
         toggleWishlist
-    }), [wishlist, loading, isWishlisted, addToWishlist, removeFromWishlist, toggleWishlist]);
+    }), [wishlist, wishlistItems, loading, isWishlisted, addToWishlist, removeFromWishlist, toggleWishlist]);
 
     return (
         <WishlistContext.Provider value={value}>

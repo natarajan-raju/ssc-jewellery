@@ -134,7 +134,7 @@ export default function CartDrawer() {
     }, []);
 
     const moveToWishlist = async (item) => {
-        const moved = await addToWishlist(item.productId);
+        const moved = await addToWishlist(item.productId, item.variantId || '');
         if (!moved) return;
         await removeItem({ productId: item.productId, variantId: item.variantId });
     };

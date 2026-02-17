@@ -798,9 +798,14 @@ export default function ProductPage() {
                             </button>
                             <button 
                                 className="px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-colors"
-                                onClick={async () => { await toggleWishlist(product.id); }}
+                                onClick={async () => {
+                                    await toggleWishlist({
+                                        productId: product.id,
+                                        variantId: activeVariantId || ''
+                                    });
+                                }}
                             >
-                                <Heart size={24} className={isWishlisted(product?.id) ? 'fill-red-500 text-red-500' : ''} />
+                                <Heart size={24} className={isWishlisted(product?.id, activeVariantId || '') ? 'fill-red-500 text-red-500' : ''} />
                             </button>
                         </div>
 

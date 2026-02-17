@@ -6,6 +6,7 @@ import { useSocket } from './SocketContext';
 import CartDrawer from '../components/CartDrawer';
 import QuickAddModal from '../components/QuickAddModal';
 import { useToast } from './ToastContext';
+import { useWishlist } from './WishlistContext';
 
 const defaultCartContext = {
     items: [],
@@ -103,15 +104,16 @@ const saveGuestCart = (items) => {
     }
 };
 
-const notifyCartItemAdded = (productId) => {
+const notifyCartItemAdded = (productId, variantId = '') => {
     if (typeof window === 'undefined' || !productId) return;
-    window.dispatchEvent(new CustomEvent('cart:item-added', { detail: { productId } }));
+    window.dispatchEvent(new CustomEvent('cart:item-added', { detail: { productId, variantId } }));
 };
 
 export const CartProvider = ({ children }) => {
     const { user } = useAuth();
     const { socket } = useSocket();
     const toast = useToast();
+    const { removeFromWishlist } = useWishlist();
     const location = useLocation();
     const [items, setItems] = useState([]);
     const [isOpen, setIsOpen] = useState(false);
@@ -166,7 +168,8 @@ export const CartProvider = ({ children }) => {
         if (user) {
             const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
             setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
-            notifyCartItemAdded(product.id);
+            await removeFromWishlist(product.id, variant?.id || '', { silent: true, removeAllVariants: !variant?.id });
+            notifyCartItemAdded(product.id, variant?.id || '');
         } else {
             setItems(prev => {
                 const key = buildKey(product.id, variant?.id || '');
@@ -176,7 +179,7 @@ export const CartProvider = ({ children }) => {
                 }
                 return [...prev, snapshot];
             });
-            notifyCartItemAdded(product.id);
+            notifyCartItemAdded(product.id, variant?.id || '');
         }
     };
 
