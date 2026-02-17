@@ -20,14 +20,19 @@ const parseCategories = (categories) => {
 };
 
 const normalizeVariantId = (variantId) => (variantId ? String(variantId) : '');
+const toTracked = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const toNumber = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
 
 class Cart {
     static async getByUser(userId) {
         const [rows] = await db.execute(
             `SELECT 
                 ci.user_id, ci.product_id, ci.variant_id, ci.quantity,
-                p.title, p.media, p.categories, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg,
-                pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg
+                p.title, p.media, p.categories, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg, p.track_quantity as product_track_quantity, p.quantity as product_quantity,
+                pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg, pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity
              FROM cart_items ci
              JOIN products p ON p.id = ci.product_id
              LEFT JOIN product_variants pv ON pv.id = ci.variant_id
@@ -40,6 +45,9 @@ class Cart {
             const media = parseMedia(r.media);
             const imageUrl = r.variant_image_url || media[0] || null;
             const price = r.variant_discount_price || r.variant_price || r.discount_price || r.mrp || 0;
+            const trackQuantity = r.variant_id ? toTracked(r.variant_track_quantity) : toTracked(r.product_track_quantity);
+            const availableQuantity = r.variant_id ? toNumber(r.variant_quantity, 0) : toNumber(r.product_quantity, 0);
+            const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
             return {
                 productId: r.product_id,
                 variantId: r.variant_id || '',
@@ -51,7 +59,10 @@ class Cart {
                 price: Number(price),
                 compareAt: Number(r.variant_price || r.mrp || 0),
                 variantTitle: r.variant_title || null,
-                weightKg: Number(r.variant_weight_kg || r.product_weight_kg || 0)
+                weightKg: Number(r.variant_weight_kg || r.product_weight_kg || 0),
+                trackQuantity,
+                availableQuantity,
+                isOutOfStock
             };
         });
     }

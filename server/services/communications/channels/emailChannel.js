@@ -123,7 +123,8 @@ const sendEmail = async ({
     from = null,
     replyTo = null,
     cc = null,
-    bcc = null
+    bcc = null,
+    attachments = []
 }) => {
     const recipients = normalizeAddressList(to);
     if (!recipients.length) {
@@ -150,7 +151,9 @@ const sendEmail = async ({
         replyTo: replyTo || undefined,
         cc: normalizeAddressList(cc).join(', ') || undefined,
         bcc: normalizeAddressList(bcc).join(', ') || undefined,
-        attachments: inline.attachments.length ? inline.attachments : undefined
+        attachments: [...inline.attachments, ...(Array.isArray(attachments) ? attachments : [])].length
+            ? [...inline.attachments, ...(Array.isArray(attachments) ? attachments : [])]
+            : undefined
     };
 
     const result = await mailer.sendMail(payload);
