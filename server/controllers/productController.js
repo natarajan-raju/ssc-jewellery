@@ -44,6 +44,39 @@ const getProducts = async (req, res) => {
     }
 };
 
+const searchProducts = async (req, res) => {
+    try {
+        const query = String(req.query.q || '').trim();
+        if (!query) {
+            return res.json({ products: [], total: 0, totalPages: 0, page: 1, limit: 0 });
+        }
+
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 40;
+        const category = String(req.query.category || 'all');
+        const status = String(req.query.status || 'active');
+        const sort = String(req.query.sort || 'relevance');
+        const inStockOnly = String(req.query.inStockOnly || 'false') === 'true';
+        const minPrice = req.query.minPrice ?? null;
+        const maxPrice = req.query.maxPrice ?? null;
+
+        const result = await Product.searchPaginated({
+            query,
+            page,
+            limit,
+            category,
+            status,
+            sort,
+            inStockOnly,
+            minPrice,
+            maxPrice
+        });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ message: 'Search failed', error: error.message });
+    }
+};
+
 // --- [NEW] GET SINGLE PRODUCT ---
 const getSingleProduct = async (req, res) => {
     try {
@@ -322,7 +355,7 @@ const deleteCategory = async (req, res) => {
     }
 };
 
-module.exports = { getProducts,getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories,
+module.exports = { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories,
     getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct,
     manageCategoryProductsBulk, createCategory, deleteCategory
  };

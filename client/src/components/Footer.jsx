@@ -4,11 +4,10 @@ import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home,
 import { productService } from '../services/productService';
 import { useAuth } from '../context/AuthContext';
 import logoLight from '../assets/logo_light.webp';
-import { useSocket } from '../context/SocketContext';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 
 export default function Footer() {
     const { user } = useAuth();
-    const { socket } = useSocket();
     const [categories, setCategories] = useState([]);
     const [company, setCompany] = useState({
         displayName: 'SSC Jewellery',
@@ -22,9 +21,9 @@ export default function Footer() {
     });
     const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
-    const loadCategories = async () => {
+    const loadCategories = async (force = false) => {
         try {
-            const data = await productService.getCategoryStats();
+            const data = await productService.getCategoryStats(force);
             const list = Array.isArray(data) ? data : [];
             setCategories(list);
         } catch {
@@ -46,19 +45,11 @@ export default function Footer() {
         loadCompanyInfo();
     }, []);
 
-    useEffect(() => {
-        if (!socket) return;
-        const handleCategoryRefresh = () => loadCategories();
-        const handleCompanyRefresh = () => loadCompanyInfo();
-        socket.on('refresh:categories', handleCategoryRefresh);
-        socket.on('product:category_change', handleCategoryRefresh);
-        socket.on('company:info_update', handleCompanyRefresh);
-        return () => {
-            socket.off('refresh:categories', handleCategoryRefresh);
-            socket.off('product:category_change', handleCategoryRefresh);
-            socket.off('company:info_update', handleCompanyRefresh);
-        };
-    }, [socket]);
+    useAdminCrudSync({
+        'refresh:categories': () => loadCategories(true),
+        'product:category_change': () => loadCategories(true),
+        'company:info_update': () => loadCompanyInfo()
+    });
 
     const categoryLinks = categories
         .filter(c => c?.name && Number(c.product_count) > 0)

@@ -1,6 +1,7 @@
 const path = require('path');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
+const db = require('./config/db');
 
 const isDev = process.env.npm_lifecycle_event === 'server' || process.env.npm_lifecycle_event === 'dev';
 
@@ -95,7 +96,18 @@ app.get('*', (req, res) => {
 });
 
 // [CHANGE] Use server.listen instead of app.listen
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const startServer = async () => {
+    try {
+        if (db?.ready && typeof db.ready.then === 'function') {
+            await db.ready;
+        }
+    } catch (error) {
+        console.error('Database bootstrap failed. Server not started:', error?.message || error);
+        process.exit(1);
+    }
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+};
+startServer();
 
 const scheduleMidnightJob = () => {
     const now = new Date();

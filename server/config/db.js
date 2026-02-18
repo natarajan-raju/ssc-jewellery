@@ -95,6 +95,15 @@ const initDB = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        try {
+            await connection.query('ALTER TABLE products ADD INDEX idx_products_status_created (status, created_at)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE products ADD INDEX idx_products_title (title)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE products ADD INDEX idx_products_sku (sku)');
+        } catch {}
 
         // 3.1 CART ITEMS TABLE (User Cart Persistence)
         await connection.query(`
@@ -131,6 +140,15 @@ const initDB = async () => {
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
             )
         `);
+        try {
+            await connection.query('ALTER TABLE product_variants ADD INDEX idx_variants_product (product_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE product_variants ADD INDEX idx_variants_title (variant_title)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE product_variants ADD INDEX idx_variants_sku (sku)');
+        } catch {}
 
         // 5. [NEW] CATEGORIES TABLE
         await connection.query(`
@@ -720,6 +738,9 @@ const initDB = async () => {
                 'ALTER TABLE product_categories ADD COLUMN display_order INT DEFAULT 0'
             );
         }
+        try {
+            await connection.query('ALTER TABLE product_categories ADD INDEX idx_pc_category_order (category_id, display_order, product_id)');
+        } catch {}
 
         // 7. [NEW] HERO SLIDES TABLE (CMS)
         await connection.query(`
@@ -830,13 +851,36 @@ const initDB = async () => {
         
 
         console.log("✅ Tables verified/created successfully!");
-        connection.release();
     } catch (error) {
         console.error("❌ Database Initialization Failed:", error.message);
-    } 
+        throw error;
+    } finally {
+        if (connection) connection.release();
+    }
 };
 
-// Run check on startup
-initDB();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const initDBWithRetry = async (maxAttempts = 5) => {
+    let attempt = 0;
+    // Exponential backoff: 1s, 2s, 4s, 8s...
+    while (attempt < maxAttempts) {
+        attempt += 1;
+        try {
+            await initDB();
+            return true;
+        } catch (error) {
+            if (attempt >= maxAttempts) throw error;
+            const delay = Math.min(8000, 1000 * (2 ** (attempt - 1)));
+            console.error(`DB init retry ${attempt}/${maxAttempts} in ${delay}ms`);
+            await sleep(delay);
+        }
+    }
+    return false;
+};
+
+// Run check on startup and expose readiness promise for graceful boot.
+const ready = initDBWithRetry();
+pool.ready = ready;
+pool.initDB = initDB;
 
 module.exports = pool;

@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
 import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home } from 'lucide-react';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 // import { io } from 'socket.io-client';
 
 const PAGE_LIMIT = 20;
+const SEARCH_DEBOUNCE_MS = 150;
+const SEARCH_LIMIT = 60;
 
 const mergeUniqueProducts = (base = [], incoming = []) => {
     const map = new Map();
@@ -20,8 +22,6 @@ const mergeUniqueProducts = (base = [], incoming = []) => {
 export default function CategoryStore() {
     const { category } = useParams();
     const scrollRef = useRef(null);
-
-    const { socket } = useSocket();
     const [products, setProducts] = useState([]);
     const [categoryInfo, setCategoryInfo] = useState(null); 
     const [otherCategories, setOtherCategories] = useState([]); 
@@ -35,11 +35,26 @@ export default function CategoryStore() {
     const loadingRef = useRef(false);
     const productsRef = useRef([]);
     const loadedPagesRef = useRef(new Set());
-    const searchPrefetchingRef = useRef(false);
+    const searchAbortRef = useRef(null);
+    const searchDebounceRef = useRef(null);
     const requestKeyRef = useRef('');
     const manualRefreshTimerRef = useRef(null);
     const [showTopBtn, setShowTopBtn] = useState(false);
-    const [isFetchingAllForSearch, setIsFetchingAllForSearch] = useState(false);
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearchLoading, setIsSearchLoading] = useState(false);
+    const normalizedCategoryName = useMemo(() => decodeURIComponent(category).toLowerCase(), [category]);
+    const normalizeCategoryList = useCallback((value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    }, []);
 
     const shareUrl = window.location.href;
     const shareText = `I found this category in SSC Impo jewellery website - ${shareUrl}`;
@@ -124,10 +139,10 @@ export default function CategoryStore() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isShareOpen]);
     // --- 1. Fetch Jumbotron & Explore Data ---
-    const fetchCategoryMetadata = async () => {
+    const fetchCategoryMetadata = useCallback(async (force = false) => {
         try {
-            const allCategories = await productService.getCategoryStats();
-            const cleanName = decodeURIComponent(category).toLowerCase();
+            const allCategories = await productService.getCategoryStats(force);
+            const cleanName = normalizedCategoryName;
             const currentCat = allCategories.find(c => c.name.toLowerCase() === cleanName);
             
             setCategoryInfo(currentCat ? { ...currentCat } : { name: category, image_url: null });
@@ -135,7 +150,7 @@ export default function CategoryStore() {
         } catch (err) {
             console.error("Failed to load category info", err);
         }
-    };
+    }, [category, normalizedCategoryName]);
 
     // --- 2. Fetch Products ---
     const fetchProducts = useCallback(async (
@@ -146,7 +161,7 @@ export default function CategoryStore() {
         if (!skipLoading) setIsLoading(true);
         loadingRef.current = true;
 
-        const requestKey = `${decodeURIComponent(category).toLowerCase()}::${sortBy}`;
+        const requestKey = `${normalizedCategoryName}::${sortBy}`;
         requestKeyRef.current = requestKey;
         try {
             const serverSort = sortBy === 'default' ? 'manual' : sortBy;
@@ -170,13 +185,13 @@ export default function CategoryStore() {
             loadingRef.current = false;
             if (!skipLoading) setIsLoading(false);
         }
-    }, [category, sortBy]);
+    }, [category, normalizedCategoryName, sortBy]);
 
     const refreshLoadedPagesInCurrentSort = useCallback(async () => {
         if (loadingRef.current) return;
         loadingRef.current = true;
         try {
-            const requestKey = `${decodeURIComponent(category).toLowerCase()}::${sortBy}`;
+            const requestKey = `${normalizedCategoryName}::${sortBy}`;
             requestKeyRef.current = requestKey;
             const loaded = Array.from(loadedPagesRef.current).sort((a, b) => a - b);
             const pagesToLoad = loaded.length ? loaded : [1];
@@ -224,9 +239,7 @@ export default function CategoryStore() {
             setPage(1);
             setHasMore(true);
             loadedPagesRef.current = new Set();
-            searchPrefetchingRef.current = false;
-            setIsFetchingAllForSearch(false);
-            requestKeyRef.current = `${decodeURIComponent(category).toLowerCase()}::${sortBy}`;
+            requestKeyRef.current = `${normalizedCategoryName}::${sortBy}`;
 
             // Execute both requests in parallel and wait for both to finish
             await Promise.all([
@@ -238,39 +251,26 @@ export default function CategoryStore() {
         };
 
         loadInitialData();
-    }, [category, sortBy, fetchProducts]);
+    }, [category, sortBy, fetchProducts, fetchCategoryMetadata, normalizedCategoryName]);
 
     // --- 3. Socket.io Sync (Optimized: Local Append/Patch) ---
-    useEffect(() => {
-        if (!socket) return; 
-        if (!socket.connected) {
-            socket.connect();
-        }
-
-        if (import.meta.env.DEV) {
-            console.log('[Socket] connected?', socket.connected);
-        }
-
-        // [HELPER] Check if an item belongs in this current view
-        const shouldItemBeVisible = (item) => {
+    const shouldItemBeVisible = useCallback((item) => {
             // 1. Must be active
             if (item.status && item.status !== 'active') return false;
 
             // 2. Must match the current URL category
-            // We decode the URL param (e.g., "Gold%20Rings" -> "gold rings")
-            const cleanCatParam = decodeURIComponent(category).toLowerCase();
-            const belongsToCategory = item.categories && item.categories.some(c => c.toLowerCase() === cleanCatParam);
+            const categories = normalizeCategoryList(item.categories);
+            const belongsToCategory = categories.some(c => String(c || '').toLowerCase() === normalizedCategoryName);
             
             return belongsToCategory;
-        };
-        const clearCurrentCategoryCache = () => {
+    }, [normalizeCategoryList, normalizedCategoryName]);
+
+    const clearCurrentCategoryCache = useCallback(() => {
             productService.clearProductsCache({ category });
-        };
+    }, [category]);
 
         // A. Handle Item Creation (APPEND/PREPEND LOCALLY)
-        const handleProductCreate = (newProduct) => {
-            console.log("⚡ New Product Created:", newProduct.title);
-            
+    const handleProductCreate = useCallback((newProduct) => {
             // Only add if it belongs to this category and is active
             if (shouldItemBeVisible(newProduct)) {
                 if (isManualSort) {
@@ -286,15 +286,13 @@ export default function CategoryStore() {
                     return mergeUniqueProducts(prev, [newProduct]);
                 });
             }
-        };
+    }, [isManualSort, scheduleManualRefresh, shouldItemBeVisible, sortBy, clearCurrentCategoryCache]);
 
         // B. Handle Item Updates (PATCH LOCALLY + REAPPEARANCE)
-        const handleProductUpdate = (updatedItem) => {
-            console.log("⚡ Item Update Received:", updatedItem.id);
-            const cleanCatParam = decodeURIComponent(category).toLowerCase();
-            const incomingCategories = Array.isArray(updatedItem?.categories) ? updatedItem.categories : [];
+    const handleProductUpdate = useCallback((updatedItem) => {
+            const incomingCategories = normalizeCategoryList(updatedItem?.categories);
             const touchesCurrentCategory = incomingCategories.some(
-                (entry) => String(entry || '').toLowerCase() === cleanCatParam
+                (entry) => String(entry || '').toLowerCase() === normalizedCategoryName
             );
             const existsInCurrent = productsRef.current.some(
                 (item) => String(item?.id || '') === String(updatedItem?.id || '')
@@ -329,49 +327,55 @@ export default function CategoryStore() {
             if (isStableSort) {
                 productService.patchProductInProductsCache(updatedItem, { sorts: [currentServerSort] });
             }
-        };
+    }, [
+        clearCurrentCategoryCache,
+        currentServerSort,
+        isManualSort,
+        isStableSort,
+        normalizeCategoryList,
+        normalizedCategoryName,
+        scheduleManualRefresh,
+        shouldItemBeVisible,
+        sortBy
+    ]);
 
         // C. Handle Deletes (REMOVE LOCALLY)
         const handleProductDelete = ({ id }) => {
-            console.log("⚡ Item Deleted:", id);
             setProducts(prev => prev.filter(p => p.id !== id));
         };
 
         // D. Handle Category Add/Remove (Admin Action)
-        const handleCategoryChange = (payload) => {
+        const handleCategoryChange = (payload = {}) => {
             const { id, categoryId, action } = payload || {};
+            const payloadCategoryName = String(payload?.categoryName || '').toLowerCase();
+            const matchesByName = payloadCategoryName && payloadCategoryName === normalizedCategoryName;
+            const matchesById = categoryInfo && categoryId && String(categoryInfo.id) === String(categoryId);
+            if (!matchesByName && !matchesById) return;
             // Check if event relates to THIS category page
-            if (categoryInfo && String(categoryInfo.id) === String(categoryId)) {
-                if (isManualSort) {
-                    clearCurrentCategoryCache();
-                    scheduleManualRefresh();
-                    return;
-                }
-                if (action === 'remove') {
-                    // Locally remove
-                    setProducts(prev => prev.filter(p => p.id !== id));
-                } else {
-                    // 'Add' via Admin usually only sends IDs, not full data.
-                    // We MUST fetch here to get the image/price/etc.
-                    // However, we only fetch if necessary.
-                    console.log("⚡ Product added to category. Refreshing...");
-                    if (payload.product && shouldItemBeVisible(payload.product)) {
-                        setProducts(prev => {
-                            if (sortBy === 'newest') return mergeUniqueProducts([payload.product], prev);
-                            return mergeUniqueProducts(prev, [payload.product]);
-                        });
-                    }
-                }
+            if (isManualSort) {
                 clearCurrentCategoryCache();
+                scheduleManualRefresh();
+                return;
             }
+            if (action === 'remove') {
+                // Locally remove
+                setProducts(prev => prev.filter(p => p.id !== id));
+            } else if (payload.product && shouldItemBeVisible(payload.product)) {
+                setProducts(prev => {
+                    if (sortBy === 'newest') return mergeUniqueProducts([payload.product], prev);
+                    return mergeUniqueProducts(prev, [payload.product]);
+                });
+            } else {
+                clearCurrentCategoryCache();
+                fetchProducts(1, { shouldAppend: false, force: true });
+                return;
+            }
+            clearCurrentCategoryCache();
         };
 
         // E. Handle Metadata (Jumbotron/Counts)
         const handleMetadataRefresh = (payload = {}) => {
-            if (import.meta.env.DEV) {
-                console.log('[Socket] refresh:categories', payload);
-            }
-            fetchCategoryMetadata();
+            fetchCategoryMetadata(true);
             if (payload.action === 'reorder') {
                 clearCurrentCategoryCache();
                 if (isManualSort) {
@@ -380,8 +384,7 @@ export default function CategoryStore() {
                 }
             }
             if (payload.action === 'reorder' && payload.orderedProductIds) {
-                const cleanCatParam = decodeURIComponent(category).toLowerCase();
-                const matchesByName = payload.categoryName && payload.categoryName.toLowerCase() === cleanCatParam;
+                const matchesByName = payload.categoryName && payload.categoryName.toLowerCase() === normalizedCategoryName;
                 const matchesById = categoryInfo && payload.categoryId && String(categoryInfo.id) === String(payload.categoryId);
                 if (matchesByName || matchesById) {
                     setProducts(prev => reorderByIds(prev, payload.orderedProductIds));
@@ -389,58 +392,84 @@ export default function CategoryStore() {
             }
         };
 
-        // Attach Listeners
-        socket.on('product:create', handleProductCreate);
-        socket.on('product:update', handleProductUpdate);
-        socket.on('product:delete', handleProductDelete);
-        socket.on('product:category_change', handleCategoryChange);
-        socket.on('refresh:categories', handleMetadataRefresh); 
-        socket.on('connect', () => {
-            if (import.meta.env.DEV) console.log('[Socket] connected');
-        });
-        socket.on('connect_error', (err) => {
-            console.error('[Socket] connect_error', err?.message || err);
-        });
+    useAdminCrudSync({
+        'product:create': handleProductCreate,
+        'product:update': handleProductUpdate,
+        'product:delete': handleProductDelete,
+        'product:category_change': handleCategoryChange,
+        'refresh:categories': handleMetadataRefresh
+    });
 
+    useEffect(() => {
         return () => {
-            socket.off('product:create', handleProductCreate);
-            socket.off('product:update', handleProductUpdate);
-            socket.off('product:delete', handleProductDelete);
-            socket.off('product:category_change', handleCategoryChange);
-            socket.off('refresh:categories', handleMetadataRefresh);
-            socket.off('connect');
-            socket.off('connect_error');
             if (manualRefreshTimerRef.current) {
                 clearTimeout(manualRefreshTimerRef.current);
                 manualRefreshTimerRef.current = null;
             }
-        };
-    }, [socket, category, categoryInfo, sortBy, isStableSort, currentServerSort, isManualSort, scheduleManualRefresh]); // Removed 'products' dependency to prevent loop
-
-    const fetchAllRemainingPages = useCallback(async () => {
-        if (!hasMore || searchPrefetchingRef.current) return;
-        searchPrefetchingRef.current = true;
-        setIsFetchingAllForSearch(true);
-        try {
-            while (true) {
-                const loaded = Array.from(loadedPagesRef.current);
-                const nextPage = (loaded.length ? Math.max(...loaded) : 0) + 1;
-                const newItems = await fetchProducts(nextPage, { shouldAppend: true, skipLoading: true, force: true });
-                if (newItems.length < PAGE_LIMIT) {
-                    setHasMore(false);
-                    break;
-                }
+            if (searchDebounceRef.current) {
+                clearTimeout(searchDebounceRef.current);
+                searchDebounceRef.current = null;
             }
-        } finally {
-            searchPrefetchingRef.current = false;
-            setIsFetchingAllForSearch(false);
-        }
-    }, [fetchProducts, hasMore]);
+            if (searchAbortRef.current) {
+                searchAbortRef.current.abort();
+                searchAbortRef.current = null;
+            }
+        };
+    }, []);
 
     useEffect(() => {
-        if (!searchTerm.trim() || !hasMore) return;
-        fetchAllRemainingPages();
-    }, [searchTerm, hasMore, fetchAllRemainingPages]);
+        const q = searchTerm.trim();
+        if (!q) {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            setIsSearchLoading(false);
+            setSearchResults([]);
+            return;
+        }
+        if (q.length < 2 || !hasMore) {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            setIsSearchLoading(false);
+            setSearchResults([]);
+            return;
+        }
+
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = setTimeout(async () => {
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            const controller = new AbortController();
+            searchAbortRef.current = controller;
+            setIsSearchLoading(true);
+            try {
+                const searchSort = sortBy === 'default' ? 'relevance' : sortBy;
+                const data = await productService.searchProducts({
+                    query: q,
+                    page: 1,
+                    limit: SEARCH_LIMIT,
+                    category,
+                    status: 'active',
+                    sort: searchSort,
+                    inStockOnly,
+                    minPrice: priceRange.min,
+                    maxPrice: priceRange.max
+                }, { signal: controller.signal });
+                setSearchResults(Array.isArray(data?.products) ? data.products : []);
+            } catch (error) {
+                if (error?.name !== 'AbortError') {
+                    console.error('Category search failed', error);
+                    setSearchResults([]);
+                }
+            } finally {
+                if (searchAbortRef.current === controller) {
+                    setIsSearchLoading(false);
+                }
+            }
+        }, SEARCH_DEBOUNCE_MS);
+
+        return () => {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        };
+    }, [searchTerm, category, sortBy, inStockOnly, priceRange.min, priceRange.max, hasMore]);
     // --- 4. Carousel Auto-Slide Logic ---
     useEffect(() => {
         if (otherCategories.length === 0 || isHovered) return;
@@ -517,6 +546,13 @@ export default function CategoryStore() {
 
         return result;
     }, [products, sortBy, inStockOnly, priceRange, searchTerm]);
+    const localSearchResults = useMemo(() => (
+        searchTerm.trim() ? filteredAndSortedProducts : []
+    ), [filteredAndSortedProducts, searchTerm]);
+    const displayProducts = useMemo(() => {
+        if (!searchTerm.trim()) return filteredAndSortedProducts;
+        return mergeUniqueProducts(localSearchResults, searchResults);
+    }, [filteredAndSortedProducts, localSearchResults, searchResults, searchTerm]);
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20 w-full">
@@ -617,7 +653,7 @@ export default function CategoryStore() {
                         </div>
                     </div>
                     <div className="mt-2 text-xs text-gray-500">
-                        {filteredAndSortedProducts.length} results
+                        {displayProducts.length} results
                     </div>
 
                     {/* Expandable Filter Panel */}
@@ -685,22 +721,22 @@ export default function CategoryStore() {
             {/* Product Grid */}
             <main className="container mx-auto px-4 py-8">
                 {/* [FIX 1] Check filtered list length instead of raw products */}
-                {filteredAndSortedProducts.length > 0 ? (
+                {displayProducts.length > 0 ? (
                     <>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-8">
                             {/* [FIX 2] Map over filteredAndSortedProducts */}
-                            {filteredAndSortedProducts.map((product) => (
+                            {displayProducts.map((product) => (
                                 <ProductCard key={product.id} product={product} />
                             ))}
                         </div>
-                        
-                        {isFetchingAllForSearch && searchTerm.trim() && (
+
+                        {isSearchLoading && searchTerm.trim() && (
                             <div className="mt-5 text-center text-sm text-gray-500">
-                                Searching across all product pages...
+                                Searching...
                             </div>
                         )}
                         {/* Load More Button (Only show if we haven't filtered everything out locally) */}
-                        {hasMore && !searchTerm.trim() && filteredAndSortedProducts.length >= PAGE_LIMIT && (
+                        {hasMore && !searchTerm.trim() && displayProducts.length >= PAGE_LIMIT && (
                             <div className="mt-12 text-center">
                                 <button 
                                     onClick={handleLoadMore}
@@ -713,7 +749,7 @@ export default function CategoryStore() {
                         )}
                     </>
                 ) : (
-                    !isLoading && !isFetchingAllForSearch && (
+                    !isLoading && !isSearchLoading && (
                         <div className="text-center py-24">
                             <SlidersHorizontal size={32} className="mx-auto text-gray-400 mb-4" />
                             <h3 className="text-xl font-bold text-gray-800 mb-2">No products found</h3>
@@ -734,9 +770,9 @@ export default function CategoryStore() {
                         {[...Array(4)].map((_,i) => <div key={i} className="bg-gray-200 h-64 rounded-xl"></div>)}
                      </div>
                 )}
-                {isFetchingAllForSearch && filteredAndSortedProducts.length === 0 && (
+                {isSearchLoading && displayProducts.length === 0 && (
                     <div className="flex justify-center py-12 text-sm text-gray-500">
-                        <Loader2 className="animate-spin mr-2" size={18} /> Searching all pages...
+                        <Loader2 className="animate-spin mr-2" size={18} /> Searching...
                     </div>
                 )}
             </main>

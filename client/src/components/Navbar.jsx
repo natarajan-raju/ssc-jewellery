@@ -3,9 +3,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import logo from '/logo.webp';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 
 const TIER_STYLES = {
     regular: {
@@ -38,7 +38,6 @@ const TIER_STYLES = {
 export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
-    const { socket } = useSocket();
     const [shakeCart, setShakeCart] = useState(false);
     const [popBadge, setPopBadge] = useState(false);
     const prevCountRef = useRef(itemCount);
@@ -98,10 +97,10 @@ export default function Navbar() {
         prevCountRef.current = itemCount;
     }, [itemCount]);
 
-    const loadCategories = useCallback(async () => {
+    const loadCategories = useCallback(async (force = false) => {
         setIsLoadingCategories(true);
         try {
-            const data = await productService.getCategoryStats();
+            const data = await productService.getCategoryStats(force);
             const filtered = Array.isArray(data)
                 ? data.filter((category) =>
                     category &&
@@ -129,28 +128,29 @@ export default function Navbar() {
         loadCategories();
     }, [isMegaOpen, loadCategories]);
 
-    useEffect(() => {
-        if (!socket) return;
-
-        const scheduleRefresh = () => {
+    useAdminCrudSync({
+        'refresh:categories': () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadCategories();
-            }, 200);
-        };
+                loadCategories(true);
+            }, 120);
+        },
+        'product:category_change': () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => {
+                loadCategories(true);
+            }, 120);
+        }
+    });
 
-        socket.on('refresh:categories', scheduleRefresh);
-        socket.on('product:category_change', scheduleRefresh);
-
+    useEffect(() => {
         return () => {
-            socket.off('refresh:categories', scheduleRefresh);
-            socket.off('product:category_change', scheduleRefresh);
             if (refreshTimerRef.current) {
                 clearTimeout(refreshTimerRef.current);
                 refreshTimerRef.current = null;
             }
         };
-    }, [socket, loadCategories]);
+    }, []);
 
     const handleLogout = async () => {
         await logout();

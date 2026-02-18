@@ -1,4 +1,5 @@
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+const SEARCH_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 const CATEGORY_STATS_CACHE_KEY = 'category_stats_cache_v1';
 const API_URL = import.meta.env.PROD 
   ? '/api/products' 
@@ -9,6 +10,18 @@ let productCache = {};
 
 const buildProductsCacheKey = (page, category, status, sort, limit) =>
     `page${page}_limit${limit}_cat${category}_stat${status}_sort${sort}`;
+const buildSearchCacheKey = ({
+    query = '',
+    page = 1,
+    limit = 40,
+    category = 'all',
+    status = 'active',
+    sort = 'relevance',
+    inStockOnly = false,
+    minPrice = '',
+    maxPrice = ''
+} = {}) =>
+    `search_q${String(query || '').trim().toLowerCase()}_p${page}_l${limit}_cat${category}_stat${status}_sort${sort}_stock${inStockOnly ? 1 : 0}_min${minPrice ?? ''}_max${maxPrice ?? ''}`;
 
 const parseProductsCacheKey = (key = '') => {
     const match = /^page(\d+)_limit(\d+)_cat(.+)_stat(.+)_sort(.+)$/.exec(String(key));
@@ -92,9 +105,68 @@ export const productService = {
         productCache[cacheKey] = { data, timestamp: Date.now() };
         return data;
     },
+    searchProducts: async ({
+        query = '',
+        page = 1,
+        limit = 40,
+        category = 'all',
+        status = 'active',
+        sort = 'relevance',
+        inStockOnly = false,
+        minPrice = '',
+        maxPrice = ''
+    } = {}, { signal, force = false } = {}) => {
+        const cleanQuery = String(query || '').trim();
+        if (!cleanQuery) {
+            return { products: [], total: 0, totalPages: 0, page: 1, limit: 0 };
+        }
+        const cacheKey = buildSearchCacheKey({
+            query: cleanQuery,
+            page,
+            limit,
+            category,
+            status,
+            sort,
+            inStockOnly,
+            minPrice,
+            maxPrice
+        });
+        const cached = productCache[cacheKey];
+        if (!force && cached && (Date.now() - cached.timestamp < SEARCH_CACHE_DURATION)) {
+            return cached.data;
+        }
+
+        const params = new URLSearchParams({
+            q: cleanQuery,
+            page: String(page),
+            limit: String(limit),
+            category: String(category || 'all'),
+            status: String(status || 'active'),
+            sort: String(sort || 'relevance')
+        });
+        if (inStockOnly) params.set('inStockOnly', 'true');
+        if (minPrice !== '' && minPrice != null) params.set('minPrice', String(minPrice));
+        if (maxPrice !== '' && maxPrice != null) params.set('maxPrice', String(maxPrice));
+
+        const res = await fetch(`${API_URL}/search?${params.toString()}`, {
+            headers: {
+                ...getAuthHeader(),
+                'Content-Type': 'application/json'
+            },
+            signal
+        });
+        const data = await handleResponse(res);
+        productCache[cacheKey] = { data, timestamp: Date.now() };
+        return data;
+    },
     clearProductsCache: ({ category, status, sort, limit } = {}) => {
         const keys = Object.keys(productCache);
         keys.forEach((key) => {
+            if (key.startsWith('search_')) {
+                if (category && !key.includes(`_cat${category}_`)) return;
+                delete productCache[key];
+                return;
+            }
             if (!key.startsWith('page')) return;
             if (category && !key.includes(`_cat${category}_`)) return;
             if (status && !key.includes(`_stat${status}_`)) return;
@@ -116,6 +188,10 @@ export const productService = {
 
         const keys = Object.keys(productCache);
         keys.forEach((key) => {
+            if (key.startsWith('search_')) {
+                delete productCache[key];
+                return;
+            }
             if (!key.startsWith('page')) return;
             const entry = productCache[key];
             const data = entry?.data;
@@ -140,6 +216,9 @@ export const productService = {
         const allowedSorts = Array.isArray(sorts) && sorts.length ? new Set(sorts.map((v) => String(v))) : null;
         const productId = String(updatedProduct.id);
         const keys = Object.keys(productCache);
+        keys.forEach((key) => {
+            if (key.startsWith('search_')) delete productCache[key];
+        });
 
         keys.forEach((key) => {
             if (!key.startsWith('page')) return;

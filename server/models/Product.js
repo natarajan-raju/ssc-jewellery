@@ -129,6 +129,177 @@ class Product {
         };
     }
 
+    static async searchPaginated({
+        query = '',
+        page = 1,
+        limit = 40,
+        category = 'all',
+        status = 'active',
+        sort = 'relevance',
+        inStockOnly = false,
+        minPrice = null,
+        maxPrice = null
+    } = {}) {
+        const safeLimit = Math.max(1, Math.min(100, Number(limit) || 40));
+        const safePage = Math.max(1, Number(page) || 1);
+        const offset = (safePage - 1) * safeLimit;
+        const q = String(query || '').trim();
+
+        const params = [];
+        const conditions = [];
+        let fromClause = ' FROM products p';
+
+        const effectivePrice = `
+            COALESCE(
+                (SELECT MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) FROM product_variants pv WHERE pv.product_id = p.id),
+                NULLIF(p.discount_price, 0),
+                p.mrp
+            )
+        `;
+
+        if (sort === 'manual' && category && category !== 'all') {
+            fromClause += ' JOIN product_categories pc_sort ON p.id = pc_sort.product_id JOIN categories c_sort ON pc_sort.category_id = c_sort.id';
+            conditions.push('c_sort.name = ?');
+            params.push(category);
+        } else if (category && category !== 'all') {
+            conditions.push(
+                'EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)'
+            );
+            params.push(category);
+        }
+
+        if (status && status !== 'all') {
+            conditions.push('p.status = ?');
+            params.push(status);
+        }
+
+        if (q) {
+            const term = `%${q}%`;
+            conditions.push(`(
+                p.title LIKE ?
+                OR p.sku LIKE ?
+                OR EXISTS (
+                    SELECT 1
+                    FROM product_variants pvq
+                    WHERE pvq.product_id = p.id
+                      AND (pvq.variant_title LIKE ? OR pvq.sku LIKE ?)
+                )
+            )`);
+            params.push(term, term, term, term);
+        }
+
+        if (inStockOnly) {
+            conditions.push(`(
+                (
+                    (SELECT COUNT(*) FROM product_variants pv_all WHERE pv_all.product_id = p.id) = 0
+                    AND (COALESCE(p.track_quantity, 0) = 0 OR COALESCE(p.quantity, 0) > 0)
+                )
+                OR
+                (
+                    (SELECT COUNT(*) FROM product_variants pv_stock
+                     WHERE pv_stock.product_id = p.id
+                       AND (COALESCE(pv_stock.track_quantity, 0) = 0 OR COALESCE(pv_stock.quantity, 0) > 0)
+                    ) > 0
+                )
+            )`);
+        }
+
+        const min = minPrice != null && minPrice !== '' ? Number(minPrice) : null;
+        const max = maxPrice != null && maxPrice !== '' ? Number(maxPrice) : null;
+        if (Number.isFinite(min)) {
+            conditions.push(`${effectivePrice} >= ?`);
+            params.push(min);
+        }
+        if (Number.isFinite(max)) {
+            conditions.push(`${effectivePrice} <= ?`);
+            params.push(max);
+        }
+
+        const whereClause = conditions.length ? ` WHERE ${conditions.join(' AND ')}` : '';
+
+        let orderByClause = ' ORDER BY p.created_at DESC';
+        const orderParams = [];
+        if (sort === 'manual' && category && category !== 'all') {
+            orderByClause = ' ORDER BY pc_sort.display_order ASC';
+        } else if (sort === 'low' || sort === 'high') {
+            orderByClause = ` ORDER BY ${effectivePrice} ${sort === 'low' ? 'ASC' : 'DESC'}, p.created_at DESC`;
+        } else if (sort === 'newest') {
+            orderByClause = ' ORDER BY p.created_at DESC';
+        } else if (sort === 'relevance' && q) {
+            const prefix = `${q}%`;
+            const anywhere = `%${q}%`;
+            orderByClause = `
+                ORDER BY
+                    (CASE WHEN p.title LIKE ? THEN 0 ELSE 1 END),
+                    (CASE WHEN p.title LIKE ? THEN 0 ELSE 1 END),
+                    (CASE WHEN p.sku LIKE ? THEN 0 ELSE 1 END),
+                    (CASE WHEN EXISTS (
+                        SELECT 1 FROM product_variants pvr
+                        WHERE pvr.product_id = p.id
+                          AND (pvr.variant_title LIKE ? OR pvr.sku LIKE ?)
+                    ) THEN 0 ELSE 1 END),
+                    p.updated_at DESC,
+                    p.created_at DESC
+            `;
+            orderParams.push(prefix, anywhere, anywhere, anywhere, anywhere);
+        }
+
+        const selectClause = `
+            SELECT p.*,
+            (
+                SELECT JSON_ARRAYAGG(c.name)
+                FROM product_categories pc
+                JOIN categories c ON pc.category_id = c.id
+                WHERE pc.product_id = p.id
+            ) AS categories_list,
+            (
+                SELECT JSON_ARRAYAGG(
+                    JSON_OBJECT(
+                        'id', pv.id,
+                        'variant_title', pv.variant_title,
+                        'price', pv.price,
+                        'discount_price', pv.discount_price,
+                        'sku', pv.sku,
+                        'weight_kg', pv.weight_kg,
+                        'quantity', pv.quantity,
+                        'track_quantity', pv.track_quantity,
+                        'track_low_stock', pv.track_low_stock,
+                        'low_stock_threshold', pv.low_stock_threshold,
+                        'image_url', pv.image_url
+                    )
+                )
+                FROM product_variants pv
+                WHERE pv.product_id = p.id
+            ) AS variants
+        `;
+
+        const mainQuery = `${selectClause}${fromClause}${whereClause}${orderByClause} LIMIT ? OFFSET ?`;
+        const mainParams = [...params, ...orderParams, safeLimit, offset];
+        const [rows] = await db.execute(mainQuery, mainParams);
+
+        const countQuery = `SELECT COUNT(*) AS total${fromClause}${whereClause}`;
+        const [countRows] = await db.execute(countQuery, params);
+        const total = Number(countRows?.[0]?.total || 0);
+
+        const products = rows.map((p) => ({
+            ...p,
+            media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || []),
+            categories: typeof p.categories_list === 'string' ? JSON.parse(p.categories_list) : (p.categories_list || []),
+            related_products: typeof p.related_products === 'string' ? JSON.parse(p.related_products) : (p.related_products || {}),
+            additional_info: typeof p.additional_info === 'string' ? JSON.parse(p.additional_info) : (p.additional_info || []),
+            options: typeof p.options === 'string' ? JSON.parse(p.options) : (p.options || []),
+            variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || [])
+        }));
+
+        return {
+            products,
+            total,
+            totalPages: Math.ceil(total / safeLimit),
+            page: safePage,
+            limit: safeLimit
+        };
+    }
+
     // --- [NEW] Find Single Product by ID (with Variants) ---
     static async findById(id) {
         // 1. Fetch the Product

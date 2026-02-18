@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { useSocket } from '../context/SocketContext';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
 import { ChevronDown, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter, Send, Copy, ArrowUp, Home, LayoutGrid } from 'lucide-react';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 
 const PAGE_LIMIT = 20;
+const SEARCH_DEBOUNCE_MS = 150;
+const SEARCH_LIMIT = 60;
 
 const mergeUniqueProducts = (base = [], incoming = []) => {
     const map = new Map();
@@ -17,7 +19,6 @@ const mergeUniqueProducts = (base = [], incoming = []) => {
 };
 
 export default function Shop() {
-    const { socket } = useSocket();
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [products, setProducts] = useState([]);
@@ -33,20 +34,35 @@ export default function Shop() {
     const [inStockOnly, setInStockOnly] = useState(false);
     const [priceRange, setPriceRange] = useState({ min: '', max: '' });
     const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearchLoading, setIsSearchLoading] = useState(false);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const shareRef = useRef(null);
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [isCategoryOpen, setIsCategoryOpen] = useState(false);
     const categoryDropdownRef = useRef(null);
     const loadedPagesRef = useRef(new Set());
-    const searchPrefetchingRef = useRef(false);
+    const searchAbortRef = useRef(null);
+    const searchDebounceRef = useRef(null);
     const requestKeyRef = useRef('');
     const manualRefreshTimerRef = useRef(null);
-    const [isFetchingAllForSearch, setIsFetchingAllForSearch] = useState(false);
 
-    const loadCategories = useCallback(async () => {
+    const normalizeCategoryList = useCallback((value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+            try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    }, []);
+
+    const loadCategories = useCallback(async (force = false) => {
         try {
-            const data = await productService.getCategoryStats();
+            const data = await productService.getCategoryStats(force);
             const list = Array.isArray(data) ? data : [];
             setCategories(list);
             const best = list.find(c => c.name?.toLowerCase() === 'best sellers');
@@ -174,8 +190,6 @@ export default function Shop() {
         setPage(1);
         setHasMore(true);
         loadedPagesRef.current = new Set();
-        searchPrefetchingRef.current = false;
-        setIsFetchingAllForSearch(false);
         requestKeyRef.current = `${selectedCategory}::${sortBy}`;
         fetchProducts(1, { append: false, force: true });
     }, [selectedCategory, sortBy, fetchProducts]);
@@ -194,37 +208,67 @@ export default function Shop() {
         return () => observer.disconnect();
     }, [page, hasMore, fetchProducts, searchTerm]);
 
-    const fetchAllRemainingPages = useCallback(async () => {
-        if (!hasMore || searchPrefetchingRef.current) return;
-        searchPrefetchingRef.current = true;
-        setIsFetchingAllForSearch(true);
-        try {
-            while (true) {
-                const loaded = Array.from(loadedPagesRef.current);
-                const nextPage = (loaded.length ? Math.max(...loaded) : 0) + 1;
-                const newItems = await fetchProducts(nextPage, { append: true, skipLoading: true, force: true });
-                if (newItems.length < PAGE_LIMIT) {
-                    setHasMore(false);
-                    break;
+    useEffect(() => {
+        const q = searchTerm.trim();
+        if (!q) {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            setIsSearchLoading(false);
+            setSearchResults([]);
+            return;
+        }
+        if (q.length < 2 || !hasMore) {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            setIsSearchLoading(false);
+            setSearchResults([]);
+            return;
+        }
+
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = setTimeout(async () => {
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            const controller = new AbortController();
+            searchAbortRef.current = controller;
+            setIsSearchLoading(true);
+            try {
+                const searchSort = sortBy === 'default' ? 'relevance' : sortBy;
+                const data = await productService.searchProducts({
+                    query: q,
+                    page: 1,
+                    limit: SEARCH_LIMIT,
+                    category: selectedCategory,
+                    status: 'active',
+                    sort: searchSort,
+                    inStockOnly,
+                    minPrice: priceRange.min,
+                    maxPrice: priceRange.max
+                }, { signal: controller.signal });
+                setSearchResults(Array.isArray(data?.products) ? data.products : []);
+            } catch (error) {
+                if (error?.name !== 'AbortError') {
+                    console.error('Search failed', error);
+                    setSearchResults([]);
+                }
+            } finally {
+                if (searchAbortRef.current === controller) {
+                    setIsSearchLoading(false);
                 }
             }
-        } finally {
-            searchPrefetchingRef.current = false;
-            setIsFetchingAllForSearch(false);
-        }
-    }, [fetchProducts, hasMore]);
+        }, SEARCH_DEBOUNCE_MS);
 
-    useEffect(() => {
-        if (!searchTerm.trim() || !hasMore) return;
-        fetchAllRemainingPages();
-    }, [searchTerm, hasMore, fetchAllRemainingPages]);
+        return () => {
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        };
+    }, [searchTerm, selectedCategory, sortBy, inStockOnly, priceRange.min, priceRange.max, hasMore]);
 
     const shouldItemBeVisible = useCallback((item) => {
         if (!item || item.status !== 'active') return false;
         if (selectedCategory === 'all') return true;
         const clean = selectedCategory.toLowerCase();
-        return item.categories && item.categories.some(c => String(c).toLowerCase() === clean);
-    }, [selectedCategory]);
+        const itemCategories = normalizeCategoryList(item.categories);
+        return itemCategories.some(c => String(c).toLowerCase() === clean);
+    }, [normalizeCategoryList, selectedCategory]);
 
     const currentServerSort = useMemo(() => (
         sortBy === 'default'
@@ -278,17 +322,14 @@ export default function Shop() {
         }, 180);
     }, [isManualSort, refreshLoadedPagesInCurrentSort]);
 
-    useEffect(() => {
-        if (!socket) return;
+    const handleCategoryRefresh = useCallback((payload = {}) => {
+        if (payload.action === 'reorder') {
+            productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
+        }
+        loadCategories(true);
+    }, [loadCategories, selectedCategory]);
 
-        const handleCategoryRefresh = (payload = {}) => {
-            if (payload.action === 'reorder') {
-                productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
-            }
-            loadCategories();
-        };
-
-        const handleProductCreate = (product) => {
+    const handleProductCreate = useCallback((product) => {
             if (!shouldItemBeVisible(product)) return;
             if (isManualSort) {
                 productService.clearProductsCache({ category: selectedCategory });
@@ -299,11 +340,11 @@ export default function Shop() {
                 if (sortBy === 'newest') return mergeUniqueProducts([product], prev);
                 return mergeUniqueProducts(prev, [product]);
             });
-        };
+    }, [isManualSort, scheduleManualRefresh, selectedCategory, shouldItemBeVisible, sortBy]);
 
-        const handleProductUpdate = (updated) => {
+    const handleProductUpdate = useCallback((updated) => {
             const currentCategory = selectedCategory.toLowerCase();
-            const incomingCategories = Array.isArray(updated?.categories) ? updated.categories : [];
+            const incomingCategories = normalizeCategoryList(updated?.categories);
             const touchesCurrentCategory = incomingCategories.some(
                 (entry) => String(entry || '').toLowerCase() === currentCategory
             );
@@ -328,16 +369,24 @@ export default function Shop() {
             if (isStableSort) {
                 productService.patchProductInProductsCache(updated, { sorts: [currentServerSort] });
             }
-        };
+    }, [
+        currentServerSort,
+        isManualSort,
+        isStableSort,
+        normalizeCategoryList,
+        scheduleManualRefresh,
+        selectedCategory,
+        shouldItemBeVisible
+    ]);
 
-        const handleProductDelete = ({ id }) => {
+    const handleProductDelete = useCallback(({ id }) => {
             if (isManualSort) {
                 productService.clearProductsCache({ category: selectedCategory });
             }
             setProducts(prev => prev.filter(p => p.id !== id));
-        };
+    }, [isManualSort, selectedCategory]);
 
-        const handleCategoryChange = (payload = {}) => {
+    const handleCategoryChange = useCallback((payload = {}) => {
             if (!payload.product) return;
             const product = payload.product;
             const name = payload.categoryName || '';
@@ -353,26 +402,32 @@ export default function Shop() {
                 setProducts(prev => mergeUniqueProducts(prev, [product]));
             }
             productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
-        };
+    }, [isManualSort, scheduleManualRefresh, selectedCategory, shouldItemBeVisible]);
 
-        socket.on('refresh:categories', handleCategoryRefresh);
-        socket.on('product:create', handleProductCreate);
-        socket.on('product:update', handleProductUpdate);
-        socket.on('product:delete', handleProductDelete);
-        socket.on('product:category_change', handleCategoryChange);
+    useAdminCrudSync({
+        'refresh:categories': handleCategoryRefresh,
+        'product:create': handleProductCreate,
+        'product:update': handleProductUpdate,
+        'product:delete': handleProductDelete,
+        'product:category_change': handleCategoryChange
+    });
 
+    useEffect(() => {
         return () => {
-            socket.off('refresh:categories', handleCategoryRefresh);
-            socket.off('product:create', handleProductCreate);
-            socket.off('product:update', handleProductUpdate);
-            socket.off('product:delete', handleProductDelete);
-            socket.off('product:category_change', handleCategoryChange);
             if (manualRefreshTimerRef.current) {
                 clearTimeout(manualRefreshTimerRef.current);
                 manualRefreshTimerRef.current = null;
             }
+            if (searchDebounceRef.current) {
+                clearTimeout(searchDebounceRef.current);
+                searchDebounceRef.current = null;
+            }
+            if (searchAbortRef.current) {
+                searchAbortRef.current.abort();
+                searchAbortRef.current = null;
+            }
         };
-    }, [socket, selectedCategory, sortBy, shouldItemBeVisible, loadCategories, isStableSort, currentServerSort, isManualSort, scheduleManualRefresh]);
+    }, []);
 
     const categoryOptions = useMemo(() => {
         const list = categories
@@ -413,6 +468,13 @@ export default function Shop() {
 
         return result;
     }, [products, sortBy, inStockOnly, priceRange, searchTerm]);
+    const localSearchResults = useMemo(() => (
+        searchTerm.trim() ? filteredAndSortedProducts : []
+    ), [filteredAndSortedProducts, searchTerm]);
+    const displayProducts = useMemo(() => {
+        if (!searchTerm.trim()) return filteredAndSortedProducts;
+        return mergeUniqueProducts(localSearchResults, searchResults);
+    }, [filteredAndSortedProducts, localSearchResults, searchResults, searchTerm]);
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20 w-full">
@@ -605,7 +667,7 @@ export default function Shop() {
                                 </div>
                             </div>
                             <div className="px-2 text-xs text-gray-500">
-                                {filteredAndSortedProducts.length} results
+                                {displayProducts.length} results
                             </div>
 
                             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-40 opacity-100 mt-3 pb-2' : 'max-h-0 opacity-0'}`}>
@@ -662,16 +724,16 @@ export default function Shop() {
                         ) : (
                             <>
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                                    {filteredAndSortedProducts.map((product) => (
+                                    {displayProducts.map((product) => (
                                         <ProductCard key={product.id} product={product} />
                                     ))}
                                 </div>
-                                {isFetchingAllForSearch && searchTerm.trim() && (
+                                {isSearchLoading && searchTerm.trim() && (
                                     <div className="col-span-full py-4 text-center text-sm text-gray-500">
-                                        Searching across all product pages...
+                                        Searching...
                                     </div>
                                 )}
-                                {filteredAndSortedProducts.length === 0 && !isFetchingAllForSearch && (
+                                {displayProducts.length === 0 && !isSearchLoading && (
                                     <div className="col-span-full py-10 text-center text-gray-400">
                                         No products available.
                                     </div>
