@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2 } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
-import { useSocket } from '../../context/SocketContext';
+import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
@@ -29,7 +29,6 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
 
 export default function Orders({ focusOrderId = null, onFocusHandled = () => {} }) {
     const toast = useToast();
-    const { socket } = useSocket();
     const [orders, setOrders] = useState([]);
     const [metrics, setMetrics] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -281,9 +280,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         setSelectedRowKeys((prev) => prev.filter((key) => visibleKeys.has(key)));
     }, [orders]);
 
-    useEffect(() => {
-        if (!socket) return;
-        const handleUpdate = (payload = {}) => {
+    const handleOrderRealtimeUpdate = useCallback((payload = {}) => {
             if (payload?.deleted && payload?.orderId) {
                 removeRow(payload.orderId, 'order');
                 orderService.removeAdminEntityCache({ id: payload.orderId, entityType: 'order' });
@@ -300,16 +297,13 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                 markOrderMetricsDirty(metricsQuery);
                 fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
             }
-        };
-        socket.on('order:create', handleUpdate);
-        socket.on('order:update', handleUpdate);
-        socket.on('payment:update', handleUpdate);
-        return () => {
-            socket.off('order:create', handleUpdate);
-            socket.off('order:update', handleUpdate);
-            socket.off('payment:update', handleUpdate);
-        };
-    }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, removeRow, selectedOrder?.id, socket]);
+        }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, removeRow, selectedOrder?.id]);
+
+    useAdminCrudSync({
+        'order:create': handleOrderRealtimeUpdate,
+        'order:update': handleOrderRealtimeUpdate,
+        'payment:update': handleOrderRealtimeUpdate
+    });
 
     useEffect(() => {
         const timer = setTimeout(() => {

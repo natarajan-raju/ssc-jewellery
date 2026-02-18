@@ -344,6 +344,14 @@ export const productService = {
         });
         return handleResponse(res);
     },
+    manageCategoryProductsBulk: async (categoryId, productIds = [], action) => {
+        const res = await fetch(`${API_URL}/categories/${categoryId}/products/bulk`, {
+            method: 'POST',
+            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productIds, action })
+        });
+        return handleResponse(res);
+    },
 
     // [UPDATED] Create Category (Supports Image)
     createCategory: async (formData) => {

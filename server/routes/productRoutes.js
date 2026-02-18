@@ -4,7 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { protect, admin, staff } = require('../middleware/authMiddleware');
-const { getProducts,getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, createCategory, deleteCategory } = require('../controllers/productController');
+const { getProducts,getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, manageCategoryProductsBulk, createCategory, deleteCategory } = require('../controllers/productController');
 
 // --- MULTER CONFIGURATION (Image Uploads) ---
 const storage = multer.diskStorage({
@@ -69,6 +69,7 @@ router.put('/categories/:id/reorder', protect, admin, reorderCategory);
 
 // 5. Add/Remove Product from Category
 router.post('/categories/:id/products', protect, admin, manageCategoryProduct);
+router.post('/categories/:id/products/bulk', protect, admin, manageCategoryProductsBulk);
 
 // 3. Delete Product (Admin Only)
 router.delete('/:id', protect, admin, deleteProduct);

@@ -547,6 +547,51 @@ class Product {
         }
     }
 
+    static async manageCategoryProductsBulk(categoryId, productIds = [], action = 'add') {
+        const ids = [...new Set((Array.isArray(productIds) ? productIds : []).map((id) => String(id || '').trim()).filter(Boolean))];
+        if (!ids.length) return [];
+
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            const placeholders = ids.map(() => '?').join(',');
+
+            if (action === 'add') {
+                const [existingRows] = await connection.execute(
+                    `SELECT product_id
+                     FROM product_categories
+                     WHERE category_id = ? AND product_id IN (${placeholders})`,
+                    [categoryId, ...ids]
+                );
+                const existing = new Set(existingRows.map((row) => String(row.product_id || '').trim()).filter(Boolean));
+                const toInsert = ids.filter((id) => !existing.has(String(id)));
+                if (toInsert.length > 0) {
+                    const values = toInsert.flatMap((productId) => [categoryId, productId]);
+                    const tuplePlaceholders = toInsert.map(() => '(?, ?)').join(',');
+                    await connection.execute(
+                        `INSERT INTO product_categories (category_id, product_id) VALUES ${tuplePlaceholders}`,
+                        values
+                    );
+                }
+            } else if (action === 'remove') {
+                await connection.execute(
+                    `DELETE FROM product_categories
+                     WHERE category_id = ? AND product_id IN (${placeholders})`,
+                    [categoryId, ...ids]
+                );
+            }
+
+            await Product.rebuildCategoriesJsonForProducts(ids, { connection });
+            await connection.commit();
+            return ids;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
     // F. Create New Category
     static async createCategory(name, imageUrl) {
         // Handle Duplicate Name Error at DB level

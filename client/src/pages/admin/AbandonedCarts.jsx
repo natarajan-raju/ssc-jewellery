@@ -4,7 +4,7 @@ import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
 import { useAdminKPI } from '../../context/AdminKPIContext';
-import { useSocket } from '../../context/SocketContext';
+import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 
 const journeyStatusOptions = [
     { value: 'all', label: 'All' },
@@ -85,7 +85,6 @@ const isJourneyReadyForList = (journey, inactivityMinutes) => {
 
 export default function AbandonedCarts() {
     const toast = useToast();
-    const { socket } = useSocket();
     const {
         abandonedInsightsByKey,
         registerAbandonedInsightsRange,
@@ -378,86 +377,72 @@ export default function AbandonedCarts() {
 
     const closeTimeline = () => setSelectedTimeline(null);
 
-    useEffect(() => {
-        if (!socket) return undefined;
-        const scheduleRealtimeRefresh = () => {
-            if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
-            realtimeRefreshTimerRef.current = setTimeout(() => {
-                adminService.invalidateAbandonedCache();
-                markAbandonedInsightsDirty(rangeDays);
-                fetchAbandonedInsights(rangeDays, { force: true }).catch(() => {});
-                loadJourneys().catch(() => {});
-                if (selectedTimeline?.journey?.id) {
-                    openTimeline(selectedTimeline.journey.id);
-                }
-            }, 120);
-        };
-        const handleAbandonedUpdate = (payload = {}) => {
-            if (payload?.journey?.id) {
-                const nextJourney = {
-                    ...payload.journey,
-                    computed_last_activity_at:
-                        payload.journey.computed_last_activity_at
-                        || payload.journey.last_activity_at
-                        || payload.journey.updated_at
-                        || payload.ts
-                        || null
-                };
-                const shouldShow = isJourneyReadyForList(nextJourney, campaignDraft?.inactivityMinutes);
-                setJourneys((prev) => {
-                    const rows = Array.isArray(prev) ? prev : [];
-                    const idx = rows.findIndex((row) => String(row.id) === String(nextJourney.id));
-                    if (!shouldShow) {
-                        if (idx < 0) return rows;
-                        const next = rows.filter((row) => String(row.id) !== String(nextJourney.id));
-                        return next;
-                    }
-                    if (idx >= 0) {
-                        const copy = [...rows];
-                        copy[idx] = {
-                            ...copy[idx],
-                            ...nextJourney,
-                            computed_last_activity_at:
-                                nextJourney.computed_last_activity_at
-                                || nextJourney.last_activity_at
-                                || nextJourney.updated_at
-                                || copy[idx].computed_last_activity_at
-                        };
-                        return copy;
-                    }
-                    // New journey created from live customer cart updates.
-                    return [{ ...nextJourney }, ...rows];
-                });
+    const scheduleRealtimeRefresh = useCallback(() => {
+        if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
+        realtimeRefreshTimerRef.current = setTimeout(() => {
+            adminService.invalidateAbandonedCache();
+            markAbandonedInsightsDirty(rangeDays);
+            fetchAbandonedInsights(rangeDays, { force: true }).catch(() => {});
+            loadJourneys().catch(() => {});
+            if (selectedTimeline?.journey?.id) {
+                openTimeline(selectedTimeline.journey.id);
             }
-            scheduleRealtimeRefresh();
-        };
-        const handleOrderOrPaymentUpdate = () => scheduleRealtimeRefresh();
+        }, 120);
+    }, [fetchAbandonedInsights, loadJourneys, markAbandonedInsightsDirty, openTimeline, rangeDays, selectedTimeline?.journey?.id]);
 
-        socket.on('abandoned_cart:update', handleAbandonedUpdate);
-        socket.on('abandoned_cart:journey:update', handleAbandonedUpdate);
-        socket.on('abandoned_cart:recovered', handleAbandonedUpdate);
-        socket.on('order:create', handleOrderOrPaymentUpdate);
-        socket.on('order:update', handleOrderOrPaymentUpdate);
-        socket.on('payment:update', handleOrderOrPaymentUpdate);
+    const handleAbandonedUpdate = useCallback((payload = {}) => {
+        if (payload?.journey?.id) {
+            const nextJourney = {
+                ...payload.journey,
+                computed_last_activity_at:
+                    payload.journey.computed_last_activity_at
+                    || payload.journey.last_activity_at
+                    || payload.journey.updated_at
+                    || payload.ts
+                    || null
+            };
+            const shouldShow = isJourneyReadyForList(nextJourney, campaignDraft?.inactivityMinutes);
+            setJourneys((prev) => {
+                const rows = Array.isArray(prev) ? prev : [];
+                const idx = rows.findIndex((row) => String(row.id) === String(nextJourney.id));
+                if (!shouldShow) {
+                    if (idx < 0) return rows;
+                    const next = rows.filter((row) => String(row.id) !== String(nextJourney.id));
+                    return next;
+                }
+                if (idx >= 0) {
+                    const copy = [...rows];
+                    copy[idx] = {
+                        ...copy[idx],
+                        ...nextJourney,
+                        computed_last_activity_at:
+                            nextJourney.computed_last_activity_at
+                            || nextJourney.last_activity_at
+                            || nextJourney.updated_at
+                            || copy[idx].computed_last_activity_at
+                    };
+                    return copy;
+                }
+                return [{ ...nextJourney }, ...rows];
+            });
+        }
+        scheduleRealtimeRefresh();
+    }, [campaignDraft?.inactivityMinutes, scheduleRealtimeRefresh]);
+
+    useAdminCrudSync({
+        'abandoned_cart:update': handleAbandonedUpdate,
+        'abandoned_cart:journey:update': handleAbandonedUpdate,
+        'abandoned_cart:recovered': handleAbandonedUpdate,
+        'order:create': scheduleRealtimeRefresh,
+        'order:update': scheduleRealtimeRefresh,
+        'payment:update': scheduleRealtimeRefresh
+    });
+
+    useEffect(() => {
         return () => {
             if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
-            socket.off('abandoned_cart:update', handleAbandonedUpdate);
-            socket.off('abandoned_cart:journey:update', handleAbandonedUpdate);
-            socket.off('abandoned_cart:recovered', handleAbandonedUpdate);
-            socket.off('order:create', handleOrderOrPaymentUpdate);
-            socket.off('order:update', handleOrderOrPaymentUpdate);
-            socket.off('payment:update', handleOrderOrPaymentUpdate);
         };
-    }, [
-        fetchAbandonedInsights,
-        loadJourneys,
-        markAbandonedInsightsDirty,
-        openTimeline,
-        rangeDays,
-        campaignDraft?.inactivityMinutes,
-        selectedTimeline?.journey?.id,
-        socket
-    ]);
+    }, []);
 
     useEffect(() => {
         // Safety reconcile in case any socket message is missed.

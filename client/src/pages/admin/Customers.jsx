@@ -14,7 +14,7 @@ import {
     X
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
-import { useSocket } from '../../context/SocketContext';
+import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
@@ -68,7 +68,6 @@ const formatLongDate = (value) => {
 
 export default function Customers({ onOpenLoyalty }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
-    const { socket } = useSocket();
     const { user: currentUser } = useAuth();
     const toast = useToast();
 
@@ -113,9 +112,8 @@ export default function Customers({ onOpenLoyalty }) {
         refreshUsers(false);
     }, [refreshUsers]);
 
-    useEffect(() => {
-        if (!socket) return undefined;
-        const handleCouponChanged = async (payload = {}) => {
+    useAdminCrudSync({
+        'coupon:changed': async (payload = {}) => {
             await refreshUsers(true);
             if (selectedUser?.id) {
                 const affectedUserId = payload?.userId ? String(payload.userId) : null;
@@ -126,12 +124,8 @@ export default function Customers({ onOpenLoyalty }) {
                     } catch {}
                 }
             }
-        };
-        socket.on('coupon:changed', handleCouponChanged);
-        return () => {
-            socket.off('coupon:changed', handleCouponChanged);
-        };
-    }, [socket, refreshUsers, selectedUser?.id]);
+        }
+    });
 
     const canDeleteUser = (targetUser) => {
         if (!currentUser) return false;

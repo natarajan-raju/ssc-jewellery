@@ -1,14 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { productService } from '../../services/productService';
 import { ArrowLeft, GripVertical, Trash2, Plus, X, Search, Loader2, Edit3, Check } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
-import { useSocket } from '../../context/SocketContext';
+import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { useProducts } from '../../context/ProductContext';
 // Add Modal to imports
 import Modal from '../../components/Modal';
 import CategoryModal from '../../components/CategoryModal';
 export default function CategoryDetail({ categoryId, onBack }) {
-    const { socket } = useSocket();
     const [category, setCategory] = useState(null);
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -19,6 +18,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const { allProducts, isDownloading, ensureAllProducts } = useProducts();
     const [assignSearch, setAssignSearch] = useState('');
+    const [debouncedAssignSearch, setDebouncedAssignSearch] = useState('');
     const [selectedAssignIds, setSelectedAssignIds] = useState(new Set());
     // Custom Modal State
     const [modalConfig, setModalConfig] = useState({ 
@@ -29,40 +29,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
 
-    useEffect(() => {
-        loadData();
-    }, [categoryId]);
-
-    useEffect(() => {
-        if (!socket) return;
-        const categoryIdStr = String(categoryId);
-
-        const handleRefresh = (payload = {}) => {
-            const payloadCategoryId = payload?.categoryId ? String(payload.categoryId) : '';
-            const payloadCategory = payload?.category?.id ? String(payload.category.id) : '';
-            if (!payloadCategoryId && !payloadCategory) {
-                loadData();
-                return;
-            }
-            if (payloadCategoryId === categoryIdStr || payloadCategory === categoryIdStr) {
-                loadData();
-            }
-        };
-
-        const handleCategoryProductChange = (payload = {}) => {
-            if (String(payload?.categoryId || '') !== categoryIdStr) return;
-            loadData();
-        };
-
-        socket.on('refresh:categories', handleRefresh);
-        socket.on('product:category_change', handleCategoryProductChange);
-        return () => {
-            socket.off('refresh:categories', handleRefresh);
-            socket.off('product:category_change', handleCategoryProductChange);
-        };
-    }, [socket, categoryId]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
             const data = await productService.getCategoryDetails(categoryId);
@@ -74,7 +41,41 @@ export default function CategoryDetail({ categoryId, onBack }) {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [categoryId, toast]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    const handleCategoryRefresh = useCallback((payload = {}) => {
+        const categoryIdStr = String(categoryId);
+        const payloadCategoryId = payload?.categoryId ? String(payload.categoryId) : '';
+        const payloadCategory = payload?.category?.id ? String(payload.category.id) : '';
+        if (!payloadCategoryId && !payloadCategory) {
+            loadData();
+            return;
+        }
+        if (payloadCategoryId === categoryIdStr || payloadCategory === categoryIdStr) {
+            loadData();
+        }
+    }, [categoryId, loadData]);
+
+    const handleCategoryProductChange = useCallback((payload = {}) => {
+        if (String(payload?.categoryId || '') !== String(categoryId)) return;
+        loadData();
+    }, [categoryId, loadData]);
+
+    useAdminCrudSync({
+        'refresh:categories': handleCategoryRefresh,
+        'product:category_change': handleCategoryProductChange
+    });
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedAssignSearch(assignSearch.trim().toLowerCase());
+        }, 120);
+        return () => clearTimeout(timer);
+    }, [assignSearch]);
 
     // [NEW] Handle Category Update (Name + Image)
     const handleUpdateCategory = async (name, imageFile) => {
@@ -220,10 +221,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
         }
         setIsActionLoading(true);
         try {
-            const selectedProducts = assignableProducts.filter(p => selectedAssignIds.has(p.id));
-            for (const product of selectedProducts) {
-                await productService.manageCategoryProduct(categoryId, product.id, 'add');
-            }
+            await productService.manageCategoryProductsBulk(categoryId, Array.from(selectedAssignIds), 'add');
             toast.success("Products added");
             productService.clearCache();
             await loadData();
@@ -235,12 +233,45 @@ export default function CategoryDetail({ categoryId, onBack }) {
         }
     };
    
+    const assignedProductIds = useMemo(
+        () => new Set(products.map((item) => String(item.id))),
+        [products]
+    );
+
+    const searchableProducts = useMemo(() => (
+        allProducts.map((p) => ({
+            ...p,
+            __search: `${String(p.title || '').toLowerCase()} ${String(p.sku || '').toLowerCase()}`
+        }))
+    ), [allProducts]);
+
     const assignableProducts = useMemo(() => {
-        const search = assignSearch.trim().toLowerCase();
-        return allProducts
-            .filter(p => !products.some(exist => exist.id === p.id))
-            .filter(p => (search ? p.title.toLowerCase().includes(search) : true));
-    }, [allProducts, products, assignSearch]);
+        return searchableProducts
+            .filter((p) => !assignedProductIds.has(String(p.id)))
+            .filter((p) => (debouncedAssignSearch ? p.__search.includes(debouncedAssignSearch) : true));
+    }, [searchableProducts, assignedProductIds, debouncedAssignSearch]);
+
+    const filteredAssignableIds = useMemo(
+        () => assignableProducts.map((p) => p.id),
+        [assignableProducts]
+    );
+
+    const allFilteredSelected = useMemo(
+        () => filteredAssignableIds.length > 0 && filteredAssignableIds.every((id) => selectedAssignIds.has(id)),
+        [filteredAssignableIds, selectedAssignIds]
+    );
+
+    const toggleSelectAllFiltered = () => {
+        setSelectedAssignIds((prev) => {
+            const next = new Set(prev);
+            if (allFilteredSelected) {
+                filteredAssignableIds.forEach((id) => next.delete(id));
+            } else {
+                filteredAssignableIds.forEach((id) => next.add(id));
+            }
+            return next;
+        });
+    };
    
 
     if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>;
@@ -364,6 +395,16 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                 className="w-full pl-9 p-2 rounded-lg border border-gray-200 outline-none focus:border-accent"
                                 autoFocus
                             />
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                            <button
+                                type="button"
+                                onClick={toggleSelectAllFiltered}
+                                className="px-2.5 py-1 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
+                            >
+                                {allFilteredSelected ? 'Unselect all filtered' : 'Select all filtered'}
+                            </button>
+                            <span>{assignableProducts.length.toLocaleString('en-IN')} result(s)</span>
                         </div>
                         <div className="max-h-60 overflow-y-auto space-y-1 custom-scrollbar pr-1">
                             {isDownloading && allProducts.length === 0 && (

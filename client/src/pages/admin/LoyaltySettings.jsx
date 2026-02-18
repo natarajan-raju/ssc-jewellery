@@ -3,7 +3,7 @@ import { ArrowLeft, Crown, Gem, Medal, Pencil, Plus, Search, Shield, Sparkles, S
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
 import { useToast } from '../../context/ToastContext';
-import { useSocket } from '../../context/SocketContext';
+import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -73,7 +73,6 @@ const getDefaultCouponForm = () => ({
 
 export default function LoyaltySettings({ onBack }) {
     const toast = useToast();
-    const { socket } = useSocket();
     const [rows, setRows] = useState([]);
     const [activeTier, setActiveTier] = useState('regular');
     const [editingTier, setEditingTier] = useState(null);
@@ -152,13 +151,12 @@ export default function LoyaltySettings({ onBack }) {
         return () => { cancelled = true; };
     }, [couponPage, couponSearch, couponRefreshKey]);
 
-    useEffect(() => {
-        if (!socket) return undefined;
-        const handleCouponChanged = () => {
+    useAdminCrudSync({
+        'coupon:changed': () => {
             adminService.invalidateLoyaltyCouponCache();
             setCouponRefreshKey((v) => v + 1);
-        };
-        const handleConfigChanged = ({ config } = {}) => {
+        },
+        'loyalty:config_update': ({ config } = {}) => {
             if (Array.isArray(config)) {
                 applyConfigRows(config);
                 return;
@@ -166,14 +164,8 @@ export default function LoyaltySettings({ onBack }) {
             adminService.getLoyaltyConfig()
                 .then((data) => applyConfigRows(Array.isArray(data?.config) ? data.config : []))
                 .catch(() => {});
-        };
-        socket.on('coupon:changed', handleCouponChanged);
-        socket.on('loyalty:config_update', handleConfigChanged);
-        return () => {
-            socket.off('coupon:changed', handleCouponChanged);
-            socket.off('loyalty:config_update', handleConfigChanged);
-        };
-    }, [socket]);
+        }
+    });
 
     const updateRow = (tier, patch) => {
         setRows((prev) => prev.map((row) => (row.tier === tier ? { ...row, ...patch } : row)));

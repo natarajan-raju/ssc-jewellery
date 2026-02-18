@@ -263,6 +263,38 @@ const manageCategoryProduct = async (req, res) => {
     }
 };
 
+const manageCategoryProductsBulk = async (req, res) => {
+    try {
+        const action = String(req.body?.action || '').trim().toLowerCase();
+        const productIds = Array.isArray(req.body?.productIds) ? req.body.productIds : [];
+        if (!['add', 'remove'].includes(action)) {
+            return res.status(400).json({ message: 'Invalid action' });
+        }
+        if (!productIds.length) {
+            return res.status(400).json({ message: 'No products selected' });
+        }
+
+        const affectedProductIds = await Product.manageCategoryProductsBulk(req.params.id, productIds, action);
+        const catName = await Product.getCategoryName(req.params.id);
+        notifyClients(req, 'product:category_change', {
+            bulk: true,
+            categoryId: req.params.id,
+            categoryName: catName,
+            action,
+            productIds: affectedProductIds
+        });
+        await emitProductUpdatesForIds(req, affectedProductIds);
+        const category = await Product.getCategoryStatsById(req.params.id);
+        notifyClients(req, 'refresh:categories', {
+            action: 'count_update',
+            category
+        });
+        res.json({ message: 'Success', updated: affectedProductIds.length });
+    } catch (error) {
+        res.status(500).json({ message: 'Bulk action failed' });
+    }
+};
+
 const createCategory = async (req, res) => {
     try {
         const { name } = req.body;
@@ -292,5 +324,5 @@ const deleteCategory = async (req, res) => {
 
 module.exports = { getProducts,getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories,
     getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct,
-    createCategory, deleteCategory
+    manageCategoryProductsBulk, createCategory, deleteCategory
  };
