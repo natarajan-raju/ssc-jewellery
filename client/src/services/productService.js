@@ -103,6 +103,38 @@ export const productService = {
             delete productCache[key];
         });
     },
+    invalidateCategoryStatsCache: () => {
+        delete productCache['category_stats'];
+        try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
+    },
+    invalidateCategoryListCache: () => {
+        delete productCache['all_categories'];
+    },
+    removeProductFromProductsCache: (productId) => {
+        const id = String(productId || '');
+        if (!id) return;
+
+        const keys = Object.keys(productCache);
+        keys.forEach((key) => {
+            if (!key.startsWith('page')) return;
+            const entry = productCache[key];
+            const data = entry?.data;
+            const list = Array.isArray(data?.products) ? data.products : null;
+            if (!list) return;
+            const next = list.filter((item) => String(item?.id || '') !== id);
+            if (next.length === list.length) return;
+            productCache[key] = {
+                ...entry,
+                timestamp: Date.now(),
+                data: {
+                    ...data,
+                    products: next
+                }
+            };
+        });
+
+        delete productCache[`product_${id}`];
+    },
     patchProductInProductsCache: (updatedProduct, { sorts = [] } = {}) => {
         if (!updatedProduct || updatedProduct.id == null) return;
         const allowedSorts = Array.isArray(sorts) && sorts.length ? new Set(sorts.map((v) => String(v))) : null;
@@ -233,11 +265,6 @@ export const productService = {
 
         productCache = {}; // Clear cache
         return handleResponse(res);
-    },
-
-    // --- CLEAR CACHE MANUALLY ---
-    clearCache: () => {
-        productCache = {};
     },
 
     // --- CATEGORY MANAGEMENT ---

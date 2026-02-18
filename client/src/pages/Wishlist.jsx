@@ -4,12 +4,14 @@ import { Heart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
 import { productService } from '../services/productService';
+import { useSocket } from '../context/SocketContext';
 import ProductCard from '../components/ProductCard';
 import wishlistIllustration from '../assets/wishlist.svg';
 
 export default function Wishlist() {
     const { user, loading } = useAuth();
     const { wishlist, loading: wishlistLoading } = useWishlist();
+    const { socket } = useSocket();
     const navigate = useNavigate();
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -50,6 +52,32 @@ export default function Wishlist() {
             cancelled = true;
         };
     }, [wishlist]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleProductUpdate = (updated = {}) => {
+            const updatedId = String(updated?.id || '').trim();
+            if (!updatedId) return;
+            setProducts((prev) => prev.map((item) => (
+                String(item?.id || '').trim() === updatedId ? { ...item, ...updated } : item
+            )));
+        };
+
+        const handleProductDelete = ({ id } = {}) => {
+            const deletedId = String(id || '').trim();
+            if (!deletedId) return;
+            setProducts((prev) => prev.filter((item) => String(item?.id || '').trim() !== deletedId));
+        };
+
+        socket.on('product:update', handleProductUpdate);
+        socket.on('product:delete', handleProductDelete);
+
+        return () => {
+            socket.off('product:update', handleProductUpdate);
+            socket.off('product:delete', handleProductDelete);
+        };
+    }, [socket]);
 
     if (!user) return null;
 

@@ -292,9 +292,8 @@ export default function Home() {
     // We will wrap this in a function so we can call it later from the Socket listener
     const fetchCategories = useCallback(async () => {
         try {
-            const data = await productService.getCategoryStats();
-            // [FIX] Filter out Best Sellers & New Arrivals from the Featured Grid
-            const filtered = data.filter(c => !['Best Sellers', 'New Arrivals'].includes(c.name) && c.product_count > 0);
+            const data = await productService.getCategoryStats(true);
+            const filtered = (Array.isArray(data) ? data : []).filter((c) => Number(c?.product_count || 0) >= 1);
             setCategories(filtered);
         } catch (err) {
             console.error("Category load failed", err);
@@ -393,11 +392,10 @@ export default function Home() {
                 });
             }
 
-            // Patch Featured Categories list (exclude Best Sellers/New Arrivals)
+            // Patch Featured Categories list (all categories with at least 1 product)
             setCategories(prev => {
                 let next = [...prev];
                 const name = category?.name || payload.categoryName;
-                const isSpecial = name && ['best sellers', 'new arrivals'].includes(name.toLowerCase());
                 const id = category?.id || payload.categoryId;
 
                 if (payload.action === 'delete') {
@@ -405,8 +403,8 @@ export default function Home() {
                     return next;
                 }
 
-                if (category && !isSpecial) {
-                    if (category.product_count > 0) {
+                if (category) {
+                    if (Number(category.product_count || 0) >= 1) {
                         const existing = next.findIndex(c => String(c.id) === String(category.id));
                         if (existing >= 0) next[existing] = { ...next[existing], ...category };
                         else next.push(category);

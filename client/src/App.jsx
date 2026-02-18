@@ -73,8 +73,8 @@ function App() {
     <BrowserRouter>
       <ToastProvider>
         <AuthProvider>
-          <ProductProvider>
             <SocketProvider>
+          <ProductProvider>
               <OrderProvider>
                 <CustomerProvider>
                   <ShippingProvider>
@@ -122,8 +122,8 @@ function App() {
                   </ShippingProvider>
                 </CustomerProvider>
               </OrderProvider>
-            </SocketProvider>
           </ProductProvider>
+            </SocketProvider>
         </AuthProvider>
       </ToastProvider>
     </BrowserRouter>

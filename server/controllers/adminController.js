@@ -248,6 +248,10 @@ const updateLoyaltyConfig = async (req, res) => {
         const items = Array.isArray(req.body?.config) ? req.body.config : [];
         const config = await updateLoyaltyConfigForAdmin(items);
         await ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('loyalty:config_update', { config });
+        }
         return res.json({ config });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update loyalty config' });

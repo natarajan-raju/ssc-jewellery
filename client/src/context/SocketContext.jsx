@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { orderService } from '../services/orderService';
+import { productService } from '../services/productService';
+import { adminService } from '../services/adminService';
 import { useToast } from './ToastContext';
 
 const SocketContext = createContext(null);
@@ -175,6 +177,104 @@ export const SocketProvider = ({ children }) => {
             socket.off('payment:update', handlePaymentUpdate);
         };
     }, [socket, toast, user]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleProductCreate = () => {
+            productService.clearProductsCache();
+            productService.invalidateCategoryStatsCache();
+            productService.invalidateCategoryListCache();
+        };
+
+        const handleProductUpdate = (product = {}) => {
+            productService.patchProductInProductsCache(product);
+            const categories = Array.isArray(product?.categories) ? product.categories : [];
+            categories.forEach((categoryName) => {
+                productService.clearProductsCache({ category: categoryName });
+            });
+            if (!categories.length) {
+                productService.clearProductsCache();
+            }
+        };
+
+        const handleProductDelete = (payload = {}) => {
+            productService.removeProductFromProductsCache(payload?.id);
+            productService.invalidateCategoryStatsCache();
+            productService.clearProductsCache();
+        };
+
+        const handleCategoryRefresh = (payload = {}) => {
+            productService.invalidateCategoryStatsCache();
+            productService.invalidateCategoryListCache();
+            const categoryName = payload?.categoryName || payload?.category?.name;
+            if (payload?.action === 'reorder' || payload?.action === 'sync_all') {
+                productService.clearProductsCache();
+            } else if (categoryName) {
+                productService.clearProductsCache({ category: categoryName });
+            } else {
+                productService.clearProductsCache();
+            }
+        };
+
+        const handleProductCategoryChange = (payload = {}) => {
+            const product = payload?.product;
+            if (product) {
+                productService.patchProductInProductsCache(product);
+                const categories = Array.isArray(product?.categories) ? product.categories : [];
+                categories.forEach((categoryName) => {
+                    productService.clearProductsCache({ category: categoryName });
+                });
+            }
+            if (payload?.categoryName) {
+                productService.clearProductsCache({ category: payload.categoryName });
+            } else {
+                productService.clearProductsCache();
+            }
+            productService.invalidateCategoryStatsCache();
+            productService.invalidateCategoryListCache();
+        };
+
+        const handleAdminCrud = () => {
+            adminService.clearCache();
+        };
+
+        socket.on('product:create', handleProductCreate);
+        socket.on('product:update', handleProductUpdate);
+        socket.on('product:delete', handleProductDelete);
+        socket.on('product:category_change', handleProductCategoryChange);
+        socket.on('refresh:categories', handleCategoryRefresh);
+        socket.on('user:create', handleAdminCrud);
+        socket.on('user:update', handleAdminCrud);
+        socket.on('user:delete', handleAdminCrud);
+        socket.on('company:info_update', handleAdminCrud);
+        socket.on('coupon:changed', handleAdminCrud);
+        socket.on('shipping:update', handleAdminCrud);
+        socket.on('cms:hero_update', handleAdminCrud);
+        socket.on('cms:texts_update', handleAdminCrud);
+        socket.on('cms:banner_update', handleAdminCrud);
+        socket.on('cms:banner_secondary_update', handleAdminCrud);
+        socket.on('cms:featured_category_update', handleAdminCrud);
+
+        return () => {
+            socket.off('product:create', handleProductCreate);
+            socket.off('product:update', handleProductUpdate);
+            socket.off('product:delete', handleProductDelete);
+            socket.off('product:category_change', handleProductCategoryChange);
+            socket.off('refresh:categories', handleCategoryRefresh);
+            socket.off('user:create', handleAdminCrud);
+            socket.off('user:update', handleAdminCrud);
+            socket.off('user:delete', handleAdminCrud);
+            socket.off('company:info_update', handleAdminCrud);
+            socket.off('coupon:changed', handleAdminCrud);
+            socket.off('shipping:update', handleAdminCrud);
+            socket.off('cms:hero_update', handleAdminCrud);
+            socket.off('cms:texts_update', handleAdminCrud);
+            socket.off('cms:banner_update', handleAdminCrud);
+            socket.off('cms:banner_secondary_update', handleAdminCrud);
+            socket.off('cms:featured_category_update', handleAdminCrud);
+        };
+    }, [socket]);
 
     return (
         <SocketContext.Provider value={{ socket }}>

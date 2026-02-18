@@ -2,11 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { productService } from '../../services/productService';
 import { ArrowLeft, GripVertical, Trash2, Plus, X, Search, Loader2, Edit3, Check } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useSocket } from '../../context/SocketContext';
 import { useProducts } from '../../context/ProductContext';
 // Add Modal to imports
 import Modal from '../../components/Modal';
 import CategoryModal from '../../components/CategoryModal';
 export default function CategoryDetail({ categoryId, onBack }) {
+    const { socket } = useSocket();
     const [category, setCategory] = useState(null);
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -30,6 +32,35 @@ export default function CategoryDetail({ categoryId, onBack }) {
     useEffect(() => {
         loadData();
     }, [categoryId]);
+
+    useEffect(() => {
+        if (!socket) return;
+        const categoryIdStr = String(categoryId);
+
+        const handleRefresh = (payload = {}) => {
+            const payloadCategoryId = payload?.categoryId ? String(payload.categoryId) : '';
+            const payloadCategory = payload?.category?.id ? String(payload.category.id) : '';
+            if (!payloadCategoryId && !payloadCategory) {
+                loadData();
+                return;
+            }
+            if (payloadCategoryId === categoryIdStr || payloadCategory === categoryIdStr) {
+                loadData();
+            }
+        };
+
+        const handleCategoryProductChange = (payload = {}) => {
+            if (String(payload?.categoryId || '') !== categoryIdStr) return;
+            loadData();
+        };
+
+        socket.on('refresh:categories', handleRefresh);
+        socket.on('product:category_change', handleCategoryProductChange);
+        return () => {
+            socket.off('refresh:categories', handleRefresh);
+            socket.off('product:category_change', handleCategoryProductChange);
+        };
+    }, [socket, categoryId]);
 
     const loadData = async () => {
         setIsLoading(true);

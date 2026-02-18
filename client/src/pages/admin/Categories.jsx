@@ -2,11 +2,13 @@ import { useState, useEffect } from 'react';
 import { productService } from '../../services/productService';
 import { Plus, Search, Folder, ChevronRight, Loader2, Trash2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useSocket } from '../../context/SocketContext';
 import Modal from '../../components/Modal'; 
 import CategoryDetail from './CategoryDetail'; // We will create this next
 import CategoryModal from '../../components/CategoryModal';
 
 export default function Categories() {
+    const { socket } = useSocket();
     const [view, setView] = useState('list'); // 'list' or 'detail'
     const [selectedCategoryId, setSelectedCategoryId] = useState(null);
     
@@ -24,6 +26,15 @@ export default function Categories() {
     useEffect(() => {
         if (view === 'list') loadCategories();
     }, [view]);
+
+    useEffect(() => {
+        if (!socket || view !== 'list') return;
+        const handleRefresh = () => loadCategories();
+        socket.on('refresh:categories', handleRefresh);
+        return () => {
+            socket.off('refresh:categories', handleRefresh);
+        };
+    }, [socket, view]);
 
     const loadCategories = async () => {
         setIsLoading(true);

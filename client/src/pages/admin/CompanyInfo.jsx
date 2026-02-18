@@ -4,6 +4,7 @@ import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCustomers } from '../../context/CustomerContext';
+import { useSocket } from '../../context/SocketContext';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import Modal from '../../components/Modal';
 
@@ -21,6 +22,7 @@ const DEFAULT_FORM = {
 export default function CompanyInfo() {
     const toast = useToast();
     const { user: currentUser } = useAuth();
+    const { socket } = useSocket();
     const { users, refreshUsers } = useCustomers();
     const [form, setForm] = useState(DEFAULT_FORM);
     const [isLoading, setIsLoading] = useState(true);
@@ -55,6 +57,18 @@ export default function CompanyInfo() {
         };
         load();
     }, [toast, refreshUsers]);
+
+    useEffect(() => {
+        if (!socket) return;
+        const handleCompanyUpdate = ({ company } = {}) => {
+            if (!company || typeof company !== 'object') return;
+            setForm((prev) => ({ ...prev, ...DEFAULT_FORM, ...company }));
+        };
+        socket.on('company:info_update', handleCompanyUpdate);
+        return () => {
+            socket.off('company:info_update', handleCompanyUpdate);
+        };
+    }, [socket]);
 
     const canResetPassword = (targetUser) => {
         if (!currentUser) return false;

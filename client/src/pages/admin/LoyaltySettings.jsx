@@ -92,6 +92,27 @@ export default function LoyaltySettings({ onBack }) {
     const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponRefreshKey, setCouponRefreshKey] = useState(0);
 
+    const applyConfigRows = (config = []) => {
+        const byTier = Object.fromEntries((Array.isArray(config) ? config : []).map((item) => [String(item.tier || '').toLowerCase(), item]));
+        setRows(ORDER.map((tier) => {
+            const item = byTier[tier] || {};
+            const rowLabel = String(item.label || tierLabel(tier));
+            return {
+                tier,
+                label: rowLabel.toLowerCase() === 'regular' ? 'Basic' : rowLabel,
+                threshold: toNumber(item.threshold),
+                windowDays: toNumber(item.windowDays, 30),
+                extraDiscountPct: toNumber(item.extraDiscountPct),
+                shippingDiscountPct: toNumber(item.shippingDiscountPct),
+                birthdayDiscountPct: toNumber(item.birthdayDiscountPct, 10),
+                abandonedCartBoostPct: toNumber(item.abandonedCartBoostPct),
+                priorityWeight: toNumber(item.priorityWeight),
+                shippingPriority: item.shippingPriority || 'standard',
+                benefits: Array.isArray(item.benefits) ? item.benefits : buildBenefitsPreview({ ...item, tier })
+            };
+        }));
+    };
+
     useEffect(() => {
         let cancelled = false;
         Promise.all([
@@ -99,25 +120,7 @@ export default function LoyaltySettings({ onBack }) {
             productService.getCategories().catch(() => ({ categories: [] }))
         ]).then(([data, cats]) => {
             if (cancelled) return;
-            const config = Array.isArray(data?.config) ? data.config : [];
-            const byTier = Object.fromEntries(config.map((item) => [String(item.tier || '').toLowerCase(), item]));
-            setRows(ORDER.map((tier) => {
-                const item = byTier[tier] || {};
-                const rowLabel = String(item.label || tierLabel(tier));
-                return {
-                    tier,
-                    label: rowLabel.toLowerCase() === 'regular' ? 'Basic' : rowLabel,
-                    threshold: toNumber(item.threshold),
-                    windowDays: toNumber(item.windowDays, 30),
-                    extraDiscountPct: toNumber(item.extraDiscountPct),
-                    shippingDiscountPct: toNumber(item.shippingDiscountPct),
-                    birthdayDiscountPct: toNumber(item.birthdayDiscountPct, 10),
-                    abandonedCartBoostPct: toNumber(item.abandonedCartBoostPct),
-                    priorityWeight: toNumber(item.priorityWeight),
-                    shippingPriority: item.shippingPriority || 'standard',
-                    benefits: Array.isArray(item.benefits) ? item.benefits : buildBenefitsPreview({ ...item, tier })
-                };
-            }));
+            applyConfigRows(Array.isArray(data?.config) ? data.config : []);
 
             const categoryRows = Array.isArray(cats)
                 ? cats
@@ -155,9 +158,20 @@ export default function LoyaltySettings({ onBack }) {
             adminService.invalidateLoyaltyCouponCache();
             setCouponRefreshKey((v) => v + 1);
         };
+        const handleConfigChanged = ({ config } = {}) => {
+            if (Array.isArray(config)) {
+                applyConfigRows(config);
+                return;
+            }
+            adminService.getLoyaltyConfig()
+                .then((data) => applyConfigRows(Array.isArray(data?.config) ? data.config : []))
+                .catch(() => {});
+        };
         socket.on('coupon:changed', handleCouponChanged);
+        socket.on('loyalty:config_update', handleConfigChanged);
         return () => {
             socket.off('coupon:changed', handleCouponChanged);
+            socket.off('loyalty:config_update', handleConfigChanged);
         };
     }, [socket]);
 

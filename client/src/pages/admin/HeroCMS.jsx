@@ -3,10 +3,12 @@ import { useState, useEffect } from 'react';
 import { useCms } from '../../hooks/useCms';
 import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useSocket } from '../../context/SocketContext';
 import Modal from '../../components/Modal';
 import { productService } from '../../services/productService';
 
 export default function HeroCMS() {
+    const { socket } = useSocket();
     const [slides, setSlides] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
@@ -119,6 +121,34 @@ export default function HeroCMS() {
             setIsFeaturedLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (!socket) return;
+        const handleHeroUpdate = () => loadSlides();
+        const handleTextUpdate = () => loadHeroTexts();
+        const handleBannerUpdate = () => loadBanner();
+        const handleSecondaryBannerUpdate = () => loadSecondaryBanner();
+        const handleFeaturedUpdate = () => {
+            loadFeaturedConfig();
+            loadFeaturedCategories();
+        };
+
+        socket.on('cms:hero_update', handleHeroUpdate);
+        socket.on('cms:texts_update', handleTextUpdate);
+        socket.on('cms:banner_update', handleBannerUpdate);
+        socket.on('cms:banner_secondary_update', handleSecondaryBannerUpdate);
+        socket.on('cms:featured_category_update', handleFeaturedUpdate);
+        socket.on('refresh:categories', handleFeaturedUpdate);
+
+        return () => {
+            socket.off('cms:hero_update', handleHeroUpdate);
+            socket.off('cms:texts_update', handleTextUpdate);
+            socket.off('cms:banner_update', handleBannerUpdate);
+            socket.off('cms:banner_secondary_update', handleSecondaryBannerUpdate);
+            socket.off('cms:featured_category_update', handleFeaturedUpdate);
+            socket.off('refresh:categories', handleFeaturedUpdate);
+        };
+    }, [socket]);
 
     // --- HANDLERS ---
     const handleFileChange = (e) => {

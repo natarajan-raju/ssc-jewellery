@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { productService } from '../services/productService';
 import { useAuth } from './AuthContext';
+import { useSocket } from './SocketContext';
 
 const ProductContext = createContext(null);
 
@@ -30,6 +31,7 @@ const writeCache = (products) => {
 
 export const ProductProvider = ({ children }) => {
     const { user } = useAuth();
+    const { socket } = useSocket();
     const isAdmin = !!user && (user.role === 'admin' || user.role === 'staff');
 
     const [allProducts, setAllProducts] = useState([]);
@@ -124,6 +126,60 @@ export const ProductProvider = ({ children }) => {
             ensureAllProducts();
         }
     }, [ensureAllProducts, hydrateFromCache, isAdmin]);
+
+    useEffect(() => {
+        if (!socket || !isAdmin) return;
+
+        const persistNext = (updater) => {
+            setAllProducts((prev) => {
+                const next = typeof updater === 'function' ? updater(prev) : updater;
+                setLastFetchedAt(Date.now());
+                writeCache(next);
+                return next;
+            });
+        };
+
+        const handleProductCreate = (product = {}) => {
+            if (!product?.id) return;
+            persistNext((prev) => {
+                const exists = prev.some((item) => String(item.id) === String(product.id));
+                if (exists) return prev.map((item) => (String(item.id) === String(product.id) ? { ...item, ...product } : item));
+                return [product, ...prev];
+            });
+        };
+
+        const handleProductUpdate = (product = {}) => {
+            if (!product?.id) return;
+            persistNext((prev) => {
+                const exists = prev.some((item) => String(item.id) === String(product.id));
+                if (!exists) return [product, ...prev];
+                return prev.map((item) => (String(item.id) === String(product.id) ? { ...item, ...product } : item));
+            });
+        };
+
+        const handleProductDelete = ({ id } = {}) => {
+            if (!id) return;
+            persistNext((prev) => prev.filter((item) => String(item.id) !== String(id)));
+        };
+
+        const handleCategoryChange = (payload = {}) => {
+            if (payload?.product?.id) {
+                handleProductUpdate(payload.product);
+            }
+        };
+
+        socket.on('product:create', handleProductCreate);
+        socket.on('product:update', handleProductUpdate);
+        socket.on('product:delete', handleProductDelete);
+        socket.on('product:category_change', handleCategoryChange);
+
+        return () => {
+            socket.off('product:create', handleProductCreate);
+            socket.off('product:update', handleProductUpdate);
+            socket.off('product:delete', handleProductDelete);
+            socket.off('product:category_change', handleCategoryChange);
+        };
+    }, [socket, isAdmin]);
 
     const value = useMemo(() => ({
         allProducts,

@@ -1,6 +1,20 @@
 const db = require('../config/db');
 
 class Product {
+    static parseJsonSafe(value, fallback = null) {
+        if (value == null) return fallback;
+        if (typeof value === 'object') return value;
+        try {
+            return JSON.parse(value);
+        } catch {
+            return fallback;
+        }
+    }
+
+    static normalizeCategoryName(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest') {
@@ -346,6 +360,35 @@ class Product {
         }
     }
 
+    static async rebuildCategoriesJsonForProducts(productIds = [], { connection = db } = {}) {
+        const ids = [...new Set((productIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+        if (!ids.length) return;
+
+        const placeholders = ids.map(() => '?').join(',');
+        const [rows] = await connection.execute(
+            `SELECT pc.product_id, c.name
+             FROM product_categories pc
+             JOIN categories c ON c.id = pc.category_id
+             WHERE pc.product_id IN (${placeholders})`,
+            ids
+        );
+
+        const byProduct = new Map(ids.map((id) => [String(id), []]));
+        rows.forEach((row) => {
+            const key = String(row.product_id || '');
+            if (!byProduct.has(key)) byProduct.set(key, []);
+            byProduct.get(key).push(String(row.name || '').trim());
+        });
+
+        for (const productId of ids) {
+            const categoryNames = (byProduct.get(String(productId)) || []).filter(Boolean);
+            await connection.execute(
+                'UPDATE products SET categories = ? WHERE id = ?',
+                [JSON.stringify(categoryNames), productId]
+            );
+        }
+    }
+
     // --- HELPER: GET ALL CATEGORIES ---
     static async getAllCategories() {
         const [rows] = await db.execute('SELECT name FROM categories ORDER BY name ASC');
@@ -408,12 +451,40 @@ class Product {
 
     // C. Update Category Name
     static async updateCategory(id, name, imageUrl) {
-        if(imageUrl) {
-            await db.execute('UPDATE categories SET name = ?, image_url = ? WHERE id = ?', [name, imageUrl, id]);
-          } else {
-              await db.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
-          }
-        return true;
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [catRows] = await connection.execute(
+                'SELECT name FROM categories WHERE id = ? LIMIT 1',
+                [id]
+            );
+            const oldName = String(catRows?.[0]?.name || '').trim();
+
+            const [affectedRows] = await connection.execute(
+                'SELECT DISTINCT product_id FROM product_categories WHERE category_id = ?',
+                [id]
+            );
+            const affectedProductIds = new Set(
+                affectedRows.map((row) => String(row.product_id || '').trim()).filter(Boolean)
+            );
+
+            if (imageUrl) {
+                await connection.execute('UPDATE categories SET name = ?, image_url = ? WHERE id = ?', [name, imageUrl, id]);
+            } else {
+                await connection.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+            }
+
+            const relatedRefs = await Product.syncRelatedProductsCategoryReference(oldName, name, { connection });
+            relatedRefs.forEach((productId) => affectedProductIds.add(productId));
+            await Product.rebuildCategoriesJsonForProducts(Array.from(affectedProductIds), { connection });
+            await connection.commit();
+            return Array.from(affectedProductIds);
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     }
 
     // D. Reorder Products in Category
@@ -464,21 +535,8 @@ class Product {
                 );
             }
 
-            // 2. [NEW] SYNC: Fetch all current categories for this product
-            const [rows] = await connection.execute(`
-                SELECT c.name 
-                FROM categories c
-                JOIN product_categories pc ON c.id = pc.category_id
-                WHERE pc.product_id = ?
-            `, [productId]);
-
-            const categoryNames = rows.map(r => r.name);
-
-            // 3. [NEW] SYNC: Update the main product table's JSON column
-            await connection.execute(
-                'UPDATE products SET categories = ? WHERE id = ?',
-                [JSON.stringify(categoryNames), productId]
-            );
+            // 2. Keep products.categories JSON aligned with relational mapping
+            await Product.rebuildCategoriesJsonForProducts([productId], { connection });
 
             await connection.commit();
         } catch (error) {
@@ -505,10 +563,83 @@ class Product {
 
     // G. Delete Category
     static async deleteCategory(id) {
-        // ON DELETE CASCADE in 'product_categories' will automatically untag products.
-        // The products themselves will NOT be deleted, which is safe.
-        await db.execute('DELETE FROM categories WHERE id = ?', [id]);
-        return true;
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [catRows] = await connection.execute(
+                'SELECT name FROM categories WHERE id = ? LIMIT 1',
+                [id]
+            );
+            const deletedCategoryName = String(catRows?.[0]?.name || '').trim();
+            const [affectedRows] = await connection.execute(
+                'SELECT DISTINCT product_id FROM product_categories WHERE category_id = ?',
+                [id]
+            );
+            const affectedProductIds = new Set(
+                affectedRows.map((row) => String(row.product_id || '').trim()).filter(Boolean)
+            );
+
+            // ON DELETE CASCADE in product_categories will untag mapped products
+            await connection.execute('DELETE FROM categories WHERE id = ?', [id]);
+
+            const relatedRefs = await Product.syncRelatedProductsCategoryReference(
+                deletedCategoryName,
+                '',
+                { connection, disableIfMissing: true }
+            );
+            relatedRefs.forEach((productId) => affectedProductIds.add(productId));
+
+            // Refresh products.categories JSON after unlink cascade
+            await Product.rebuildCategoriesJsonForProducts(Array.from(affectedProductIds), { connection });
+            await connection.commit();
+            return Array.from(affectedProductIds);
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async syncRelatedProductsCategoryReference(
+        oldCategoryName,
+        newCategoryName,
+        { connection = db, disableIfMissing = false } = {}
+    ) {
+        const previous = Product.normalizeCategoryName(oldCategoryName);
+        if (!previous) return [];
+
+        const [rows] = await connection.execute(
+            'SELECT id, related_products FROM products WHERE related_products IS NOT NULL'
+        );
+
+        const nextCategory = String(newCategoryName || '').trim();
+        const affected = [];
+
+        for (const row of rows) {
+            const related = Product.parseJsonSafe(row.related_products, {});
+            if (!related || typeof related !== 'object') continue;
+            const currentCategory = Product.normalizeCategoryName(related.category);
+            if (currentCategory !== previous) continue;
+
+            const nextRelated = { ...related };
+            if (nextCategory) {
+                nextRelated.category = nextCategory;
+            } else {
+                nextRelated.category = '';
+                if (disableIfMissing) {
+                    nextRelated.show = false;
+                }
+            }
+
+            await connection.execute(
+                'UPDATE products SET related_products = ? WHERE id = ?',
+                [JSON.stringify(nextRelated), row.id]
+            );
+            affected.push(String(row.id));
+        }
+
+        return affected;
     }
 
     // --- H. Helper: Get Category Name (For Socket Events) ---

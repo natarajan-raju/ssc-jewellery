@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { productService } from '../../services/productService';
+import { useSocket } from '../../context/SocketContext';
 import { 
     Loader2, Search, Plus, Package, 
     ChevronLeft, ChevronRight, Edit3, Trash2, Eye, EyeOff, Filter,
@@ -21,6 +22,7 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
 };
 
 export default function Products({ onNavigate }) {
+    const { socket } = useSocket();
     const { allProducts, isDownloading, ensureAllProducts, refreshAllProducts } = useProducts();
     
     // Pagination & Filters
@@ -42,6 +44,19 @@ export default function Products({ onNavigate }) {
             .then(data => setCategories(data))
             .catch(err => console.error("Failed to load categories", err));
     }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        const refreshCategories = () => {
+            productService.getCategories()
+                .then(data => setCategories(data))
+                .catch(() => {});
+        };
+        socket.on('refresh:categories', refreshCategories);
+        return () => {
+            socket.off('refresh:categories', refreshCategories);
+        };
+    }, [socket]);
 
     // --- DATA LOADING (Background) ---
     useEffect(() => {
