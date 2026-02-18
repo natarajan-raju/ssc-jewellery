@@ -1,19 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart } from 'lucide-react';
+import { Heart, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
 import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
-import ProductCard from '../components/ProductCard';
 import wishlistIllustration from '../assets/wishlist.svg';
 
 export default function Wishlist() {
     const { user, loading } = useAuth();
-    const { wishlist, loading: wishlistLoading } = useWishlist();
+    const { wishlistItems, loading: wishlistLoading, removeFromWishlist } = useWishlist();
     const { socket } = useSocket();
     const navigate = useNavigate();
-    const [products, setProducts] = useState([]);
+    const [productLookup, setProductLookup] = useState({});
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
@@ -29,18 +28,28 @@ export default function Wishlist() {
         let cancelled = false;
 
         const loadWishlistProducts = async () => {
-            if (!wishlist.length) {
-                setProducts([]);
+            if (!wishlistItems.length) {
+                setProductLookup({});
                 return;
             }
+
+            const targetIds = [...new Set(wishlistItems.map((entry) => String(entry.productId || '').trim()).filter(Boolean))];
+            const missingIds = targetIds.filter((id) => !productLookup[id]);
+            if (!missingIds.length) return;
 
             setIsLoading(true);
             try {
                 const responses = await Promise.all(
-                    wishlist.map((productId) => productService.getProduct(productId).catch(() => null))
+                    missingIds.map((productId) => productService.getProduct(productId).catch(() => null))
                 );
                 if (!cancelled) {
-                    setProducts(responses.filter(Boolean));
+                    setProductLookup((prev) => {
+                        const next = { ...prev };
+                        responses.filter(Boolean).forEach((product) => {
+                            next[String(product.id)] = product;
+                        });
+                        return next;
+                    });
                 }
             } finally {
                 if (!cancelled) setIsLoading(false);
@@ -51,7 +60,36 @@ export default function Wishlist() {
         return () => {
             cancelled = true;
         };
-    }, [wishlist]);
+    }, [wishlistItems, productLookup]);
+
+    const wishlistEntries = useMemo(() => {
+        return wishlistItems
+            .map((entry) => {
+                const product = productLookup[String(entry.productId || '').trim()];
+                if (!product) return null;
+                const variants = Array.isArray(product.variants) ? product.variants : [];
+                const variant = entry.variantId
+                    ? variants.find((v) => String(v.id) === String(entry.variantId))
+                    : null;
+                const mediaList = Array.isArray(product.media) ? product.media : [];
+                const baseImage = mediaList[0]?.url || mediaList[0] || null;
+                const imageUrl = variant?.image_url || baseImage;
+                const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || 0);
+                const mrp = Number(variant?.price || product.mrp || 0);
+                return {
+                    key: `${entry.productId}__${entry.variantId || 'base'}`,
+                    productId: entry.productId,
+                    variantId: entry.variantId || '',
+                    title: product.title,
+                    variantTitle: variant?.variant_title || '',
+                    imageUrl,
+                    price,
+                    mrp,
+                    status: String(product.status || 'active').toLowerCase()
+                };
+            })
+            .filter(Boolean);
+    }, [wishlistItems, productLookup]);
 
     useEffect(() => {
         if (!socket) return;
@@ -59,15 +97,24 @@ export default function Wishlist() {
         const handleProductUpdate = (updated = {}) => {
             const updatedId = String(updated?.id || '').trim();
             if (!updatedId) return;
-            setProducts((prev) => prev.map((item) => (
-                String(item?.id || '').trim() === updatedId ? { ...item, ...updated } : item
-            )));
+            setProductLookup((prev) => {
+                if (!prev[updatedId]) return prev;
+                return {
+                    ...prev,
+                    [updatedId]: { ...prev[updatedId], ...updated }
+                };
+            });
         };
 
         const handleProductDelete = ({ id } = {}) => {
             const deletedId = String(id || '').trim();
             if (!deletedId) return;
-            setProducts((prev) => prev.filter((item) => String(item?.id || '').trim() !== deletedId));
+            setProductLookup((prev) => {
+                if (!prev[deletedId]) return prev;
+                const next = { ...prev };
+                delete next[deletedId];
+                return next;
+            });
         };
 
         socket.on('product:update', handleProductUpdate);
@@ -91,14 +138,14 @@ export default function Wishlist() {
                         </div>
                         <div>
                             <h1 className="text-2xl md:text-3xl font-serif text-primary">My Wishlist</h1>
-                            <p className="text-sm text-gray-500 mt-0.5">{wishlist.length} saved items</p>
+                            <p className="text-sm text-gray-500 mt-0.5">{wishlistItems.length} saved items</p>
                         </div>
                     </div>
                 </div>
 
                 {isLoading || wishlistLoading ? (
                     <div className="mt-8 text-sm text-gray-500">Loading wishlist...</div>
-                ) : products.length === 0 ? (
+                ) : wishlistEntries.length === 0 ? (
                     <div className="mt-8 bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
                         <img
                             src={wishlistIllustration}
@@ -115,9 +162,46 @@ export default function Wishlist() {
                         </Link>
                     </div>
                 ) : (
-                    <div className="mt-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
-                        {products.map((product) => (
-                            <ProductCard key={product.id} product={product} />
+                    <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                        {wishlistEntries.map((entry) => (
+                            <div key={entry.key} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                                <Link to={`/product/${entry.productId}`} className="block aspect-[4/3] bg-gray-50 overflow-hidden">
+                                    {entry.imageUrl ? (
+                                        <img src={entry.imageUrl} alt={entry.title} className="w-full h-full object-cover" />
+                                    ) : null}
+                                </Link>
+                                <div className="p-4 space-y-2">
+                                    <Link to={`/product/${entry.productId}`} className="font-semibold text-gray-800 hover:text-primary line-clamp-1">
+                                        {entry.title}
+                                    </Link>
+                                    <p className="text-xs text-gray-500">
+                                        {entry.variantTitle ? `Variant: ${entry.variantTitle}` : 'Default product'}
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base font-bold text-primary">₹{entry.price.toLocaleString('en-IN')}</span>
+                                        {entry.mrp > entry.price && (
+                                            <span className="text-xs text-gray-400 line-through">₹{entry.mrp.toLocaleString('en-IN')}</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center justify-between pt-2">
+                                        <span className={`text-xs font-semibold ${entry.status === 'active' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                            {entry.status === 'active' ? 'Active' : 'Unavailable'}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeFromWishlist({
+                                                productId: entry.productId,
+                                                variantId: entry.variantId,
+                                                productTitle: entry.title,
+                                                variantTitle: entry.variantTitle
+                                            })}
+                                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                                        >
+                                            <Trash2 size={12} /> Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         ))}
                     </div>
                 )}

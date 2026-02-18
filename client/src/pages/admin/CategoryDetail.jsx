@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { productService } from '../../services/productService';
 import { ArrowLeft, GripVertical, Trash2, Plus, X, Search, Loader2, Edit3, Check } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
@@ -16,6 +17,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     
     // Assign Modal State
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+    const [isClient, setIsClient] = useState(false);
     const { allProducts, isDownloading, ensureAllProducts } = useProducts();
     const [assignSearch, setAssignSearch] = useState('');
     const [debouncedAssignSearch, setDebouncedAssignSearch] = useState('');
@@ -76,6 +78,10 @@ export default function CategoryDetail({ categoryId, onBack }) {
         }, 120);
         return () => clearTimeout(timer);
     }, [assignSearch]);
+
+    useEffect(() => {
+        setIsClient(true);
+    }, []);
 
     // [NEW] Handle Category Update (Name + Image)
     const handleUpdateCategory = async (name, imageFile) => {
@@ -379,7 +385,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
             </div>
 
             {/* --- ASSIGN MODAL --- */}
-            {isAssignModalOpen && (
+            {isAssignModalOpen && isClient && createPortal(
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl p-6 space-y-4 animate-in zoom-in-95">
                         <div className="flex justify-between items-center">
@@ -467,7 +473,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
                         </div>
                     </div>
                 </div>
-            )}
+            , document.body)}
         </div>
     );
 }

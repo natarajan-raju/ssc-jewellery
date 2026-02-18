@@ -7,6 +7,7 @@ import CartDrawer from '../components/CartDrawer';
 import QuickAddModal from '../components/QuickAddModal';
 import { useToast } from './ToastContext';
 import { useWishlist } from './WishlistContext';
+import { playFacebookLikeSound } from '../utils/uiSound';
 
 const defaultCartContext = {
     items: [],
@@ -170,6 +171,7 @@ export const CartProvider = ({ children }) => {
             setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
             await removeFromWishlist(product.id, variant?.id || '', { silent: true, removeAllVariants: !variant?.id });
             notifyCartItemAdded(product.id, variant?.id || '');
+            playFacebookLikeSound();
         } else {
             setItems(prev => {
                 const key = buildKey(product.id, variant?.id || '');
@@ -180,6 +182,7 @@ export const CartProvider = ({ children }) => {
                 return [...prev, snapshot];
             });
             notifyCartItemAdded(product.id, variant?.id || '');
+            playFacebookLikeSound();
         }
     };
 

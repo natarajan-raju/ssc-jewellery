@@ -330,33 +330,54 @@ class Product {
 
     // --- HELPER: SECURE CATEGORY SYNC ---
     static async syncCategories(connection, productId, categoryNames) {
-        // 1. Clear existing links for this product (Clean slate approach)
-        await connection.execute('DELETE FROM product_categories WHERE product_id = ?', [productId]);
+        const normalized = [...new Set(
+            (Array.isArray(categoryNames) ? categoryNames : [])
+                .map((name) => String(name || '').trim())
+                .filter(Boolean)
+        )];
 
-        if (!categoryNames || !Array.isArray(categoryNames) || categoryNames.length === 0) return;
-
-        const categoryIds = [];
-        for (const name of categoryNames) {
-            const trimmed = name.trim();
-            if (!trimmed) continue;
-
-            // Check if category exists
-            const [rows] = await connection.execute('SELECT id FROM categories WHERE name = ?', [trimmed]);
-            
+        // 1. Resolve category IDs (create missing)
+        const targetCategoryIds = [];
+        for (const name of normalized) {
+            const [rows] = await connection.execute('SELECT id FROM categories WHERE name = ?', [name]);
             if (rows.length > 0) {
-                categoryIds.push(rows[0].id);
+                targetCategoryIds.push(Number(rows[0].id));
             } else {
-                // If not exists, CREATE it dynamically (Tagging style)
-                const [result] = await connection.execute('INSERT INTO categories (name) VALUES (?)', [trimmed]);
-                categoryIds.push(result.insertId);
+                const [result] = await connection.execute('INSERT INTO categories (name) VALUES (?)', [name]);
+                targetCategoryIds.push(Number(result.insertId));
             }
         }
 
-        // 2. Insert new links
-        if (categoryIds.length > 0) {
-            const placeholders = categoryIds.map(() => '(?, ?)').join(', ');
-            const values = categoryIds.flatMap(catId => [productId, catId]);
-            await connection.execute(`INSERT INTO product_categories (product_id, category_id) VALUES ${placeholders}`, values);
+        // 2. Load existing mappings for this product
+        const [existingRows] = await connection.execute(
+            'SELECT category_id FROM product_categories WHERE product_id = ?',
+            [productId]
+        );
+        const existingSet = new Set(existingRows.map((row) => Number(row.category_id)));
+        const targetSet = new Set(targetCategoryIds);
+
+        // 3. Remove categories no longer linked
+        const toDelete = [...existingSet].filter((categoryId) => !targetSet.has(categoryId));
+        if (toDelete.length > 0) {
+            const placeholders = toDelete.map(() => '?').join(',');
+            await connection.execute(
+                `DELETE FROM product_categories WHERE product_id = ? AND category_id IN (${placeholders})`,
+                [productId, ...toDelete]
+            );
+        }
+
+        // 4. Add only new links; append to end to preserve admin manual order
+        const toInsert = targetCategoryIds.filter((categoryId) => !existingSet.has(categoryId));
+        for (const categoryId of toInsert) {
+            const [orderRows] = await connection.execute(
+                'SELECT COALESCE(MAX(display_order), -1) AS max_order FROM product_categories WHERE category_id = ?',
+                [categoryId]
+            );
+            const nextOrder = Number(orderRows?.[0]?.max_order ?? -1) + 1;
+            await connection.execute(
+                'INSERT INTO product_categories (product_id, category_id, display_order) VALUES (?, ?, ?)',
+                [productId, categoryId, nextOrder]
+            );
         }
     }
 
@@ -523,9 +544,14 @@ class Product {
                     [categoryId, productId]
                 );
                 if (exists.length === 0) {
+                    const [orderRows] = await connection.execute(
+                        'SELECT COALESCE(MAX(display_order), -1) AS max_order FROM product_categories WHERE category_id = ?',
+                        [categoryId]
+                    );
+                    const nextOrder = Number(orderRows?.[0]?.max_order ?? -1) + 1;
                     await connection.execute(
-                        'INSERT INTO product_categories (category_id, product_id) VALUES (?, ?)', 
-                        [categoryId, productId]
+                        'INSERT INTO product_categories (category_id, product_id, display_order) VALUES (?, ?, ?)', 
+                        [categoryId, productId, nextOrder]
                     );
                 }
             } else if (action === 'remove') {
@@ -566,10 +592,20 @@ class Product {
                 const existing = new Set(existingRows.map((row) => String(row.product_id || '').trim()).filter(Boolean));
                 const toInsert = ids.filter((id) => !existing.has(String(id)));
                 if (toInsert.length > 0) {
-                    const values = toInsert.flatMap((productId) => [categoryId, productId]);
-                    const tuplePlaceholders = toInsert.map(() => '(?, ?)').join(',');
+                    const [orderRows] = await connection.execute(
+                        'SELECT COALESCE(MAX(display_order), -1) AS max_order FROM product_categories WHERE category_id = ?',
+                        [categoryId]
+                    );
+                    let nextOrder = Number(orderRows?.[0]?.max_order ?? -1) + 1;
+
+                    const values = [];
+                    toInsert.forEach((productId) => {
+                        values.push(categoryId, productId, nextOrder);
+                        nextOrder += 1;
+                    });
+                    const tuplePlaceholders = toInsert.map(() => '(?, ?, ?)').join(',');
                     await connection.execute(
-                        `INSERT INTO product_categories (category_id, product_id) VALUES ${tuplePlaceholders}`,
+                        `INSERT INTO product_categories (category_id, product_id, display_order) VALUES ${tuplePlaceholders}`,
                         values
                     );
                 }

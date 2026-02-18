@@ -55,9 +55,13 @@ export default function ProductPage() {
     const [activeAccordion, setActiveAccordion] = useState(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [justAddedToCart, setJustAddedToCart] = useState(false);
+    const [cartPressed, setCartPressed] = useState(false);
+    const [heartPressed, setHeartPressed] = useState(false);
     const shareRef = useRef(null);
     const cartFeedbackTimerRef = useRef(null);
     const relatedReloadTimerRef = useRef(null);
+    const cartPressTimerRef = useRef(null);
+    const heartPressTimerRef = useRef(null);
 
     // [FIX] Helper to normalize socket data (Strings -> Arrays)
     const normalizeSocketData = (data) => {
@@ -244,6 +248,9 @@ export default function ProductPage() {
 
     const handleAddToCart = async () => {
         if (!product) return;
+        setCartPressed(true);
+        if (cartPressTimerRef.current) clearTimeout(cartPressTimerRef.current);
+        cartPressTimerRef.current = setTimeout(() => setCartPressed(false), 180);
         try {
             if (String(product.status || '').toLowerCase() !== 'active') {
                 toast.error('This product is inactive and unavailable.');
@@ -463,9 +470,14 @@ export default function ProductPage() {
         // B. [NEW] Handler for Category Changes (Reorder / Add / Remove)
         const handleCategoryChange = (payload) => {
             const currentRelatedCat = String(relatedCategoryRef.current || '').trim();
+            const changedCategoryName = String(
+                payload?.categoryName
+                || payload?.category?.name
+                || ''
+            ).trim();
             
             // Check if the event affects the category we are displaying
-            if (currentRelatedCat && String(payload?.categoryName || '').trim().toLowerCase() === currentRelatedCat.toLowerCase()) {
+            if (currentRelatedCat && changedCategoryName.toLowerCase() === currentRelatedCat.toLowerCase()) {
                 console.log("🔄 Related Category Updated:", payload.action);
                 if (payload.action === 'reorder' || payload.action === 'count_update' || payload.action === 'remove' || payload.action === 'add') {
                     productService.clearProductsCache({ category: currentRelatedCat });
@@ -567,6 +579,8 @@ export default function ProductPage() {
 
     useEffect(() => () => {
         if (cartFeedbackTimerRef.current) clearTimeout(cartFeedbackTimerRef.current);
+        if (cartPressTimerRef.current) clearTimeout(cartPressTimerRef.current);
+        if (heartPressTimerRef.current) clearTimeout(heartPressTimerRef.current);
     }, []);
 
     // --- Render Helpers ---
@@ -790,18 +804,25 @@ export default function ProductPage() {
                             <button 
                                 disabled={isOutOfStock}
                                 className={`flex-1 btn-primary py-4 text-lg flex items-center justify-center transition-all
-                                ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : justAddedToCart ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:shadow-lg'}`}
+                                ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : justAddedToCart ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:shadow-lg'}
+                                ${cartPressed ? 'scale-[0.99]' : 'scale-100'}`}
                                 onClick={() => !isOutOfStock && handleAddToCart()} 
                             >
                                 {justAddedToCart && !isOutOfStock ? <Check size={20} className="mr-2" /> : <ShoppingCart size={20} className="mr-2" />}
                                 {isOutOfStock ? 'Sold out' : justAddedToCart ? 'Added' : 'Add to Cart'}
                             </button>
                             <button 
-                                className="px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-colors"
+                                className={`px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-all duration-150 ${heartPressed ? 'scale-110' : 'scale-100'}`}
                                 onClick={async () => {
+                                    setHeartPressed(true);
+                                    if (heartPressTimerRef.current) clearTimeout(heartPressTimerRef.current);
+                                    heartPressTimerRef.current = setTimeout(() => setHeartPressed(false), 180);
+                                    const selectedVariant = sortedVariants.find(v => String(v.id) === String(activeVariantId || ''));
                                     await toggleWishlist({
                                         productId: product.id,
-                                        variantId: activeVariantId || ''
+                                        variantId: activeVariantId || '',
+                                        productTitle: product.title,
+                                        variantTitle: selectedVariant?.variant_title || ''
                                     });
                                 }}
                             >

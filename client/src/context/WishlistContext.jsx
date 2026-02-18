@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { useSocket } from './SocketContext';
 import { wishlistService } from '../services/wishlistService';
+import { playFacebookLikeSound } from '../utils/uiSound';
 
 const WishlistContext = createContext({
     wishlist: [],
@@ -91,12 +92,16 @@ export const WishlistProvider = ({ children }) => {
         if (productOrObject && typeof productOrObject === 'object') {
             return {
                 productId: String(productOrObject.productId || '').trim(),
-                variantId: String(productOrObject.variantId || '').trim()
+                variantId: String(productOrObject.variantId || '').trim(),
+                productTitle: String(productOrObject.productTitle || productOrObject.title || '').trim(),
+                variantTitle: String(productOrObject.variantTitle || '').trim()
             };
         }
         return {
             productId: String(productOrObject || '').trim(),
-            variantId: String(variantArg || '').trim()
+            variantId: String(variantArg || '').trim(),
+            productTitle: '',
+            variantTitle: ''
         };
     }, []);
 
@@ -117,14 +122,16 @@ export const WishlistProvider = ({ children }) => {
             toast.info('Please login to save products in wishlist');
             return false;
         }
-        const { productId, variantId } = toPayload(productOrObject, variantArg);
+        const { productId, variantId, productTitle, variantTitle } = toPayload(productOrObject, variantArg);
         if (!productId) return false;
         if (isWishlisted(productId, variantId)) return false;
         try {
             const data = await wishlistService.addItem(productId, variantId);
             const nextItems = normalizeWishlistItems(data);
             setWishlistItems(nextItems);
-            toast.success('Added to wishlist');
+            const label = [productTitle || 'Item', variantTitle].filter(Boolean).join(' - ');
+            toast.success(`Added ${label} to the wishlist`);
+            playFacebookLikeSound();
             return true;
         } catch (error) {
             toast.error(error?.message || 'Failed to update wishlist');
@@ -138,14 +145,17 @@ export const WishlistProvider = ({ children }) => {
             return false;
         }
         const { silent = false, removeAllVariants = false } = options || {};
-        const { productId, variantId } = toPayload(productOrObject, variantArg);
+        const { productId, variantId, productTitle, variantTitle } = toPayload(productOrObject, variantArg);
         if (!productId) return false;
         if (!isWishlisted(productId, variantId)) return false;
         try {
             const data = await wishlistService.removeItem(productId, variantId, removeAllVariants);
             const nextItems = normalizeWishlistItems(data);
             setWishlistItems(nextItems);
-            if (!silent) toast.info('Removed from wishlist');
+            if (!silent) {
+                const label = [productTitle || 'Item', variantTitle].filter(Boolean).join(' - ');
+                toast.info(`Removed ${label} from the wishlist`);
+            }
             return true;
         } catch (error) {
             toast.error(error?.message || 'Failed to update wishlist');
@@ -157,10 +167,10 @@ export const WishlistProvider = ({ children }) => {
         const { productId, variantId } = toPayload(productOrObject, variantArg);
         if (!productId) return false;
         if (isWishlisted(productId, variantId)) {
-            await removeFromWishlist(productId, variantId);
+            await removeFromWishlist(productOrObject, variantArg);
             return false;
         }
-        await addToWishlist(productId, variantId);
+        await addToWishlist(productOrObject, variantArg);
         return true;
     }, [addToWishlist, removeFromWishlist, isWishlisted, toPayload]);
 

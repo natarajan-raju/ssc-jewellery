@@ -18,7 +18,11 @@ export default function ProductCard({ product }) {
     const [isHovered, setIsHovered] = useState(false);
     const [quickAddAdded, setQuickAddAdded] = useState(false);
     const [isUpdatingQty, setIsUpdatingQty] = useState(false);
+    const [heartPressed, setHeartPressed] = useState(false);
+    const [cartPressed, setCartPressed] = useState(false);
     const resetTimerRef = useRef(null);
+    const heartPressTimerRef = useRef(null);
+    const cartPressTimerRef = useRef(null);
     const { items, addItem, updateQuantity, openQuickAdd } = useCart();
     const { isWishlisted, toggleWishlist } = useWishlist();
     const { user } = useAuth();
@@ -118,8 +122,15 @@ export default function ProductCard({ product }) {
     const handleWishlist = async (e) => {
         e.stopPropagation();
         e.preventDefault();
-        
-        await toggleWishlist(product.id);
+
+        setHeartPressed(true);
+        if (heartPressTimerRef.current) clearTimeout(heartPressTimerRef.current);
+        heartPressTimerRef.current = setTimeout(() => setHeartPressed(false), 180);
+
+        await toggleWishlist({
+            productId: product.id,
+            productTitle: product.title
+        });
     };
 
     useEffect(() => {
@@ -138,12 +149,17 @@ export default function ProductCard({ product }) {
         return () => {
             window.removeEventListener('cart:item-added', handleAdded);
             if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+            if (heartPressTimerRef.current) clearTimeout(heartPressTimerRef.current);
+            if (cartPressTimerRef.current) clearTimeout(cartPressTimerRef.current);
         };
     }, [product.id]);
 
     const handleAddToCart = async (e) => {
         e.preventDefault();
         e.stopPropagation();
+        setCartPressed(true);
+        if (cartPressTimerRef.current) clearTimeout(cartPressTimerRef.current);
+        cartPressTimerRef.current = setTimeout(() => setCartPressed(false), 180);
         if (product.variants && product.variants.length > 0) {
             if (isUnavailable) return;
             openQuickAdd(product);
@@ -197,8 +213,8 @@ export default function ProductCard({ product }) {
             ? 'mt-3 w-full'
             : `w-full transition-all duration-300 ${(quickAddAdded || isHovered || productCartQty > 0) ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`;
         const buttonClasses = isMobile
-            ? 'w-full font-bold py-2 rounded-lg border transition-colors flex items-center justify-center gap-2'
-            : 'w-full font-bold py-2 rounded-lg shadow-lg transition-colors flex items-center justify-center gap-2';
+            ? `w-full font-bold py-2 rounded-lg border transition-all duration-150 flex items-center justify-center gap-2 ${cartPressed ? 'scale-[0.98]' : 'scale-100'}`
+            : `w-full font-bold py-2 rounded-lg shadow-lg transition-all duration-150 flex items-center justify-center gap-2 ${cartPressed ? 'scale-[0.98]' : 'scale-100'}`;
 
         return (
             <div className={wrapperClasses}>
@@ -272,7 +288,7 @@ export default function ProductCard({ product }) {
             {/* --- WISHLIST BUTTON --- */}
             <button 
                 onClick={handleWishlist}
-                className="absolute top-3 right-3 z-20 p-2 bg-white/80 backdrop-blur-sm rounded-full text-gray-400 hover:text-red-500 hover:bg-white transition-all shadow-sm active:scale-95"
+                className={`absolute top-3 right-3 z-20 p-2 bg-white/80 backdrop-blur-sm rounded-full text-gray-400 hover:text-red-500 hover:bg-white transition-all duration-150 shadow-sm ${heartPressed ? 'scale-110' : 'scale-100'}`}
             >
                 <Heart size={20} className={wishlisted ? 'fill-red-500 text-red-500' : ''} />
             </button>
