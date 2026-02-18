@@ -270,8 +270,16 @@ const buildRecoveryEmail = ({
                 </tr>
                 <tr>
                     <td style="padding:14px 22px 8px;">
-                        <a href="${ctaUrl}" target="_blank" rel="noreferrer" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:10px;font-size:14px;font-weight:600;">${ctaLabel}</a>
-                        <a href="${exploreUrl}" target="_blank" rel="noreferrer" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:11px 18px;border-radius:10px;font-size:14px;font-weight:600;border:1px solid #d1d5db;margin-left:8px;">Explore</a>
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td width="50%" style="padding-right:10px;">
+                                    <a href="${ctaUrl}" target="_blank" rel="noreferrer" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#111827;color:#ffffff;text-decoration:none;padding:11px 14px;border-radius:10px;font-size:14px;font-weight:600;">${ctaLabel}</a>
+                                </td>
+                                <td width="50%" style="padding-left:10px;">
+                                    <a href="${exploreUrl}" target="_blank" rel="noreferrer" style="display:block;width:100%;box-sizing:border-box;text-align:center;background:#ffffff;color:#111827;text-decoration:none;padding:11px 14px;border-radius:10px;font-size:14px;font-weight:600;border:1px solid #d1d5db;">Explore</a>
+                                </td>
+                            </tr>
+                        </table>
                     </td>
                 </tr>
                 <tr>

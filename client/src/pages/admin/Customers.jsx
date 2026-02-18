@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import {
+    Calendar,
     Loader2,
     MessageCircle,
     Plus,
@@ -90,6 +91,13 @@ export default function Customers({ onOpenLoyalty }) {
     const [couponModalUser, setCouponModalUser] = useState(null);
     const [couponSaving, setCouponSaving] = useState(false);
     const [couponDeletingId, setCouponDeletingId] = useState(null);
+    const [couponDeleteLoading, setCouponDeleteLoading] = useState(false);
+    const [couponDeleteConfirm, setCouponDeleteConfirm] = useState({
+        isOpen: false,
+        userId: null,
+        couponId: null,
+        couponCode: ''
+    });
     const [couponForm, setCouponForm] = useState({
         name: '',
         discountType: 'percent',
@@ -178,6 +186,14 @@ export default function Customers({ onOpenLoyalty }) {
     useEffect(() => {
         setPage((prev) => Math.min(Math.max(1, Number(prev || 1)), customerTotalPages));
     }, [customerTotalPages]);
+
+    useEffect(() => {
+        if (!selectedUser?.id) return;
+        const latest = users.find((entry) => String(entry.id) === String(selectedUser.id));
+        if (latest) {
+            setSelectedUser((prev) => ({ ...prev, ...latest }));
+        }
+    }, [users, selectedUser?.id]);
 
     const handleAddUser = async (userData) => {
         const payload = { ...userData, role: addModalRole };
@@ -294,18 +310,30 @@ export default function Customers({ onOpenLoyalty }) {
         }
     };
 
-    const handleDeleteUserCoupon = async (userId, couponId) => {
+    const handleDeleteUserCoupon = async (userId, couponId, couponCode = '', force = false) => {
         if (!userId || !couponId) return;
-        if (!window.confirm('Delete this coupon?')) return;
+        if (!force) {
+            setCouponDeleteConfirm({
+                isOpen: true,
+                userId,
+                couponId,
+                couponCode: String(couponCode || couponId || '').trim()
+            });
+            return;
+        }
+        setCouponDeleteLoading(true);
         setCouponDeletingId(String(couponId));
         try {
             await adminService.deleteUserCoupon(userId, couponId);
             toast.success('Coupon deleted');
             const data = await adminService.getUserActiveCoupons(userId);
             setActiveCoupons(Array.isArray(data?.coupons) ? data.coupons : []);
+            await refreshUsers(true);
+            setCouponDeleteConfirm({ isOpen: false, userId: null, couponId: null, couponCode: '' });
         } catch (error) {
             toast.error(error?.message || 'Failed to delete coupon');
         } finally {
+            setCouponDeleteLoading(false);
             setCouponDeletingId(null);
         }
     };
@@ -333,6 +361,16 @@ export default function Customers({ onOpenLoyalty }) {
                 message={modalConfig.message}
                 type={modalConfig.type}
                 isLoading={isActionLoading}
+            />
+            <Modal
+                isOpen={couponDeleteConfirm.isOpen}
+                onClose={() => setCouponDeleteConfirm({ isOpen: false, userId: null, couponId: null, couponCode: '' })}
+                onConfirm={() => handleDeleteUserCoupon(couponDeleteConfirm.userId, couponDeleteConfirm.couponId, couponDeleteConfirm.couponCode, true)}
+                title="Delete Coupon?"
+                message={`Are you sure you want to delete ${couponDeleteConfirm.couponCode || 'this coupon'}?`}
+                type="delete"
+                isLoading={couponDeleteLoading}
+                confirmText="Delete Coupon"
             />
 
             <AddCustomerModal
@@ -375,14 +413,47 @@ export default function Customers({ onOpenLoyalty }) {
                             </label>
                             <label className="text-xs text-gray-600">
                                 Start Date <span className="text-red-500">*</span>
-                                <input className="input-field mt-1" type="date" value={couponForm.startsAt} onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))} required />
+                                <div className="relative mt-1">
+                                    <input
+                                        className="input-field pr-10"
+                                        type="text"
+                                        placeholder="18th Feb 2026"
+                                        value={formatLongDate(couponForm.startsAt)}
+                                        readOnly
+                                        required
+                                    />
+                                    <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                    <input
+                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                        type="date"
+                                        value={couponForm.startsAt}
+                                        onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))}
+                                        required
+                                    />
+                                </div>
                             </label>
                             <label className="text-xs text-gray-600">
                                 End Date (Optional)
-                                <input className="input-field mt-1" type="date" value={couponForm.expiresAt} min={couponForm.startsAt || undefined} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} />
+                                <div className="relative mt-1">
+                                    <input
+                                        className="input-field pr-10"
+                                        type="text"
+                                        placeholder="18th Feb 2026"
+                                        value={formatLongDate(couponForm.expiresAt)}
+                                        readOnly
+                                    />
+                                    <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                    <input
+                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                        type="date"
+                                        min={couponForm.startsAt || undefined}
+                                        value={couponForm.expiresAt}
+                                        onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))}
+                                    />
+                                </div>
                             </label>
                         </div>
-                        <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). Coupon will be sent via email and WhatsApp (if mobile is available).</p>
+                        <p className="text-xs text-gray-500">Date format: 18th Feb 2026. Coupon will be sent via email and WhatsApp (if mobile is available).</p>
                         <div className="flex justify-end gap-2">
                             <button className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50" onClick={() => setCouponModalUser(null)}>Cancel</button>
                             <button disabled={couponSaving} className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60" onClick={handleIssueCouponToUser}>
@@ -474,7 +545,7 @@ export default function Customers({ onOpenLoyalty }) {
                                             </div>
                                             <button
                                                 type="button"
-                                                onClick={() => handleDeleteUserCoupon(selectedUser.id, cp.id || cp.code)}
+                                                onClick={() => handleDeleteUserCoupon(selectedUser.id, cp.id || cp.code, cp.code)}
                                                 disabled={couponDeletingId === String(cp.id || cp.code)}
                                                 className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
                                                 title="Delete coupon"

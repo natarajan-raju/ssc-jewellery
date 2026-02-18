@@ -429,11 +429,9 @@ class Coupon {
         }
         const [recoveryRows] = await db.execute(
             `SELECT d.code, d.discount_type, d.discount_percent, d.min_cart_subunits, d.expires_at
-             FROM abandoned_cart_discounts
-             INNER JOIN abandoned_cart_journeys j ON j.id = d.journey_id
+             FROM abandoned_cart_discounts d
              WHERE d.user_id = ?
                AND d.status = 'active'
-               AND j.status = 'active'
                AND (d.expires_at IS NULL OR d.expires_at > NOW())
              ORDER BY d.id DESC
              LIMIT 50`,

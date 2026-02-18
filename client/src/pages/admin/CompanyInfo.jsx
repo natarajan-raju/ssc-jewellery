@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Key, Plus, Save, ShieldCheck, Trash2, UserCog } from 'lucide-react';
+import { Facebook, Instagram, Key, Plus, Save, ShieldCheck, Trash2, UserCog, Youtube } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -188,7 +188,7 @@ export default function CompanyInfo() {
                         </button>
                     )}
                 </div>
-                <table className="w-full text-left">
+                <table className="hidden md:table w-full text-left">
                     <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
                             <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">User</th>
@@ -242,6 +242,54 @@ export default function CompanyInfo() {
                         ))}
                     </tbody>
                 </table>
+                <div className="md:hidden divide-y divide-gray-100">
+                    {staffAndAdmins.map((user) => (
+                        <div key={`m-${user.id}`} className="px-4 py-4">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${user.role === 'admin' ? 'bg-accent text-primary' : 'bg-blue-100 text-blue-700'}`}>
+                                        {user.role === 'admin' ? <ShieldCheck size={14} /> : <UserCog size={14} />}
+                                    </div>
+                                    <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
+                                </div>
+                                <div className="flex justify-end gap-1">
+                                    {canResetPassword(user) && (
+                                        <button
+                                            onClick={() => openResetModal(user)}
+                                            className="text-gray-400 hover:text-accent-deep hover:bg-amber-50 p-1.5 rounded-md transition-all"
+                                            title="Reset Password"
+                                        >
+                                            <Key size={16} />
+                                        </button>
+                                    )}
+                                    {canDeleteUser(user) && (
+                                        <button
+                                            onClick={() => openDeleteModal(user)}
+                                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-md transition-all"
+                                            title="Delete User"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-4">
+                                <div>
+                                    <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Contact</p>
+                                    <p className="text-xs text-gray-700 mt-1 break-all">{user.email || '—'}</p>
+                                    <p className="text-xs text-gray-500 mt-1">{user.mobile || '—'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Role</p>
+                                    <div className="mt-1">
+                                        {user.role === 'admin' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-primary text-accent">ADMIN</span>}
+                                        {user.role === 'staff' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">STAFF</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             <form onSubmit={handleSave} className="grid grid-cols-1 gap-5">
@@ -291,18 +339,24 @@ export default function CompanyInfo() {
                             value={form.instagramUrl}
                             onChange={(value) => handleChange('instagramUrl', value)}
                             placeholder="https://instagram.com/..."
+                            icon={Instagram}
+                            iconClassName="text-pink-500"
                         />
                         <Field
                             label="YouTube URL"
                             value={form.youtubeUrl}
                             onChange={(value) => handleChange('youtubeUrl', value)}
                             placeholder="https://youtube.com/..."
+                            icon={Youtube}
+                            iconClassName="text-red-600"
                         />
                         <Field
                             label="Facebook URL"
                             value={form.facebookUrl}
                             onChange={(value) => handleChange('facebookUrl', value)}
                             placeholder="https://facebook.com/..."
+                            icon={Facebook}
+                            iconClassName="text-blue-600"
                         />
                     </div>
 
@@ -322,17 +376,20 @@ export default function CompanyInfo() {
     );
 }
 
-function Field({ label, value, onChange, placeholder, type = 'text' }) {
+function Field({ label, value, onChange, placeholder, type = 'text', icon: Icon = null, iconClassName = 'text-gray-400' }) {
     return (
         <label className="block">
             <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{label}</span>
-            <input
-                type={type}
-                value={value || ''}
-                onChange={(e) => onChange(e.target.value)}
-                placeholder={placeholder}
-                className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
-            />
+            <div className="relative mt-2">
+                {Icon && <Icon size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${iconClassName}`} />}
+                <input
+                    type={type}
+                    value={value || ''}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={placeholder}
+                    className={`w-full rounded-xl border border-gray-200 py-3 text-sm text-gray-700 focus:border-accent outline-none ${Icon ? 'pl-10 pr-4' : 'px-4'}`}
+                />
+            </div>
         </label>
     );
 }

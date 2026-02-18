@@ -1,5 +1,16 @@
 import { useState, useEffect } from 'react';
-import { X, UserPlus, UserCog, Loader2, Eye, EyeOff } from 'lucide-react'; // Added icons
+import { X, UserPlus, UserCog, Loader2, Eye, EyeOff, Calendar } from 'lucide-react'; // Added icons
+
+const formatLongDate = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.getDate();
+  const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+  const month = date.toLocaleString('en-IN', { month: 'short' });
+  const year = date.getFullYear();
+  return `${day}${suffix} ${month} ${year}`;
+};
 
 export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd = 'customer' }) {
   const [formData, setFormData] = useState({
@@ -39,7 +50,6 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
     if (roleToAdd === 'customer' && formData.zip && formData.zip.length !== 6) {
         return setError("Zip must be 6 digits");
     }
-
     setIsLoading(true);
     
     // Structure Payload
@@ -129,7 +139,23 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
                     <div className="border-t pt-4 mt-2 animate-fade-in">
                         <p className="text-sm font-bold text-primary mb-3">Address Details (Optional)</p>
                         <label className="text-xs font-bold text-gray-500 uppercase">Date of Birth (Optional)</label>
-                        <input name="dob" type="date" className="input-field mt-1 mb-3" value={formData.dob} onChange={handleChange} />
+                        <div className="relative mt-1 mb-3">
+                            <input
+                                type="text"
+                                className="input-field pr-10"
+                                placeholder="18th Feb 2026"
+                                value={formatLongDate(formData.dob)}
+                                readOnly
+                            />
+                            <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                            <input
+                                name="dob"
+                                type="date"
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                value={formData.dob}
+                                onChange={handleChange}
+                            />
+                        </div>
                         <input name="addressLine1" placeholder="Street Address" className="input-field mb-3" value={formData.addressLine1} onChange={handleChange} />
                         <div className="grid grid-cols-3 gap-2">
                             <input name="city" placeholder="City" className="input-field" value={formData.city} onChange={handleChange} />

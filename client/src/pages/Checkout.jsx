@@ -9,6 +9,7 @@ import { orderService } from '../services/orderService';
 import { useShipping } from '../context/ShippingContext';
 import { useSocket } from '../context/SocketContext';
 import logo from '../assets/logo.webp';
+import amexLogo from '../assets/amex.png';
 import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
@@ -93,6 +94,8 @@ export default function Checkout() {
     const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
     const [availableCoupons, setAvailableCoupons] = useState([]);
     const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+    const [isPaymentAwaitingConfirmation, setIsPaymentAwaitingConfirmation] = useState(false);
+    const [pendingPaymentAmount, setPendingPaymentAmount] = useState(0);
     const [orderResult, setOrderResult] = useState(null);
     const [activeAttemptId, setActiveAttemptId] = useState(null);
     const orderCelebratedRef = useRef(false);
@@ -470,6 +473,7 @@ export default function Checkout() {
             if (!init?.order?.id || !init?.keyId) {
                 throw new Error(init?.message || 'Failed to initialize payment');
             }
+            setPendingPaymentAmount(Number(init?.order?.amount || 0) / 100);
             setActiveAttemptId(init?.attempt?.id || null);
 
             const prefillContact = form.mobile
@@ -510,10 +514,12 @@ export default function Checkout() {
                     },
                     handler: async (response) => {
                         try {
+                            setIsPaymentAwaitingConfirmation(true);
                             const verification = await orderService.verifyRazorpayPayment(response);
                             if (!verification?.order) {
                                 throw new Error('Payment verified but order was not created');
                             }
+                            setIsPaymentAwaitingConfirmation(false);
                             setOrderResult(verification.order);
                             setActiveAttemptId(null);
                             await clearCart();
@@ -521,6 +527,7 @@ export default function Checkout() {
                             markSettled();
                             resolve(verification.order);
                         } catch (error) {
+                            setIsPaymentAwaitingConfirmation(false);
                             markSettled();
                             reject(error);
                         }
@@ -538,6 +545,7 @@ export default function Checkout() {
             });
             void paidOrder;
         } catch (error) {
+            setIsPaymentAwaitingConfirmation(false);
             const message = error?.message || 'Failed to complete payment';
             toast.error(message === 'Payment cancelled' ? 'Payment cancelled. You can retry the payment.' : message);
             const params = new URLSearchParams();
@@ -545,6 +553,7 @@ export default function Checkout() {
             if (activeAttemptId) params.set('attemptId', String(activeAttemptId));
             navigate(`/payment/failed?${params.toString()}`);
         } finally {
+            setIsPaymentAwaitingConfirmation(false);
             setIsPlacingOrder(false);
         }
     };
@@ -915,6 +924,12 @@ export default function Checkout() {
                                         <span>Shipping</span>
                                         <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
                                     </div>
+                                    {productMrpSavings > 0 && (
+                                        <div className="flex items-center justify-between text-emerald-700">
+                                            <span>Product Discount (MRP)</span>
+                                            <span className="font-semibold">- ₹{Number(productMrpSavings || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     {couponDiscount > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
                                             <span>Coupon ({appliedCoupon?.code || 'Applied'})</span>
@@ -942,6 +957,11 @@ export default function Checkout() {
                                             <span>Total Savings</span>
                                             <span className="font-semibold">₹{Number(totalSavings || 0).toLocaleString()}</span>
                                         </div>
+                                    )}
+                                    {totalSavings > 0 && (
+                                        <p className="text-[11px] text-emerald-700/80 pt-1">
+                                            Savings = Product Discount + Coupon + Member Discount + Shipping Benefit.
+                                        </p>
                                     )}
                                     <div className="flex items-center justify-between text-gray-800 text-base font-semibold pt-3">
                                         <span>Total</span>
@@ -996,7 +1016,7 @@ export default function Checkout() {
                                     {[
                                         { name: 'Visa', logo: '/payment-logos/visa.svg' },
                                         { name: 'Mastercard', logo: '/payment-logos/mastercard.svg' },
-                                        { name: 'Amex', logo: '/payment-logos/amex.svg' },
+                                        { name: 'Amex', logo: amexLogo },
                                         { name: 'RuPay', logo: '/payment-logos/rupay.svg' },
                                         { name: 'UPI', logo: '/payment-logos/upi.svg' },
                                         { name: 'EMI', logo: '/payment-logos/emi.svg' },
@@ -1007,7 +1027,7 @@ export default function Checkout() {
                                             <img
                                                 src={method.logo}
                                                 alt={method.name}
-                                                className={`${method.name === 'Amex' ? 'h-7 w-[118px]' : 'h-6 w-full max-w-[72px]'} object-contain`}
+                                                className={`${method.name === 'Amex' ? 'h-8 w-full max-w-[150px]' : 'h-6 w-full max-w-[72px]'} object-contain`}
                                                 loading="lazy"
                                                 onError={(e) => {
                                                     e.currentTarget.style.display = 'none';
@@ -1027,9 +1047,21 @@ export default function Checkout() {
                 </div>
             </div>
 
+            {isPaymentAwaitingConfirmation && !orderResult && (
+                <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+                    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 text-center border border-gray-100">
+                        <img src="/assets/wait.svg" alt="Processing payment" className="w-32 h-32 mx-auto" />
+                        <h3 className="mt-3 text-xl font-serif text-primary">Please Wait</h3>
+                        <p className="mt-2 text-sm text-gray-600">
+                            Please wait while your payment for Rs. {Number(pendingPaymentAmount || 0).toLocaleString('en-IN')} is being processed.
+                        </p>
+                    </div>
+                </div>
+            )}
+
             {orderResult && (
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 animate-fade-in border border-gray-100">
+                    <div className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 animate-fade-in border border-gray-100">
                         <img src={logo} alt="SSC Jewellery" className="h-10 w-auto mb-3" />
                         <h3 className="text-xl font-serif text-primary">Order Confirmed</h3>
                         <p className="text-sm text-gray-500 mt-2">
