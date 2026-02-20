@@ -135,6 +135,21 @@ class Coupon {
         return Coupon.getById(rows[0].id, { connection });
     }
 
+    static async getLatestActiveGenericCoupon({ connection = db } = {}) {
+        const [rows] = await connection.execute(
+            `SELECT *
+             FROM coupons
+             WHERE is_active = 1
+               AND scope_type = 'generic'
+               AND (starts_at IS NULL OR starts_at <= NOW())
+               AND (expires_at IS NULL OR expires_at >= NOW())
+             ORDER BY created_at DESC
+             LIMIT 1`
+        );
+        if (!rows.length) return null;
+        return rows[0];
+    }
+
     static async deactivateCoupon(couponId, { connection = db } = {}) {
         const id = Number(couponId || 0);
         if (!Number.isFinite(id) || id <= 0) return 0;

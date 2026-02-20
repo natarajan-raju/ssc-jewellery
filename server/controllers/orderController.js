@@ -986,6 +986,81 @@ const getCustomerPopupData = async (req, res) => {
     }
 };
 
+const getPublicPopupData = async (req, res) => {
+    try {
+        const genericPopup = await LoyaltyPopupConfig.getClientActivePopup();
+        let popupCoupon = null;
+
+        if (genericPopup?.couponCode) {
+            const couponRow = await Coupon.getByCode(genericPopup.couponCode);
+            if (couponRow && Number(couponRow.is_active || 0) === 1) {
+                const scope = String(couponRow.scope_type || 'generic').toLowerCase();
+                if (scope === 'generic') {
+                    popupCoupon = {
+                        id: couponRow.id,
+                        code: couponRow.code,
+                        name: couponRow.name || 'Special Offer',
+                        sourceType: couponRow.source_type || 'admin',
+                        scopeType: couponRow.scope_type || 'generic',
+                        discountType: couponRow.discount_type || 'percent',
+                        discountValue: Number(couponRow.discount_value || 0),
+                        usageLimitPerUser: Number(couponRow.usage_limit_per_user || 1),
+                        expiresAt: couponRow.expires_at || null,
+                        createdAt: couponRow.created_at || null
+                    };
+                }
+            }
+        }
+
+        const customPopupCandidate = genericPopup ? {
+            type: 'generic',
+            key: `generic:${genericPopup.id || 1}:${genericPopup.updatedAt || ''}`,
+            createdAt: genericPopup.updatedAt || null,
+            title: genericPopup.title || 'Special Offer',
+            summary: genericPopup.summary || 'A special offer is available for you.',
+            content: genericPopup.content || '',
+            encouragement: genericPopup.encouragement || '',
+            imageUrl: genericPopup.imageUrl || '',
+            audioUrl: genericPopup.audioUrl || '',
+            buttonLabel: genericPopup.buttonLabel || 'Shop Now',
+            buttonLink: genericPopup.buttonLink || '/shop',
+            coupon: popupCoupon
+        } : null;
+
+        const fallbackGenericCoupon = await Coupon.getLatestActiveGenericCoupon();
+        const genericCouponCandidate = fallbackGenericCoupon ? {
+            type: 'coupon',
+            key: `generic-coupon:${fallbackGenericCoupon.id || fallbackGenericCoupon.code}`,
+            createdAt: fallbackGenericCoupon.created_at || null,
+            title: 'Special Coupon Unlocked',
+            summary: `${fallbackGenericCoupon.code || 'Coupon'} is currently active.`,
+            content: 'Use this coupon during checkout to unlock your savings.',
+            encouragement: 'Browse your favorites and apply this offer before it expires.',
+            imageUrl: '',
+            audioUrl: '',
+            buttonLabel: 'Shop Now',
+            buttonLink: '/shop',
+            coupon: {
+                id: fallbackGenericCoupon.id,
+                code: fallbackGenericCoupon.code,
+                name: fallbackGenericCoupon.name || 'Special Offer',
+                sourceType: fallbackGenericCoupon.source_type || 'admin',
+                scopeType: fallbackGenericCoupon.scope_type || 'generic',
+                discountType: fallbackGenericCoupon.discount_type || 'percent',
+                discountValue: Number(fallbackGenericCoupon.discount_value || 0),
+                usageLimitPerUser: Number(fallbackGenericCoupon.usage_limit_per_user || 1),
+                expiresAt: fallbackGenericCoupon.expires_at || null,
+                createdAt: fallbackGenericCoupon.created_at || null
+            }
+        } : null;
+
+        const popup = customPopupCandidate || genericCouponCandidate || null;
+        return res.json({ popup });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load popup data' });
+    }
+};
+
 const getCheckoutSummary = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -1583,6 +1658,7 @@ module.exports = {
     validateRecoveryCoupon,
     getAvailableCoupons,
     getCustomerPopupData,
+    getPublicPopupData,
     retryRazorpayPayment,
     verifyRazorpayPayment,
     handleRazorpayWebhook,

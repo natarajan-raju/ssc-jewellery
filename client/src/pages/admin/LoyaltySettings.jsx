@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Calendar, Crown, Gem, Megaphone, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, TicketPercent, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Calendar, Crown, Gem, Megaphone, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, TicketPercent, Trash2, X, CircleOff } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -110,6 +110,7 @@ const getDefaultCouponForm = () => ({
     scopeType: 'generic',
     discountType: 'percent',
     discountValue: 5,
+    minCartValue: 0,
     usageLimitPerUser: 1,
     tierScope: 'regular',
     categoryIds: [],
@@ -272,7 +273,7 @@ export default function LoyaltySettings({ onBack }) {
             if (!cancelled) setLoading(false);
         });
         return () => { cancelled = true; };
-    }, [toast]);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -392,6 +393,7 @@ export default function LoyaltySettings({ onBack }) {
                 scopeType: couponForm.scopeType,
                 discountType: couponForm.discountType,
                 discountValue: Number(couponForm.discountValue || 0),
+                minCartValue: Math.max(0, Number(couponForm.minCartValue || 0)),
                 usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
                 tierScope: couponForm.scopeType === 'tier' ? couponForm.tierScope : undefined,
                 categoryIds: couponForm.scopeType === 'category' ? couponForm.categoryIds : [],
@@ -477,10 +479,6 @@ export default function LoyaltySettings({ onBack }) {
     };
 
     const handleSavePopup = async () => {
-        if (!popupForm.endsAt) {
-            toast.error('Popup expiry date is required');
-            return;
-        }
         setPopupSaving(true);
         try {
             const payload = {
@@ -736,53 +734,94 @@ export default function LoyaltySettings({ onBack }) {
                         <input type="checkbox" checked={Boolean(popupForm.isActive)} onChange={(e) => setPopupForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
                         Popup enabled
                     </label>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <label className="text-sm text-gray-600">Title<input className="input-field mt-1" value={popupForm.title} onChange={(e) => setPopupForm((prev) => ({ ...prev, title: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600">Summary<input className="input-field mt-1" value={popupForm.summary} onChange={(e) => setPopupForm((prev) => ({ ...prev, summary: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600 md:col-span-2">Content<textarea className="input-field mt-1 min-h-[88px]" value={popupForm.content} onChange={(e) => setPopupForm((prev) => ({ ...prev, content: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600 md:col-span-2">Encouragement Message<input className="input-field mt-1" value={popupForm.encouragement} onChange={(e) => setPopupForm((prev) => ({ ...prev, encouragement: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600">Button Label<input className="input-field mt-1" value={popupForm.buttonLabel} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLabel: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600">Button Link<input className="input-field mt-1" value={popupForm.buttonLink} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLink: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600">
-                            Coupon Code
-                            <select
-                                className="input-field mt-1"
-                                value={popupForm.couponCode}
-                                onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value }))}
-                            >
-                                <option value="">No coupon</option>
-                                {popupCouponOptions.map((cp) => (
-                                    <option key={cp.code} value={cp.code}>
-                                        {cp.code} - {cp.name} ({cp.scopeType})
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <label className="text-sm text-gray-600">
-                            Expiry Date
-                            <div className="relative mt-1">
-                                <input className="input-field pr-10" type="text" placeholder="20th Feb 2026" value={popupForm.endsAt ? formatAdminDate(`${popupForm.endsAt}T00:00:00`) : ''} readOnly />
-                                <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                                <input ref={popupEndDateInputRef} className="absolute inset-0 opacity-0 cursor-pointer" type="date" value={popupForm.endsAt} onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))} />
+                    <div className="relative">
+                        <div className={`${popupForm.isActive ? '' : 'blur-[2px] opacity-55 pointer-events-none select-none'} space-y-4 transition-all`}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="text-sm text-gray-600">Title<input className="input-field mt-1" value={popupForm.title} onChange={(e) => setPopupForm((prev) => ({ ...prev, title: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Summary<input className="input-field mt-1" value={popupForm.summary} onChange={(e) => setPopupForm((prev) => ({ ...prev, summary: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600 md:col-span-2">Content<textarea className="input-field mt-1 min-h-[88px]" value={popupForm.content} onChange={(e) => setPopupForm((prev) => ({ ...prev, content: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600 md:col-span-2">Encouragement Message<input className="input-field mt-1" value={popupForm.encouragement} onChange={(e) => setPopupForm((prev) => ({ ...prev, encouragement: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Button Label<input className="input-field mt-1" value={popupForm.buttonLabel} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLabel: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Button Link<input className="input-field mt-1" value={popupForm.buttonLink} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLink: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">
+                                    Coupon Code
+                                    <select
+                                        className="input-field mt-1"
+                                        value={popupForm.couponCode}
+                                        onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value }))}
+                                    >
+                                        <option value="">No coupon</option>
+                                        {popupCouponOptions.map((cp) => (
+                                            <option key={cp.code} value={cp.code}>
+                                                {cp.code} - {cp.name} ({cp.scopeType})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="text-sm text-gray-600">
+                                    Expiry Date
+                                    <div className="relative mt-1">
+                                        <input
+                                            ref={popupEndDateInputRef}
+                                            className="sr-only"
+                                            type="date"
+                                            value={popupForm.endsAt}
+                                            onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (popupEndDateInputRef.current?.showPicker) popupEndDateInputRef.current.showPicker();
+                                                else popupEndDateInputRef.current?.click();
+                                            }}
+                                            className="w-full input-field pr-10 text-left"
+                                        >
+                                            {popupForm.endsAt ? formatAdminDate(`${popupForm.endsAt}T00:00:00`) : 'No expiry'}
+                                        </button>
+                                        <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPopupForm((prev) => ({ ...prev, endsAt: '' }))}
+                                        className="mt-1 text-xs text-gray-500 underline hover:text-gray-700"
+                                    >
+                                        Clear expiry
+                                    </button>
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Leave empty to keep popup active until edited or deleted.
+                                    </p>
+                                </label>
+                                <label className="text-sm text-gray-600 md:col-span-2">Popup Image URL<input className="input-field mt-1" value={popupForm.imageUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, imageUrl: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600 md:col-span-2">Audio URL<input className="input-field mt-1" value={popupForm.audioUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, audioUrl: e.target.value }))} /></label>
                             </div>
-                        </label>
-                        <label className="text-sm text-gray-600 md:col-span-2">Popup Image URL<input className="input-field mt-1" value={popupForm.imageUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, imageUrl: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600 md:col-span-2">Audio URL<input className="input-field mt-1" value={popupForm.audioUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, audioUrl: e.target.value }))} /></label>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
-                            {popupImageUploading ? 'Uploading image...' : 'Upload Popup Image'}
-                            <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePopupImageUpload(e.target.files?.[0])} />
-                        </label>
-                        <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
-                            {popupAudioUploading ? 'Uploading audio...' : 'Upload Popup Audio'}
-                            <input type="file" accept="audio/*" className="hidden" onChange={(e) => handlePopupAudioUpload(e.target.files?.[0])} />
-                        </label>
-                    </div>
-                    <div className="flex justify-end">
-                        <button type="button" onClick={handleSavePopup} disabled={popupSaving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
-                            <Save size={16} /> {popupSaving ? 'Saving...' : 'Save Popup'}
-                        </button>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                                    {popupImageUploading ? 'Uploading image...' : 'Upload Popup Image'}
+                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePopupImageUpload(e.target.files?.[0])} />
+                                </label>
+                                <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                                    {popupAudioUploading ? 'Uploading audio...' : 'Upload Popup Audio'}
+                                    <input type="file" accept="audio/*" className="hidden" onChange={(e) => handlePopupAudioUpload(e.target.files?.[0])} />
+                                </label>
+                            </div>
+                            <div className="flex justify-end">
+                                <button type="button" onClick={handleSavePopup} disabled={popupSaving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
+                                    <Save size={16} /> {popupSaving ? 'Saving...' : 'Save Popup'}
+                                </button>
+                            </div>
+                        </div>
+                        {!popupForm.isActive && (
+                            <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/35">
+                                <div className="flex flex-col items-center gap-2">
+                                    <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-white/95 border border-gray-200 text-gray-500 shadow-sm">
+                                        <CircleOff size={18} />
+                                    </span>
+                                    <p className="px-3 py-1.5 rounded-md bg-white/90 border border-gray-200 text-xs font-semibold text-gray-600">
+                                        Popup is disabled. Enable the checkbox to edit.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -804,6 +843,7 @@ export default function LoyaltySettings({ onBack }) {
                                 <label className="text-sm text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
                                 <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
                                 <label className="text-sm text-gray-600">Discount Value<input className="input-field mt-1" type="number" disabled={couponForm.discountType === 'shipping_full'} value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Minimum Cart Value (INR)<input className="input-field mt-1" type="number" min="0" value={couponForm.minCartValue} onChange={(e) => setCouponForm((p) => ({ ...p, minCartValue: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">
                                     Start Date <span className="text-red-500">*</span>

@@ -382,6 +382,12 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    getPublicPopupData: async () => {
+        const res = await fetch(`${API_URL}/coupons/popup/public`, {
+            method: 'GET'
+        });
+        return handleResponse(res);
+    },
     retryRazorpayOrder: async ({ attemptId } = {}) => {
         const res = await fetch(`${API_URL}/razorpay/retry`, {
             method: 'POST',

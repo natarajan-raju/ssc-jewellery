@@ -51,9 +51,48 @@ export const burstConfetti = () => {
 
 export const playCue = (src, { volume = 0.9 } = {}) => {
     try {
+        if (!src) return;
         const audio = new Audio(src);
+        audio.preload = 'auto';
+        audio.playsInline = true;
+        audio.crossOrigin = 'anonymous';
         audio.volume = volume;
-        void audio.play().catch(() => {});
+        // Keep a live reference to avoid the element being GC'd mid-playback.
+        if (typeof window !== 'undefined') window.__sscPopupAudioRef = audio;
+        const markPlayed = () => {
+            if (typeof window !== 'undefined') window.__sscPopupAudioPlayedAt = Date.now();
+        };
+        audio.addEventListener('playing', markPlayed, { once: true });
+        void audio.play().catch(async () => {
+            // Fallback: attempt muted autoplay, then unmute.
+            try {
+                audio.muted = true;
+                await audio.play();
+                setTimeout(() => {
+                    audio.muted = false;
+                    audio.volume = volume;
+                }, 80);
+                markPlayed();
+            } catch {
+                // Final fallback: retry once on first user interaction.
+                if (typeof window !== 'undefined') {
+                    const retry = () => {
+                        window.removeEventListener('pointerdown', retry, true);
+                        window.removeEventListener('keydown', retry, true);
+                        window.removeEventListener('touchstart', retry, true);
+                        audio.muted = false;
+                        audio.volume = volume;
+                        void audio.play().catch(() => {});
+                    };
+                    window.removeEventListener('pointerdown', retry, true);
+                    window.removeEventListener('keydown', retry, true);
+                    window.removeEventListener('touchstart', retry, true);
+                    window.addEventListener('pointerdown', retry, true);
+                    window.addEventListener('keydown', retry, true);
+                    window.addEventListener('touchstart', retry, true);
+                }
+            }
+        });
     } catch {
         // ignore
     }
