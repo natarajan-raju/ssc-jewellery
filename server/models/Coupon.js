@@ -59,6 +59,9 @@ class Coupon {
 
     static async createCoupon(payload = {}, { connection = db, createdBy = null } = {}) {
         const code = normalizeCode(payload.code || await Coupon.generateUniqueCode({ connection, prefix: payload.prefix || 'SSC' }));
+        if (!code || code.length > 15) {
+            throw new Error('Coupon code must be 1 to 15 characters');
+        }
         const customerTargets = Array.isArray(payload.customerTargets) ? [...new Set(payload.customerTargets.map((id) => String(id || '').trim()).filter(Boolean))] : [];
         const categoryIds = Array.isArray(payload.categoryIds) ? [...new Set(payload.categoryIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))] : [];
         const scopeType = String(payload.scopeType || 'generic').toLowerCase();

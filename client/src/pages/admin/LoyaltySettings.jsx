@@ -52,6 +52,16 @@ const formatDiscountOffer = (type, value) => {
     if (discountType === 'shipping_partial') return `${discountValue}% Shipping Off`;
     return `${discountValue}% OFF`;
 };
+const buildCouponCodeDraft = (prefix = 'SSC') => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const part = (len = 4) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const seed = `${String(prefix || 'SSC').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3) || 'SSC'}-${part(4)}-${part(4)}`;
+    return seed.slice(0, 15);
+};
+const sanitizeCouponCode = (value = '') => String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '')
+    .slice(0, 15);
 
 const shippingPriorityLabel = (value = 'standard') => {
     const map = {
@@ -95,6 +105,7 @@ const buildBenefitsPreview = (row) => {
 };
 
 const getDefaultCouponForm = () => ({
+    code: buildCouponCodeDraft(),
     name: '',
     scopeType: 'generic',
     discountType: 'percent',
@@ -116,10 +127,7 @@ const getDefaultPopupForm = () => ({
     audioUrl: '',
     buttonLabel: 'Shop Now',
     buttonLink: '/shop',
-    discountType: '',
-    discountValue: '',
     couponCode: '',
-    startsAt: '',
     endsAt: ''
 });
 
@@ -173,6 +181,7 @@ export default function LoyaltySettings({ onBack }) {
     const [popupSaving, setPopupSaving] = useState(false);
     const [popupImageUploading, setPopupImageUploading] = useState(false);
     const [popupAudioUploading, setPopupAudioUploading] = useState(false);
+    const [popupCouponOptions, setPopupCouponOptions] = useState([]);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
         title: '',
@@ -184,7 +193,6 @@ export default function LoyaltySettings({ onBack }) {
     const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
     const couponStartDateInputRef = useRef(null);
     const couponEndDateInputRef = useRef(null);
-    const popupStartDateInputRef = useRef(null);
     const popupEndDateInputRef = useRef(null);
 
     const applyConfigRows = (config = []) => {
@@ -214,8 +222,9 @@ export default function LoyaltySettings({ onBack }) {
             adminService.getLoyaltyConfig(),
             adminService.getLoyaltyPopupConfig().catch(() => ({ popup: null })),
             productService.getCategoryStats().catch(() => null),
-            productService.getCategories().catch(() => ({ categories: [] }))
-        ]).then(([data, popupData, categoryStats, cats]) => {
+            productService.getCategories().catch(() => ({ categories: [] })),
+            adminService.getLoyaltyCoupons({ page: 1, limit: 100, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
+        ]).then(([data, popupData, categoryStats, cats, popupCouponsData]) => {
             if (cancelled) return;
             applyConfigRows(Array.isArray(data?.config) ? data.config : []);
             const popup = popupData?.popup || null;
@@ -229,12 +238,26 @@ export default function LoyaltySettings({ onBack }) {
                 audioUrl: popup?.audioUrl || '',
                 buttonLabel: popup?.buttonLabel || 'Shop Now',
                 buttonLink: popup?.buttonLink || '/shop',
-                discountType: popup?.discountType || '',
-                discountValue: popup?.discountValue == null ? '' : popup.discountValue,
                 couponCode: popup?.couponCode || '',
-                startsAt: toDateInput(popup?.startsAt),
                 endsAt: toDateInput(popup?.endsAt)
             });
+            const popupCouponRows = Array.isArray(popupCouponsData?.coupons) ? popupCouponsData.coupons : [];
+            const popupEligible = popupCouponRows
+                .filter((row) => !['tier', 'customer'].includes(String(row?.scope_type || '').toLowerCase()))
+                .map((row) => ({
+                    code: String(row.code || '').toUpperCase(),
+                    name: row.name || 'Coupon',
+                    scopeType: String(row.scope_type || 'generic').toLowerCase()
+                }))
+                .filter((row) => row.code);
+            if (popup?.couponCode && !popupEligible.some((row) => row.code === String(popup.couponCode).toUpperCase())) {
+                popupEligible.unshift({
+                    code: String(popup.couponCode).toUpperCase(),
+                    name: 'Selected coupon',
+                    scopeType: 'generic'
+                });
+            }
+            setPopupCouponOptions(popupEligible);
             const statRows = Array.isArray(categoryStats)
                 ? categoryStats
                 : (Array.isArray(categoryStats?.categories) ? categoryStats.categories : []);
@@ -273,6 +296,20 @@ export default function LoyaltySettings({ onBack }) {
         'coupon:changed': () => {
             adminService.invalidateLoyaltyCouponCache();
             setCouponRefreshKey((v) => v + 1);
+            adminService.getLoyaltyCoupons({ page: 1, limit: 100, search: '', sourceType: 'all' })
+                .then((data) => {
+                    const rows = Array.isArray(data?.coupons) ? data.coupons : [];
+                    const options = rows
+                        .filter((row) => !['tier', 'customer'].includes(String(row?.scope_type || '').toLowerCase()))
+                        .map((row) => ({
+                            code: String(row.code || '').toUpperCase(),
+                            name: row.name || 'Coupon',
+                            scopeType: String(row.scope_type || 'generic').toLowerCase()
+                        }))
+                        .filter((row) => row.code);
+                    setPopupCouponOptions(options);
+                })
+                .catch(() => {});
         },
         'loyalty:config_update': ({ config } = {}) => {
             if (Array.isArray(config)) {
@@ -343,9 +380,14 @@ export default function LoyaltySettings({ onBack }) {
                 return;
             }
         }
+        if (couponForm.code && String(couponForm.code).length > 15) {
+            toast.error('Coupon code cannot exceed 15 characters');
+            return;
+        }
         setCouponCreating(true);
         try {
             const payload = {
+                code: sanitizeCouponCode(couponForm.code || ''),
                 name: couponForm.name || 'Admin Coupon',
                 scopeType: couponForm.scopeType,
                 discountType: couponForm.discountType,
@@ -435,8 +477,8 @@ export default function LoyaltySettings({ onBack }) {
     };
 
     const handleSavePopup = async () => {
-        if (popupForm.startsAt && popupForm.endsAt && popupForm.endsAt < popupForm.startsAt) {
-            toast.error('Popup end date must be on or after start date');
+        if (!popupForm.endsAt) {
+            toast.error('Popup expiry date is required');
             return;
         }
         setPopupSaving(true);
@@ -451,10 +493,7 @@ export default function LoyaltySettings({ onBack }) {
                 audioUrl: popupForm.audioUrl,
                 buttonLabel: popupForm.buttonLabel,
                 buttonLink: popupForm.buttonLink,
-                discountType: popupForm.discountType || null,
-                discountValue: popupForm.discountValue === '' ? null : Number(popupForm.discountValue || 0),
                 couponCode: popupForm.couponCode || null,
-                startsAt: popupForm.startsAt ? new Date(`${popupForm.startsAt}T00:00:00`).toISOString() : null,
                 endsAt: popupForm.endsAt ? new Date(`${popupForm.endsAt}T23:59:59`).toISOString() : null
             };
             const data = await adminService.updateLoyaltyPopupConfig(payload);
@@ -462,7 +501,6 @@ export default function LoyaltySettings({ onBack }) {
             setPopupForm((prev) => ({
                 ...prev,
                 isActive: Boolean(popup?.isActive),
-                startsAt: toDateInput(popup?.startsAt),
                 endsAt: toDateInput(popup?.endsAt)
             }));
             toast.success('Popup settings saved');
@@ -705,23 +743,27 @@ export default function LoyaltySettings({ onBack }) {
                         <label className="text-sm text-gray-600 md:col-span-2">Encouragement Message<input className="input-field mt-1" value={popupForm.encouragement} onChange={(e) => setPopupForm((prev) => ({ ...prev, encouragement: e.target.value }))} /></label>
                         <label className="text-sm text-gray-600">Button Label<input className="input-field mt-1" value={popupForm.buttonLabel} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLabel: e.target.value }))} /></label>
                         <label className="text-sm text-gray-600">Button Link<input className="input-field mt-1" value={popupForm.buttonLink} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLink: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={popupForm.discountType} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountType: e.target.value }))}><option value="">None</option><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
-                        <label className="text-sm text-gray-600">Discount Value<input className="input-field mt-1" type="number" disabled={!popupForm.discountType || popupForm.discountType === 'shipping_full'} value={popupForm.discountValue} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountValue: e.target.value }))} /></label>
-                        <label className="text-sm text-gray-600">Coupon Code<input className="input-field mt-1" value={popupForm.couponCode} onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))} /></label>
                         <label className="text-sm text-gray-600">
-                            Start Date
-                            <div className="relative mt-1">
-                                <input className="input-field pr-10" type="text" placeholder="20th Feb 2026" value={popupForm.startsAt ? formatAdminDate(`${popupForm.startsAt}T00:00:00`) : ''} readOnly />
-                                <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                                <input ref={popupStartDateInputRef} className="absolute inset-0 opacity-0 cursor-pointer" type="date" value={popupForm.startsAt} max={popupForm.endsAt || undefined} onChange={(e) => setPopupForm((prev) => ({ ...prev, startsAt: e.target.value }))} />
-                            </div>
+                            Coupon Code
+                            <select
+                                className="input-field mt-1"
+                                value={popupForm.couponCode}
+                                onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value }))}
+                            >
+                                <option value="">No coupon</option>
+                                {popupCouponOptions.map((cp) => (
+                                    <option key={cp.code} value={cp.code}>
+                                        {cp.code} - {cp.name} ({cp.scopeType})
+                                    </option>
+                                ))}
+                            </select>
                         </label>
                         <label className="text-sm text-gray-600">
-                            End Date
+                            Expiry Date
                             <div className="relative mt-1">
                                 <input className="input-field pr-10" type="text" placeholder="20th Feb 2026" value={popupForm.endsAt ? formatAdminDate(`${popupForm.endsAt}T00:00:00`) : ''} readOnly />
                                 <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-                                <input ref={popupEndDateInputRef} className="absolute inset-0 opacity-0 cursor-pointer" type="date" value={popupForm.endsAt} min={popupForm.startsAt || undefined} onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))} />
+                                <input ref={popupEndDateInputRef} className="absolute inset-0 opacity-0 cursor-pointer" type="date" value={popupForm.endsAt} onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))} />
                             </div>
                         </label>
                         <label className="text-sm text-gray-600 md:col-span-2">Popup Image URL<input className="input-field mt-1" value={popupForm.imageUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, imageUrl: e.target.value }))} /></label>
@@ -757,6 +799,7 @@ export default function LoyaltySettings({ onBack }) {
                         </div>
                         <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="text-sm text-gray-600">Coupon Code<input maxLength={15} className="input-field mt-1" placeholder="SSC-AB12-CD34" value={couponForm.code} onChange={(e) => setCouponForm((p) => ({ ...p, code: sanitizeCouponCode(e.target.value) }))} /></label>
                                 <label className="text-sm text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
                                 <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>

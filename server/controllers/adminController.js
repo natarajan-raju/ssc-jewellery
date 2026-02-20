@@ -339,6 +339,7 @@ const issueCouponToUser = async (req, res) => {
             return res.status(400).json({ message: 'end date must be on or after start date' });
         }
         const coupon = await Coupon.createCoupon({
+            code: body.code || undefined,
             name: body.name || `Customer Offer - ${user.name || userId}`,
             description: body.description || null,
             sourceType: 'admin',

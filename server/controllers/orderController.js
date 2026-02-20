@@ -925,6 +925,27 @@ const getCustomerPopupData = async (req, res) => {
         const latestCoupon = [...(Array.isArray(coupons) ? coupons : [])]
             .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())[0] || null;
         const genericPopup = await LoyaltyPopupConfig.getClientActivePopup();
+        let popupCoupon = null;
+        if (genericPopup?.couponCode) {
+            const couponRow = await Coupon.getByCode(genericPopup.couponCode);
+            if (couponRow && Number(couponRow.is_active || 0) === 1) {
+                const scope = String(couponRow.scope_type || 'generic').toLowerCase();
+                if (scope !== 'tier' && scope !== 'customer') {
+                    popupCoupon = {
+                        id: couponRow.id,
+                        code: couponRow.code,
+                        name: couponRow.name || 'Special Offer',
+                        sourceType: couponRow.source_type || 'admin',
+                        scopeType: couponRow.scope_type || 'generic',
+                        discountType: couponRow.discount_type || 'percent',
+                        discountValue: Number(couponRow.discount_value || 0),
+                        usageLimitPerUser: Number(couponRow.usage_limit_per_user || 1),
+                        expiresAt: couponRow.expires_at || null,
+                        createdAt: couponRow.created_at || null
+                    };
+                }
+            }
+        }
 
         const couponCandidate = latestCoupon ? {
             type: 'coupon',
@@ -955,23 +976,10 @@ const getCustomerPopupData = async (req, res) => {
             audioUrl: genericPopup.audioUrl || '',
             buttonLabel: genericPopup.buttonLabel || 'Shop Now',
             buttonLink: genericPopup.buttonLink || '/shop',
-            coupon: (genericPopup.couponCode || genericPopup.discountType) ? {
-                id: `generic:${genericPopup.id}`,
-                code: genericPopup.couponCode || 'SPECIAL-OFFER',
-                name: 'Special Offer',
-                sourceType: 'generic',
-                scopeType: 'customer',
-                discountType: genericPopup.discountType || 'percent',
-                discountValue: Number(genericPopup.discountValue || 0),
-                usageLimitPerUser: 1,
-                expiresAt: genericPopup.endsAt || null,
-                createdAt: genericPopup.updatedAt || null
-            } : null
+            coupon: popupCoupon
         } : null;
 
-        const popup = [couponCandidate, genericCandidate]
-            .filter(Boolean)
-            .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())[0] || null;
+        const popup = genericCandidate || couponCandidate || null;
         return res.json({ popup });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load popup data' });

@@ -42,6 +42,16 @@ const addDaysToInput = (value, days) => {
     const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
 };
+const buildCouponCodeDraft = (prefix = 'SSC') => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const part = (len = 4) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const seed = `${String(prefix || 'SSC').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3) || 'SSC'}-${part(4)}-${part(4)}`;
+    return seed.slice(0, 15);
+};
+const sanitizeCouponCode = (value = '') => String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, '')
+    .slice(0, 15);
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -122,6 +132,7 @@ export default function Customers({ onOpenLoyalty }) {
         couponCode: ''
     });
     const [couponForm, setCouponForm] = useState({
+        code: buildCouponCodeDraft(),
         name: '',
         discountType: 'percent',
         discountValue: 5,
@@ -297,6 +308,7 @@ export default function Customers({ onOpenLoyalty }) {
     const openIssueCouponModal = (user) => {
         setCouponModalUser(user);
         setCouponForm({
+            code: buildCouponCodeDraft(),
             name: `Offer for ${user.name || 'Customer'}`,
             discountType: 'percent',
             discountValue: 5,
@@ -321,9 +333,13 @@ export default function Customers({ onOpenLoyalty }) {
                 return toast.error(`Coupon validity cannot exceed ${MAX_COUPON_RANGE_DAYS} days`);
             }
         }
+        if (couponForm.code && String(couponForm.code).length > 15) {
+            return toast.error('Coupon code cannot exceed 15 characters');
+        }
         setCouponSaving(true);
         try {
             const payload = {
+                code: sanitizeCouponCode(couponForm.code || ''),
                 name: couponForm.name || `Offer for ${couponModalUser.name || ''}`,
                 discountType: couponForm.discountType,
                 discountValue: Number(couponForm.discountValue || 0),
@@ -424,6 +440,10 @@ export default function Customers({ onOpenLoyalty }) {
                             <button onClick={() => setCouponModalUser(null)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={16} /></button>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <label className="md:col-span-2 text-xs text-gray-600">
+                                Coupon Code
+                                <input maxLength={15} className="input-field mt-1" placeholder="SSC-AB12-CD34" value={couponForm.code} onChange={(e) => setCouponForm((p) => ({ ...p, code: sanitizeCouponCode(e.target.value) }))} />
+                            </label>
                             <label className="md:col-span-2 text-xs text-gray-600">
                                 Coupon Name
                                 <input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} />

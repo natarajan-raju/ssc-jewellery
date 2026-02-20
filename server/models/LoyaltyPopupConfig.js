@@ -39,7 +39,17 @@ const normalizeRow = (row = {}) => ({
 });
 
 class LoyaltyPopupConfig {
+    static async purgeExpired() {
+        await db.execute(
+            `DELETE FROM loyalty_popup_config
+             WHERE id = 1
+               AND ends_at IS NOT NULL
+               AND ends_at < NOW()`
+        );
+    }
+
     static async getAdminConfig() {
+        await LoyaltyPopupConfig.purgeExpired();
         const [rows] = await db.execute('SELECT * FROM loyalty_popup_config WHERE id = 1 LIMIT 1');
         if (!rows.length) return normalizeRow({});
         return normalizeRow(rows[0]);
@@ -56,18 +66,25 @@ class LoyaltyPopupConfig {
             audioUrl: String(payload.audioUrl || '').trim(),
             buttonLabel: String(payload.buttonLabel || 'Shop Now').trim() || 'Shop Now',
             buttonLink: String(payload.buttonLink || '/shop').trim() || '/shop',
-            discountType: payload.discountType ? String(payload.discountType).trim().toLowerCase() : null,
-            discountValue: payload.discountValue == null || payload.discountValue === '' ? null : Number(payload.discountValue || 0),
             couponCode: payload.couponCode ? String(payload.couponCode).trim().toUpperCase() : null,
-            startsAt: payload.startsAt ? new Date(payload.startsAt) : null,
             endsAt: payload.endsAt ? new Date(payload.endsAt) : null,
             metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {}
         };
-        if (next.endsAt && next.startsAt && next.endsAt.getTime() < next.startsAt.getTime()) {
-            throw new Error('Popup end date must be on or after start date');
-        }
-        if (next.discountType && !['percent', 'fixed', 'shipping_full', 'shipping_partial'].includes(next.discountType)) {
-            throw new Error('Popup discount type must be percent, fixed, shipping_full, or shipping_partial');
+        if (next.couponCode) {
+            const [couponRows] = await db.execute(
+                `SELECT code, scope_type, is_active
+                 FROM coupons
+                 WHERE code = ?
+                 LIMIT 1`,
+                [next.couponCode]
+            );
+            if (!couponRows.length || Number(couponRows[0].is_active || 0) !== 1) {
+                throw new Error('Selected coupon is not active');
+            }
+            const scope = String(couponRows[0].scope_type || 'generic').toLowerCase();
+            if (scope === 'tier' || scope === 'customer') {
+                throw new Error('Tier and customer specific coupons cannot be used in popup');
+            }
         }
         await db.execute(
             `INSERT INTO loyalty_popup_config
@@ -100,10 +117,10 @@ class LoyaltyPopupConfig {
                 next.audioUrl || null,
                 next.buttonLabel,
                 next.buttonLink,
-                next.discountType,
-                next.discountValue,
+                null,
+                null,
                 next.couponCode,
-                next.startsAt ? next.startsAt.toISOString().slice(0, 19).replace('T', ' ') : null,
+                null,
                 next.endsAt ? next.endsAt.toISOString().slice(0, 19).replace('T', ' ') : null,
                 JSON.stringify(next.metadata || {})
             ]
@@ -112,6 +129,7 @@ class LoyaltyPopupConfig {
     }
 
     static async getClientActivePopup() {
+        await LoyaltyPopupConfig.purgeExpired();
         const [rows] = await db.execute('SELECT * FROM loyalty_popup_config WHERE id = 1 AND is_active = 1 LIMIT 1');
         if (!rows.length) return null;
         const row = normalizeRow(rows[0]);
