@@ -473,7 +473,7 @@ export default function LoyaltySettings({ onBack }) {
             <div className="flex items-center justify-between gap-3">
                 <div>
                     <h2 className="text-2xl md:text-3xl font-serif text-primary font-bold">Loyalty Settings</h2>
-                    <p className="text-sm text-gray-500 mt-1">Select tier tab and edit its card.</p>
+                    <p className="text-gray-500 text-sm mt-1">Manage tiers, coupons, and popup settings.</p>
                 </div>
                 <button type="button" onClick={onBack} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                     <ArrowLeft size={16} /> Back

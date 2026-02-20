@@ -23,29 +23,29 @@ export default function CustomerCouponPopup() {
     const { user } = useAuth();
     const [open, setOpen] = useState(false);
     const [popup, setPopup] = useState(null);
+    const [dismissed, setDismissed] = useState(false);
 
     const storageKey = useMemo(() => {
         if (!user?.id || !popup?.key) return '';
-        return `customer-popup-seen:${user.id}:${popup.key}`;
+        return `customer-popup-dismissed:${user.id}:${popup.key}`;
     }, [popup?.key, user?.id]);
 
     useEffect(() => {
         if (!user || String(user.role || '').toLowerCase() !== 'customer') return;
         let active = true;
+        setDismissed(false);
         const timer = setTimeout(async () => {
             try {
                 const data = await orderService.getCustomerPopupData();
                 const nextPopup = data?.popup || null;
                 if (!active || !nextPopup) return;
-                const key = `customer-popup-seen:${user.id}:${nextPopup.key || ''}`;
-                if (nextPopup.key && sessionStorage.getItem(key) === '1') return;
+                const key = `customer-popup-dismissed:${user.id}:${nextPopup.key || ''}`;
+                if (nextPopup.key && localStorage.getItem(key) === '1') {
+                    setDismissed(true);
+                    return;
+                }
                 setPopup(nextPopup);
                 setOpen(true);
-                burstConfetti();
-                playCue(nextPopup.audioUrl || defaultPopCue, { volume: 0.9 });
-                if (nextPopup.key) {
-                    sessionStorage.setItem(key, '1');
-                }
             } catch {
                 // ignore popup fetch errors
             }
@@ -57,11 +57,20 @@ export default function CustomerCouponPopup() {
     }, [user]);
 
     useEffect(() => {
-        if (!open || !storageKey) return;
-        sessionStorage.setItem(storageKey, '1');
-    }, [open, storageKey]);
+        if (!open || !popup) return;
+        burstConfetti();
+        playCue(popup.audioUrl || defaultPopCue, { volume: 0.9 });
+    }, [open, popup]);
+
+    const handleDontShowAgain = () => {
+        if (storageKey) {
+            localStorage.setItem(storageKey, '1');
+        }
+        setOpen(false);
+    };
 
     if (!open || !popup) return null;
+    if (dismissed) return null;
     const coupon = popup.coupon || null;
 
     return createPortal(
@@ -83,7 +92,7 @@ export default function CustomerCouponPopup() {
                         {!!popup.encouragement && <p className="text-sm text-emerald-700 font-medium">{popup.encouragement}</p>}
 
                         {coupon && (
-                            <div className="rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[104px]">
+                            <div className="relative rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[104px]">
                                 <div className="bg-primary px-4 py-3 flex flex-col justify-center">
                                     <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
                                     <p className="text-sm font-bold mt-1 text-white leading-5 break-all min-h-[2.5rem] max-h-[2.5rem] line-clamp-2">{coupon.code}</p>
@@ -98,10 +107,19 @@ export default function CustomerCouponPopup() {
                                         {coupon.expiresAt ? `Expires ${formatLongDate(coupon.expiresAt)}` : 'No expiry'}
                                     </p>
                                 </div>
+                                <span style={{ left: 'calc(100% - 156px)' }} className="absolute -top-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
+                                <span style={{ left: 'calc(100% - 156px)' }} className="absolute -bottom-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
                             </div>
                         )}
 
-                        <div className="pt-1 flex justify-end">
+                        <div className="pt-1 flex items-center justify-between gap-3">
+                            <button
+                                type="button"
+                                onClick={handleDontShowAgain}
+                                className="text-[11px] text-gray-400 hover:text-gray-600 underline"
+                            >
+                                Don&apos;t show me again
+                            </button>
                             <Link
                                 to={popup.buttonLink || '/shop'}
                                 onClick={() => setOpen(false)}
