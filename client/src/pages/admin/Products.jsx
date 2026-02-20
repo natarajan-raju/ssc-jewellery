@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { productService } from '../../services/productService';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { 
@@ -138,7 +139,7 @@ export default function Products({ onNavigate }) {
             />
 
             {/* --- DELETE CONFIRMATION MODAL --- */}
-            {productToDelete && (
+            {productToDelete && createPortal(
                  <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
                      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 animate-in zoom-in-95">
                          <div className="flex items-center gap-4 mb-4">
@@ -158,7 +159,8 @@ export default function Products({ onNavigate }) {
                              <button onClick={confirmDelete} className="px-4 py-2 rounded-xl font-bold bg-red-600 text-white hover:bg-red-700">Delete</button>
                          </div>
                      </div>
-                 </div>
+                 </div>,
+                 document.body
             )}
 
             {/* --- HEADER & ACTIONS --- */}

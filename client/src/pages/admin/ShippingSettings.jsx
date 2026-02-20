@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Plus, Truck, X, Trash2, Pencil } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { shippingService } from '../../services/shippingService';
 import shippingIllustration from '../../assets/shipping.svg';
 
@@ -399,9 +400,9 @@ export default function ShippingSettings() {
                 </>
             )}
 
-            {optionModalOpen && (
-                <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-6">
+            {optionModalOpen && createPortal(
+                <div className="fixed inset-0 z-[220] flex items-start sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-6 max-h-[calc(100vh-2rem)] overflow-y-auto my-auto">
                         <div className="flex items-center justify-between">
                             <h3 className="text-lg font-bold text-gray-800">
                                 {editingOptionId ? 'Edit shipping option' : 'Add shipping option'}
@@ -495,7 +496,8 @@ export default function ShippingSettings() {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

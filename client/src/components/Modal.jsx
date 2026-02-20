@@ -1,9 +1,8 @@
 import { X, AlertTriangle, Key, Eye, EyeOff, Check, FolderPlus } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export default function Modal({ isOpen, onClose, title, message, type = 'default', onConfirm, isLoading, confirmText }) {
-  if (!isOpen) return null;
-  
   // --- STATE FIX ---
   const [showPass, setShowPass] = useState(false);
   const [inputValue, setInputValue] = useState(''); 
@@ -45,12 +44,14 @@ export default function Modal({ isOpen, onClose, title, message, type = 'default
     }
   }, [isOpen]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" 
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in">
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity"
         onClick={onClose}
-      ></div>
+      />
 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm relative z-10 overflow-hidden transform transition-all scale-100">
         <div className={`h-2 w-full ${type === 'delete' ? 'bg-red-500' : 'bg-accent'}`}></div>
@@ -114,6 +115,7 @@ export default function Modal({ isOpen, onClose, title, message, type = 'default
           <X size={18} />
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

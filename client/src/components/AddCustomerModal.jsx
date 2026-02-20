@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, UserPlus, UserCog, Loader2, Eye, EyeOff, Calendar } from 'lucide-react'; // Added icons
 
 const formatLongDate = (value) => {
@@ -76,7 +77,7 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
 
   const isStaff = roleToAdd === 'staff';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
       
@@ -183,5 +184,7 @@ export default function AddCustomerModal({ isOpen, onClose, onConfirm, roleToAdd
         </div>
       </div>
     </div>
+    ,
+    document.body
   );
 }

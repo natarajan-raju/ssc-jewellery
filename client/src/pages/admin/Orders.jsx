@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2 } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
@@ -1245,7 +1246,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                 </div>
             </div>
 
-            {isDetailsOpen && (
+            {isDetailsOpen && createPortal(
                 <div className="fixed inset-0 z-[70] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
                         <div className="flex items-center justify-between mb-4">
@@ -1516,7 +1517,8 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                             </>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
             <Modal
                 isOpen={confirmModal.isOpen}

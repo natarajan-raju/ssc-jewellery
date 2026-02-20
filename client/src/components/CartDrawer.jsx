@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useShipping } from '../context/ShippingContext';
@@ -162,7 +163,7 @@ export default function CartDrawer() {
 
     if (!render) return null;
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[120]">
             <div
                 className={`absolute inset-0 bg-black/35 backdrop-blur-[2px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
@@ -386,5 +387,7 @@ export default function CartDrawer() {
                 )}
             </div>
         </div>
+        ,
+        document.body
     );
 }

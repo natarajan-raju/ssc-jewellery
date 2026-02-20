@@ -160,18 +160,34 @@ const getItems = (order = {}) => {
     });
 };
 
-const drawAddressBlock = (doc, fonts, { x, y, width, heading, lines = [] }) => {
-    doc.roundedRect(x, y, width, 98, 6).strokeColor('#E5E7EB').stroke();
+const getAddressBlockHeight = (doc, fonts, { width, lines = [] }) => {
+    const safeLines = lines.slice(0, 10);
+    const bodyWidth = width - 20;
+    const bodyHeight = safeLines.reduce((sum, line) => (
+        sum + textHeight(doc, String(line), bodyWidth, 10, fonts) + 2
+    ), 0);
+    return Math.max(98, 32 + bodyHeight + 8);
+};
+
+const drawAddressBlock = (doc, fonts, { x, y, width, heading, lines = [], forcedHeight = null }) => {
+    const safeLines = lines.slice(0, 10);
+    const bodyWidth = width - 20;
+    const computedHeight = getAddressBlockHeight(doc, fonts, { width, lines: safeLines });
+    const boxHeight = Math.max(computedHeight, Number(forcedHeight || 0));
+
+    doc.roundedRect(x, y, width, boxHeight, 6).strokeColor('#E5E7EB').stroke();
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#6B7280').text(heading, x + 10, y + 8, { width: width - 20 });
     let cursorY = y + 24;
-    lines.slice(0, 6).forEach((text) => {
-        drawMixedText(doc, String(text), x + 10, cursorY, {
+    safeLines.forEach((text) => {
+        const lineText = String(text);
+        drawMixedText(doc, lineText, x + 10, cursorY, {
             size: 10,
             color: '#111827',
-            width: width - 20
+            width: bodyWidth
         }, fonts);
-        cursorY += 14;
+        cursorY += textHeight(doc, lineText, bodyWidth, 10, fonts) + 2;
     });
+    return boxHeight;
 };
 
 const drawTableHeader = (doc, y) => {
@@ -340,19 +356,26 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     ].filter(Boolean);
     const shippingLines = normalizeAddressLines(shipping);
 
-    drawAddressBlock(doc, fonts, { x: 42, y: 162, width: 250, heading: 'BILL TO', lines: billingLines });
-    drawAddressBlock(doc, fonts, { x: 318, y: 162, width: 250, heading: 'SHIP TO', lines: shippingLines.length ? shippingLines : ['Address not provided'] });
+    const billingLinesSafe = billingLines.slice(0, 10);
+    const shippingLinesSafe = (shippingLines.length ? shippingLines : ['Address not provided']).slice(0, 10);
+    const sharedAddressHeight = Math.max(
+        getAddressBlockHeight(doc, fonts, { width: 250, lines: billingLinesSafe }),
+        getAddressBlockHeight(doc, fonts, { width: 250, lines: shippingLinesSafe })
+    );
+    drawAddressBlock(doc, fonts, { x: 42, y: 162, width: 250, heading: 'BILL TO', lines: billingLinesSafe, forcedHeight: sharedAddressHeight });
+    drawAddressBlock(doc, fonts, { x: 318, y: 162, width: 250, heading: 'SHIP TO', lines: shippingLinesSafe, forcedHeight: sharedAddressHeight });
+    const infoY = 162 + sharedAddressHeight + 10;
 
-    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Order Ref:', 42, 270, { continued: true });
+    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Order Ref:', 42, infoY, { continued: true });
     doc.font('Helvetica-Bold').fillColor('#111827').text(` ${orderRef}`);
-    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Payment:', 220, 270, { continued: true });
+    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Payment:', 220, infoY, { continued: true });
     doc.font('Helvetica-Bold').fillColor('#111827').text(` ${String(order.payment_gateway || 'razorpay').toUpperCase()}`);
-    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Payment Status:', 392, 270, { continued: true });
+    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Payment Status:', 392, infoY, { continued: true });
     doc.font('Helvetica-Bold').fillColor('#111827').text(` ${String(order.payment_status || '—').toUpperCase()}`, { align: 'right' });
-    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Membership:', 42, 286, { continued: true });
+    doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Membership:', 42, infoY + 16, { continued: true });
     doc.font('Helvetica-Bold').fillColor(tierTheme.color).text(` ${tierTheme.label}`);
 
-    let cursorY = drawItemsTable(doc, fonts, 304, items);
+    let cursorY = drawItemsTable(doc, fonts, infoY + 34, items);
 
     doc.y = cursorY + 12;
     ensureSpace(doc, 180, 52);
@@ -371,13 +394,13 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         `- ${inr(couponDiscount)}`,
         totalsY + 36
     );
-    writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, totalsY + 54);
-    writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, totalsY + 72);
-    writeTotal('Total Discounts', `- ${inr(totalDiscount)}`, totalsY + 90);
-    doc.moveTo(totalsX, totalsY + 112).lineTo(totalsX + 215, totalsY + 112).strokeColor('#D1D5DB').stroke();
-    writeTotal('Grand Total', inr(total), totalsY + 120, true);
+    writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, totalsY + 62);
+    writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, totalsY + 80);
+    writeTotal('Total Discounts', `- ${inr(totalDiscount)}`, totalsY + 98);
+    doc.moveTo(totalsX, totalsY + 120).lineTo(totalsX + 215, totalsY + 120).strokeColor('#D1D5DB').stroke();
+    writeTotal('Grand Total', inr(total), totalsY + 128, true);
 
-    doc.y = totalsY + 156;
+    doc.y = totalsY + 164;
     ensureSpace(doc, 120, 52);
 
     const policyTop = doc.y;

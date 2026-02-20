@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
@@ -304,16 +305,16 @@ export default function AdminDashboard() {
                 <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} onClick={() => setActiveTab('abandoned')} />
             </div>
 
-            {incomingModalOpen && incomingSummary.count > 0 && (
-                <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4">
-                    <div className="w-full max-w-lg rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
+            {incomingModalOpen && incomingSummary.count > 0 && createPortal(
+                <div className="fixed inset-0 z-[95] bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+                    <div className="w-full max-w-lg rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col my-auto">
                         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                             <h3 className="text-lg font-semibold text-gray-900">New Order Alert</h3>
                             <button onClick={dismissIncomingModal} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
                                 <X size={16} />
                             </button>
                         </div>
-                        <div className="p-5">
+                        <div className="p-5 overflow-y-auto">
                             <div className="flex items-start gap-4">
                                 <img src={orderIllustration} alt="New order" className="w-24 h-24 object-contain" />
                                 <div className="flex-1">
@@ -362,7 +363,8 @@ export default function AdminDashboard() {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
         </AdminKPIProvider>

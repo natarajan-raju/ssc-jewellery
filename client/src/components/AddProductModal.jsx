@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { productService } from '../services/productService';
@@ -432,7 +433,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
 
    
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
             <div className="bg-white w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 relative">
                 
@@ -976,6 +977,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 )}
             </div>
         </div>
+        ,
+        document.body
     );
 }
 

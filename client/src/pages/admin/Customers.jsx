@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -86,6 +87,7 @@ export default function Customers({ onOpenLoyalty }) {
     const [cartItems, setCartItems] = useState([]);
     const [isCartLoading, setIsCartLoading] = useState(false);
     const [activeCoupons, setActiveCoupons] = useState([]);
+    const [activeCouponsLoading, setActiveCouponsLoading] = useState(false);
 
     const [couponModalUser, setCouponModalUser] = useState(null);
     const [couponSaving, setCouponSaving] = useState(false);
@@ -119,9 +121,14 @@ export default function Customers({ onOpenLoyalty }) {
                 const affectedUserId = payload?.userId ? String(payload.userId) : null;
                 if (!affectedUserId || affectedUserId === String(selectedUser.id)) {
                     try {
+                        setActiveCouponsLoading(true);
                         const data = await adminService.getUserActiveCoupons(selectedUser.id);
                         setActiveCoupons(Array.isArray(data?.coupons) ? data.coupons : []);
-                    } catch {}
+                    } catch (error) {
+                        toast.error(error?.message || 'Failed to load active coupons');
+                    } finally {
+                        setActiveCouponsLoading(false);
+                    }
                 }
             }
         }
@@ -254,10 +261,15 @@ export default function Customers({ onOpenLoyalty }) {
         setSelectedUser(user);
         setIsProfileOpen(true);
         setActiveCoupons([]);
+        setActiveCouponsLoading(true);
         try {
             const data = await adminService.getUserActiveCoupons(user.id);
             setActiveCoupons(Array.isArray(data?.coupons) ? data.coupons : []);
-        } catch {}
+        } catch (error) {
+            toast.error(error?.message || 'Failed to load active coupons');
+        } finally {
+            setActiveCouponsLoading(false);
+        }
     };
 
     const openIssueCouponModal = (user) => {
@@ -374,9 +386,9 @@ export default function Customers({ onOpenLoyalty }) {
                 roleToAdd={addModalRole}
             />
 
-            {couponModalUser && (
-                <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4">
+            {couponModalUser && createPortal(
+                <div className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+                    <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto my-auto">
                         <div className="flex items-center justify-between">
                             <h3 className="text-lg font-bold text-gray-800">Issue Coupon to {couponModalUser.name}</h3>
                             <button onClick={() => setCouponModalUser(null)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={16} /></button>
@@ -455,12 +467,13 @@ export default function Customers({ onOpenLoyalty }) {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
-            {isCartOpen && selectedUser && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4">
+            {isCartOpen && selectedUser && createPortal(
+                <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+                    <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto my-auto">
                         <div className="flex items-center justify-between">
                             <h3 className="text-lg font-bold text-gray-800">{selectedUser.name}'s Cart</h3>
                             <button onClick={() => setIsCartOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
@@ -483,10 +496,11 @@ export default function Customers({ onOpenLoyalty }) {
                             ))}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
-            {isProfileOpen && selectedUser && (
+            {isProfileOpen && selectedUser && createPortal(
                 <div className="fixed inset-0 z-[60] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
                         <div className="flex items-center justify-between mb-6">
@@ -526,15 +540,18 @@ export default function Customers({ onOpenLoyalty }) {
                                     </button>
                                 </div>
                                 <p className="text-sm text-gray-700 mt-2">{activeCoupons.length} active coupon(s)</p>
-                                <div className="mt-2 space-y-2">
-                                    {activeCoupons.slice(0, 12).map((cp) => (
+                                <div className="mt-2 space-y-2 max-h-56 overflow-y-auto pr-1">
+                                    {activeCouponsLoading && <p className="text-xs text-gray-400">Loading coupons...</p>}
+                                    {!activeCouponsLoading && activeCoupons.map((cp) => (
                                         <div key={cp.id || cp.code} className="rounded-lg border border-gray-200 px-3 py-2 flex items-center justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="text-xs font-semibold text-gray-800 truncate">{cp.code}</p>
                                                 <p className="text-[11px] text-gray-600 mt-1">
-                                                    {cp.discountType === 'fixed' ? `₹${Number(cp.discountValue || 0).toLocaleString('en-IN')} off` : `${Number(cp.discountValue || 0)}% off`}
-                                                    {cp.sourceType === 'abandoned' ? ' • Abandoned cart' : ''}
-                                                    {cp.expiresAt ? ` • Expires ${formatLongDate(cp.expiresAt)}` : ' • No expiry'}
+                                                    {(cp.discountType || cp.discount_type) === 'fixed'
+                                                        ? `₹${Number(cp.discountValue ?? cp.discount_value ?? 0).toLocaleString('en-IN')} off`
+                                                        : `${Number(cp.discountValue ?? cp.discount_value ?? 0)}% off`}
+                                                    {(cp.sourceType || cp.source_type) === 'abandoned' ? ' • Abandoned cart' : ''}
+                                                    {(cp.expiresAt || cp.expires_at) ? ` • Expires ${formatLongDate(cp.expiresAt || cp.expires_at)}` : ' • No expiry'}
                                                 </p>
                                             </div>
                                             <button
@@ -548,12 +565,13 @@ export default function Customers({ onOpenLoyalty }) {
                                             </button>
                                         </div>
                                     ))}
-                                    {activeCoupons.length === 0 && <p className="text-xs text-gray-400">No active coupons.</p>}
+                                    {!activeCouponsLoading && activeCoupons.length === 0 && <p className="text-xs text-gray-400">No active coupons.</p>}
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">

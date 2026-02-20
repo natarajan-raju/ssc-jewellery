@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Filter, RefreshCw, Search, Settings2, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
@@ -707,7 +708,7 @@ export default function AbandonedCarts() {
                 )}
             </div>
 
-            {isSettingsOpen && (
+            {isSettingsOpen && createPortal(
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
                     <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl p-5">
                         <div className="flex items-center justify-between gap-3 mb-4">
@@ -738,11 +739,12 @@ export default function AbandonedCarts() {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
-            {selectedTimeline && (
-                <div className="fixed inset-0 z-[80] flex items-stretch justify-end bg-black/40">
+            {selectedTimeline && createPortal(
+                <div className="fixed inset-0 z-[80] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-xl h-full overflow-y-auto p-6 shadow-2xl">
                         <div className="flex items-center justify-between">
                             <h3 className="text-lg font-semibold text-gray-800">Journey Timeline #{selectedTimeline?.journey?.id}</h3>
@@ -822,7 +824,8 @@ export default function AbandonedCarts() {
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

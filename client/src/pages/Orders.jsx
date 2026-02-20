@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Package, ChevronRight, MessageCircle, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMyOrders } from '../context/OrderContext';
@@ -426,7 +427,7 @@ export default function Orders() {
                         )}
                     </div>
                 )}
-                {detailsOpen && selectedOrder && (
+                {detailsOpen && selectedOrder && createPortal(
                     <div className="fixed inset-0 z-[90] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                         <div className="bg-white w-full max-w-md h-full shadow-2xl p-6 overflow-y-auto">
                             <div className="flex items-center justify-between">
@@ -645,6 +646,8 @@ export default function Orders() {
                             </div>
                         </div>
                     </div>
+                    ,
+                    document.body
                 )}
             </div>
         </div>

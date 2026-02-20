@@ -429,24 +429,30 @@ const deleteCoupon = async (req, res) => {
         if (String(req.user?.role || '').toLowerCase() !== 'admin') {
             return res.status(403).json({ message: 'Only admin can delete coupons' });
         }
-        const couponId = Number(req.params.couponId || req.params.id || 0);
-        if (!Number.isFinite(couponId) || couponId <= 0) {
+        const couponRef = String(req.params.couponId || req.params.id || '').trim();
+        if (!couponRef) {
             return res.status(400).json({ message: 'Invalid coupon id' });
         }
-        const coupon = await Coupon.getById(couponId);
+        const couponId = Number(couponRef);
+        const isNumericId = Number.isFinite(couponId) && couponId > 0;
+        const coupon = isNumericId
+            ? await Coupon.getById(couponId)
+            : await Coupon.getByCode(couponRef);
         if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
-        const affected = await Coupon.deactivateCoupon(couponId);
+        const affected = isNumericId
+            ? await Coupon.deactivateCoupon(couponId)
+            : await Coupon.deactivateCouponByCode(couponRef);
         if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
         emitCouponChanged(req, {
             action: 'deleted',
-            couponId,
+            couponId: coupon.id || (isNumericId ? couponId : null),
             code: coupon.code || null,
             scopeType: coupon.scope_type || 'generic',
             sourceType: coupon.source_type || 'admin',
             userTargets: coupon.scope_type === 'customer' ? (coupon.customerTargets || []) : [],
             broadcast: coupon.scope_type !== 'customer'
         });
-        return res.json({ ok: true, id: couponId });
+        return res.json({ ok: true, id: coupon.id || (isNumericId ? couponId : couponRef) });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to delete coupon' });
     }

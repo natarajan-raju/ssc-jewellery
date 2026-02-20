@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Crown, Gem, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, Trash2, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
+import Modal from '../../components/Modal';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -16,6 +18,16 @@ const getTodayDateInput = () => {
 const toNumber = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
+};
+const formatCouponExpiry = (value) => {
+    if (!value) return 'No expiry';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'No expiry';
+    return date.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+    });
 };
 
 const shippingPriorityLabel = (value = 'standard') => {
@@ -71,6 +83,24 @@ const getDefaultCouponForm = () => ({
     expiresAt: ''
 });
 
+const normalizeCategoryOptions = (value) => {
+    const rows = Array.isArray(value) ? value : [];
+    const mapped = rows.map((row) => {
+        if (row == null) return null;
+        if (typeof row === 'string') return null;
+        const id = Number(row.id ?? row.category_id ?? row.categoryId ?? 0);
+        const name = String(row.name ?? row.category_name ?? row.title ?? '').trim();
+        if (!Number.isFinite(id) || id <= 0 || !name) return null;
+        return { id, name };
+    }).filter(Boolean);
+    const seen = new Set();
+    return mapped.filter((row) => {
+        if (seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+    });
+};
+
 export default function LoyaltySettings({ onBack }) {
     const toast = useToast();
     const [rows, setRows] = useState([]);
@@ -90,6 +120,16 @@ export default function LoyaltySettings({ onBack }) {
     const [couponCreating, setCouponCreating] = useState(false);
     const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponRefreshKey, setCouponRefreshKey] = useState(0);
+    const [openSection, setOpenSection] = useState('tier');
+    const [confirmModal, setConfirmModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        confirmText: 'Delete',
+        type: 'delete',
+        coupon: null
+    });
+    const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
 
     const applyConfigRows = (config = []) => {
         const byTier = Object.fromEntries((Array.isArray(config) ? config : []).map((item) => [String(item.tier || '').toLowerCase(), item]));
@@ -116,15 +156,19 @@ export default function LoyaltySettings({ onBack }) {
         let cancelled = false;
         Promise.all([
             adminService.getLoyaltyConfig(),
+            productService.getCategoryStats().catch(() => null),
             productService.getCategories().catch(() => ({ categories: [] }))
-        ]).then(([data, cats]) => {
+        ]).then(([data, categoryStats, cats]) => {
             if (cancelled) return;
             applyConfigRows(Array.isArray(data?.config) ? data.config : []);
-
+            const statRows = Array.isArray(categoryStats)
+                ? categoryStats
+                : (Array.isArray(categoryStats?.categories) ? categoryStats.categories : []);
             const categoryRows = Array.isArray(cats)
                 ? cats
                 : (Array.isArray(cats?.categories) ? cats.categories : []);
-            setCategories(categoryRows);
+            const resolved = normalizeCategoryOptions(statRows);
+            setCategories(resolved.length ? resolved : normalizeCategoryOptions(categoryRows));
         }).catch((error) => {
             toast.error(error?.message || 'Failed to load loyalty settings');
         }).finally(() => {
@@ -242,19 +286,40 @@ export default function LoyaltySettings({ onBack }) {
         }
     };
 
-    const handleDeleteCoupon = async (couponId) => {
-        const id = Number(couponId || 0);
-        if (!Number.isFinite(id) || id <= 0) return;
-        if (!window.confirm('Delete this coupon?')) return;
-        setCouponDeletingId(id);
+    const openDeleteCouponConfirm = (coupon) => {
+        if (!coupon) return;
+        setConfirmModal({
+            isOpen: true,
+            type: 'delete',
+            title: 'Delete Coupon',
+            message: `Delete coupon ${coupon.code || coupon.id}? This cannot be undone.`,
+            confirmText: 'Delete',
+            coupon
+        });
+    };
+
+    const closeConfirmModal = () => {
+        if (isConfirmProcessing) return;
+        setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null }));
+    };
+
+    const handleDeleteCoupon = async () => {
+        const coupon = confirmModal?.coupon || null;
+        const couponId = coupon?.id ?? coupon?.code ?? null;
+        if (!couponId) return;
+        const deletingKey = coupon?.id ?? coupon?.code ?? null;
+        setIsConfirmProcessing(true);
+        setCouponDeletingId(deletingKey);
         try {
-            await adminService.deleteLoyaltyCoupon(id);
+            await adminService.deleteLoyaltyCoupon(couponId);
             toast.success('Coupon deleted');
             setCouponRefreshKey((v) => v + 1);
+            setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null }));
         } catch (error) {
             toast.error(error?.message || 'Failed to delete coupon');
         } finally {
             setCouponDeletingId(null);
+            setIsConfirmProcessing(false);
         }
     };
 
@@ -275,133 +340,198 @@ export default function LoyaltySettings({ onBack }) {
                 </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-3">
-                <div className="flex flex-wrap gap-2">
-                    {ORDER.map((tier) => (
-                        <button
-                            key={tier}
-                            type="button"
-                            onClick={() => setActiveTier(tier)}
-                            className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${activeTier === tier ? 'bg-primary text-accent border-primary' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                        >
-                            {tierLabel(tier).toUpperCase()}
-                        </button>
-                    ))}
+            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setOpenSection((prev) => (prev === 'tier' ? '' : 'tier'))}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left"
+                >
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Tier Management</h3>
+                        <p className="text-sm text-gray-500">Edit thresholds, discounts and shipping priority by tier.</p>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-500">{openSection === 'tier' ? '−' : '+'}</span>
+                </button>
+                <div className={`${openSection === 'tier' ? 'block' : 'hidden'} border-t border-gray-100 p-3`}>
+                    <div className="flex flex-wrap gap-2">
+                        {ORDER.map((tier) => (
+                            <button
+                                key={tier}
+                                type="button"
+                                onClick={() => setActiveTier(tier)}
+                                className={`px-3 py-2 rounded-lg text-sm font-semibold border transition-colors ${activeTier === tier ? 'bg-primary text-accent border-primary' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                            >
+                                {tierLabel(tier).toUpperCase()}
+                            </button>
+                        ))}
+                    </div>
+
+                    {activeRow && (
+                        <div className={`relative mt-3 rounded-2xl border border-gray-200 bg-gradient-to-br ${style.card} p-5 shadow-sm overflow-hidden`}>
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.25em] font-semibold opacity-70">Tier</p>
+                                    <p className="text-2xl font-bold mt-1">{activeRow.label}</p>
+                                    <p className="text-sm mt-1 opacity-80">Threshold ₹{toNumber(activeRow.threshold).toLocaleString('en-IN')} in {toNumber(activeRow.windowDays)} days</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingTier(activeRow.tier)}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-black/10 bg-white/80 text-sm font-semibold hover:bg-white"
+                                >
+                                    <Pencil size={14} /> Edit
+                                </button>
+                            </div>
+                            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Extra Discount</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.extraDiscountPct)}%</p></div>
+                                <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Shipping Discount</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.shippingDiscountPct)}%</p></div>
+                                <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Birthday Discount</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.birthdayDiscountPct, 10)}%</p></div>
+                                <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Abandoned Boost</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.abandonedCartBoostPct)}%</p></div>
+                            </div>
+                            <div className={`mt-3 rounded-xl border px-3 py-2 ${style.stat}`}>
+                                <p className="text-[11px] uppercase tracking-wider opacity-70">Shipping Priority</p>
+                                <p className="text-lg font-bold mt-1">{shippingPriorityLabel(activeRow.shippingPriority)}</p>
+                            </div>
+                            <div className={`mt-3 rounded-xl border p-3 ${style.stat}`}>
+                                <p className="text-[11px] uppercase tracking-wider opacity-70">Benefit Preview</p>
+                                <ul className="mt-2 space-y-2">
+                                    {(activeRow.benefits?.length ? activeRow.benefits : buildBenefitsPreview(activeRow)).map((line) => (
+                                        <li key={line} className="text-sm leading-6">- {line}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <TierIcon size={82} className="absolute right-4 bottom-4 opacity-20" />
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {activeRow && (
-                <div className={`relative rounded-2xl border border-gray-200 bg-gradient-to-br ${style.card} p-5 shadow-sm overflow-hidden`}>
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <p className="text-xs uppercase tracking-[0.25em] font-semibold opacity-70">Tier</p>
-                            <p className="text-2xl font-bold mt-1">{activeRow.label}</p>
-                            <p className="text-sm mt-1 opacity-80">Threshold ₹{toNumber(activeRow.threshold).toLocaleString('en-IN')} in {toNumber(activeRow.windowDays)} days</p>
+            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setOpenSection((prev) => (prev === 'coupon' ? '' : 'coupon'))}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left"
+                >
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Coupon Management</h3>
+                        <p className="text-sm text-gray-500">Issue and deactivate loyalty coupons.</p>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-500">{openSection === 'coupon' ? '−' : '+'}</span>
+                </button>
+                <div className={`${openSection === 'coupon' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 w-full justify-end">
+                            <div className="relative w-full max-w-xs">
+                                <Search size={14} className="absolute left-3 top-3 text-gray-400" />
+                                <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field pl-8 py-2.5" />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setCouponForm(getDefaultCouponForm());
+                                    setIsCouponModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
+                            >
+                                <Plus size={14} /> Issue New Coupon
+                            </button>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setEditingTier(activeRow.tier)}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-black/10 bg-white/80 text-sm font-semibold hover:bg-white"
-                        >
-                            <Pencil size={14} /> Edit
-                        </button>
                     </div>
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Extra Discount</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.extraDiscountPct)}%</p></div>
-                        <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Shipping Discount</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.shippingDiscountPct)}%</p></div>
-                        <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Birthday Discount</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.birthdayDiscountPct, 10)}%</p></div>
-                        <div className={`rounded-xl border px-3 py-2 ${style.stat}`}><p className="text-[11px] uppercase tracking-wider opacity-70">Abandoned Boost</p><p className="text-lg font-bold mt-1">{toNumber(activeRow.abandonedCartBoostPct)}%</p></div>
-                    </div>
-                    <div className={`mt-3 rounded-xl border px-3 py-2 ${style.stat}`}>
-                        <p className="text-[11px] uppercase tracking-wider opacity-70">Shipping Priority</p>
-                        <p className="text-lg font-bold mt-1">{shippingPriorityLabel(activeRow.shippingPriority)}</p>
-                    </div>
-                    <div className={`mt-3 rounded-xl border p-3 ${style.stat}`}>
-                        <p className="text-[11px] uppercase tracking-wider opacity-70">Benefit Preview</p>
-                        <ul className="mt-2 space-y-2">
-                            {(activeRow.benefits?.length ? activeRow.benefits : buildBenefitsPreview(activeRow)).map((line) => (
-                                <li key={line} className="text-sm leading-6">- {line}</li>
-                            ))}
-                        </ul>
-                    </div>
-                    <TierIcon size={82} className="absolute right-4 bottom-4 opacity-20" />
-                </div>
-            )}
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-lg font-semibold text-gray-800">Coupon Module</h3>
-                    <div className="flex items-center gap-2 w-full justify-end">
-                        <div className="relative w-full max-w-xs">
-                            <Search size={14} className="absolute left-3 top-3 text-gray-400" />
-                            <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field pl-8 py-2.5" />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setCouponForm(getDefaultCouponForm());
-                                setIsCouponModalOpen(true);
-                            }}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
-                        >
-                            <Plus size={14} /> Issue New Coupon
-                        </button>
-                    </div>
-                </div>
-
-                <div className="rounded-xl border border-gray-200 overflow-hidden">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Code</th>
-                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Name</th>
-                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Scope</th>
-                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Discount</th>
-                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Used</th>
-                                <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={6}>Loading coupons...</td></tr>}
-                            {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={6}>No coupons found.</td></tr>}
-                            {!couponLoading && couponList.map((cp) => (
-                                <tr key={cp.id}>
-                                    <td className="px-3 py-2 font-semibold text-gray-800">{cp.code}</td>
-                                    <td className="px-3 py-2 text-gray-600">{cp.name}</td>
-                                    <td className="px-3 py-2 text-gray-600">{cp.scope_type}</td>
-                                    <td className="px-3 py-2 text-gray-600">{cp.discount_type === 'fixed' ? `₹${Number(cp.discount_value || 0).toLocaleString('en-IN')}` : `${Number(cp.discount_value || 0)}%`}</td>
-                                    <td className="px-3 py-2 text-gray-600">{Number(cp.used_count || 0)}</td>
-                                    <td className="px-3 py-2 text-right">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleDeleteCoupon(cp.id)}
-                                            disabled={couponDeletingId === cp.id}
-                                            className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
-                                            title="Delete Coupon"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </td>
+                    <div className="rounded-xl border border-gray-200 overflow-hidden hidden md:block">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Code</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Name</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Scope</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Discount</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Used</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Expiry</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500 text-right">Actions</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                    <button type="button" onClick={() => setCouponPage((p) => Math.max(1, p - 1))} disabled={couponPage <= 1} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Prev</button>
-                    <span className="text-sm text-gray-500">Page {couponPage} / {Math.max(1, couponTotalPages)}</span>
-                    <button type="button" onClick={() => setCouponPage((p) => Math.min(couponTotalPages, p + 1))} disabled={couponPage >= couponTotalPages} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Next</button>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={7}>Loading coupons...</td></tr>}
+                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={7}>No coupons found.</td></tr>}
+                                {!couponLoading && couponList.map((cp) => (
+                                    <tr key={cp.id || cp.code}>
+                                        <td className="px-3 py-2 font-semibold text-gray-800">{cp.code}</td>
+                                        <td className="px-3 py-2 text-gray-600">{cp.name || 'Coupon'}</td>
+                                        <td className="px-3 py-2 text-gray-600">{String(cp.scope_type || 'generic')}</td>
+                                        <td className="px-3 py-2 text-gray-600">{cp.discount_type === 'fixed' ? `₹${Number(cp.discount_value || 0).toLocaleString('en-IN')}` : `${Number(cp.discount_value || 0)}%`}</td>
+                                        <td className="px-3 py-2 text-gray-600">{Number(cp.used_count || 0)}</td>
+                                        <td className="px-3 py-2 text-gray-600">{formatCouponExpiry(cp.expires_at || cp.expiresAt)}</td>
+                                        <td className="px-3 py-2 text-right">
+                                            <button
+                                                type="button"
+                                                onClick={() => openDeleteCouponConfirm(cp)}
+                                                disabled={couponDeletingId === (cp.id || cp.code)}
+                                                className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                title="Delete Coupon"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 overflow-hidden md:hidden">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Coupon</th>
+                                    <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500 text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={2}>Loading coupons...</td></tr>}
+                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={2}>No coupons found.</td></tr>}
+                                {!couponLoading && couponList.map((cp) => (
+                                    <tr key={cp.id || cp.code}>
+                                        <td className="px-3 py-2">
+                                            <p className="font-semibold text-gray-800">{cp.code}</p>
+                                            <p className="text-xs text-gray-500 mt-0.5">{cp.name || 'Coupon'}</p>
+                                            <p className="text-xs text-gray-500 mt-0.5">
+                                                {String(cp.scope_type || 'generic')} • {cp.discount_type === 'fixed' ? `₹${Number(cp.discount_value || 0).toLocaleString('en-IN')}` : `${Number(cp.discount_value || 0)}%`} • Used {Number(cp.used_count || 0)}
+                                            </p>
+                                            <p className="text-xs text-gray-500 mt-0.5">Expiry: {formatCouponExpiry(cp.expires_at || cp.expiresAt)}</p>
+                                        </td>
+                                        <td className="px-3 py-2 text-right">
+                                            <button
+                                                type="button"
+                                                onClick={() => openDeleteCouponConfirm(cp)}
+                                                disabled={couponDeletingId === (cp.id || cp.code)}
+                                                className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                title="Delete Coupon"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                        <button type="button" onClick={() => setCouponPage((p) => Math.max(1, p - 1))} disabled={couponPage <= 1} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Prev</button>
+                        <span className="text-sm text-gray-500">Page {couponPage} / {Math.max(1, couponTotalPages)}</span>
+                        <button type="button" onClick={() => setCouponPage((p) => Math.min(couponTotalPages, p + 1))} disabled={couponPage >= couponTotalPages} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Next</button>
+                    </div>
                 </div>
             </div>
 
-            {isCouponModalOpen && (
-                <div className="fixed inset-0 z-[96] bg-black/50 flex items-center justify-center p-4">
-                    <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
+            {isCouponModalOpen && createPortal(
+                <div className="fixed inset-0 z-[210]">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsCouponModalOpen(false)}></div>
+                    <div className="relative z-10 flex min-h-full items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto">
+                    <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col my-auto">
                         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                             <div><p className="text-xs uppercase tracking-[0.25em] text-gray-400 font-semibold">Coupon</p><h3 className="text-lg font-semibold text-gray-900 mt-1">Issue New Coupon</h3></div>
                             <button onClick={() => setIsCouponModalOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={16} /></button>
                         </div>
-                        <div className="p-5 space-y-4">
+                        <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <label className="text-xs text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
                                 <label className="text-xs text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
@@ -429,6 +559,9 @@ export default function LoyaltySettings({ onBack }) {
                                             <option key={cat.id} value={cat.id}>{cat.name}</option>
                                         ))}
                                     </select>
+                                    {categories.length === 0 && (
+                                        <p className="mt-2 text-[11px] text-amber-700">No categories found. Create categories first to issue category-scoped coupons.</p>
+                                    )}
                                 </label>
                             )}
                             <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). End date is optional.</p>
@@ -440,17 +573,19 @@ export default function LoyaltySettings({ onBack }) {
                             </button>
                         </div>
                     </div>
-                </div>
+                    </div>
+                </div>,
+                document.body
             )}
 
-            {editRow && (
-                <div className="fixed inset-0 z-[95] bg-black/50 flex items-center justify-center p-4">
-                    <div className="w-full max-w-2xl rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
+            {editRow && createPortal(
+                <div className="fixed inset-0 z-[95] bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+                    <div className="w-full max-w-2xl rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col my-auto">
                         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                             <div><p className="text-xs uppercase tracking-[0.25em] text-gray-400 font-semibold">Edit Tier</p><h3 className="text-lg font-semibold text-gray-900 mt-1">{editRow.label}</h3></div>
                             <button onClick={() => setEditingTier(null)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={16} /></button>
                         </div>
-                        <div className="p-5 space-y-4">
+                        <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <label className="text-xs text-gray-600">Threshold (INR)<input className="input-field mt-1" type="number" value={editRow.threshold} onChange={(e) => updateRow(editRow.tier, { threshold: e.target.value })} /></label>
                                 <label className="text-xs text-gray-600">Window Days<input className="input-field mt-1" type="number" value={editRow.windowDays} onChange={(e) => updateRow(editRow.tier, { windowDays: e.target.value })} /></label>
@@ -474,8 +609,19 @@ export default function LoyaltySettings({ onBack }) {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
+            <Modal
+                isOpen={confirmModal.isOpen}
+                onClose={closeConfirmModal}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                type={confirmModal.type}
+                confirmText={confirmModal.confirmText}
+                onConfirm={handleDeleteCoupon}
+                isLoading={isConfirmProcessing}
+            />
         </div>
     );
 }

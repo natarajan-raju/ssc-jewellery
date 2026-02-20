@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Check } from 'lucide-react';
 
 const isVariantInStock = (variant) => {
@@ -49,7 +50,7 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
         }
     };
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 animate-in zoom-in-95">
                 <div className="flex items-center justify-between mb-4">
@@ -95,5 +96,7 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
                 </button>
             </div>
         </div>
+        ,
+        document.body
     );
 }

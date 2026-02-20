@@ -251,7 +251,8 @@ export const adminService = {
         return data;
     },
     deleteLoyaltyCoupon: async (couponId) => {
-        const res = await fetch(`${API_URL}/loyalty/coupons/${couponId}`, {
+        const encodedId = encodeURIComponent(String(couponId ?? '').trim());
+        const res = await fetch(`${API_URL}/loyalty/coupons/${encodedId}`, {
             method: 'DELETE',
             headers: getAuthHeader()
         });

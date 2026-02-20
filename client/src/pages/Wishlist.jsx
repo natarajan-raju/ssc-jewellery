@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Heart, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +14,11 @@ export default function Wishlist() {
     const navigate = useNavigate();
     const [productLookup, setProductLookup] = useState({});
     const [isLoading, setIsLoading] = useState(false);
+    const productLookupRef = useRef({});
+
+    useEffect(() => {
+        productLookupRef.current = productLookup;
+    }, [productLookup]);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -29,12 +34,13 @@ export default function Wishlist() {
 
         const loadWishlistProducts = async () => {
             if (!wishlistItems.length) {
-                setProductLookup({});
+                setProductLookup((prev) => (Object.keys(prev).length ? {} : prev));
                 return;
             }
 
             const targetIds = [...new Set(wishlistItems.map((entry) => String(entry.productId || '').trim()).filter(Boolean))];
-            const missingIds = targetIds.filter((id) => !productLookup[id]);
+            const cachedLookup = productLookupRef.current || {};
+            const missingIds = targetIds.filter((id) => !cachedLookup[id]);
             if (!missingIds.length) return;
 
             setIsLoading(true);
@@ -44,8 +50,10 @@ export default function Wishlist() {
                 );
                 if (!cancelled) {
                     setProductLookup((prev) => {
+                        const validResponses = responses.filter(Boolean);
+                        if (!validResponses.length) return prev;
                         const next = { ...prev };
-                        responses.filter(Boolean).forEach((product) => {
+                        validResponses.forEach((product) => {
                             next[String(product.id)] = product;
                         });
                         return next;
@@ -60,7 +68,7 @@ export default function Wishlist() {
         return () => {
             cancelled = true;
         };
-    }, [wishlistItems, productLookup]);
+    }, [wishlistItems]);
 
     const wishlistEntries = useMemo(() => {
         return wishlistItems

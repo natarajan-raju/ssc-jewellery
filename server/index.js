@@ -1,7 +1,6 @@
 const path = require('path');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
-const db = require('./config/db');
 
 const isDev = process.env.npm_lifecycle_event === 'server' || process.env.npm_lifecycle_event === 'dev';
 
@@ -12,6 +11,7 @@ if (isDev) {
     require('dotenv').config(); 
     console.log("🚀 PRODUCTION MODE: Loaded .env (Local DB)");
 }
+const db = require('./config/db');
 
 const express = require('express');
 const cors = require('cors');

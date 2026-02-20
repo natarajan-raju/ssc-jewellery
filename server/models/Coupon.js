@@ -118,6 +118,14 @@ class Coupon {
         };
     }
 
+    static async getByCode(code, { connection = db } = {}) {
+        const normalized = normalizeCode(code);
+        if (!normalized) return null;
+        const [rows] = await connection.execute('SELECT id FROM coupons WHERE code = ? LIMIT 1', [normalized]);
+        if (!rows.length) return null;
+        return Coupon.getById(rows[0].id, { connection });
+    }
+
     static async deactivateCoupon(couponId, { connection = db } = {}) {
         const id = Number(couponId || 0);
         if (!Number.isFinite(id) || id <= 0) return 0;
@@ -128,6 +136,20 @@ class Coupon {
              WHERE id = ?
                AND is_active = 1`,
             [id]
+        );
+        return Number(result?.affectedRows || 0);
+    }
+
+    static async deactivateCouponByCode(code, { connection = db } = {}) {
+        const normalized = normalizeCode(code);
+        if (!normalized) return 0;
+        const [result] = await connection.execute(
+            `UPDATE coupons
+             SET is_active = 0,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE code = ?
+               AND is_active = 1`,
+            [normalized]
         );
         return Number(result?.affectedRows || 0);
     }
@@ -400,14 +422,13 @@ class Coupon {
                     EXISTS(SELECT 1 FROM coupon_user_targets cut WHERE cut.coupon_id = c.id AND cut.user_id = ?) as is_user_target
              FROM coupons c
              WHERE c.is_active = 1
-               AND (c.starts_at IS NULL OR c.starts_at <= NOW())
-               AND (c.expires_at IS NULL OR c.expires_at >= NOW())
              ORDER BY c.created_at DESC
              LIMIT 100`,
             [userId]
         );
         const out = [];
         for (const row of rows) {
+            if (!isWithinDateWindow(row)) continue;
             const scope = String(row.scope_type || 'generic').toLowerCase();
             if (scope === 'customer' && Number(row.is_user_target || 0) !== 1) continue;
             if (scope === 'tier') {

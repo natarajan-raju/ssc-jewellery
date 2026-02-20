@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, Sparkles, Ticket, TrendingUp } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -1047,7 +1048,7 @@ export default function Checkout() {
                 </div>
             </div>
 
-            {isPaymentAwaitingConfirmation && !orderResult && (
+            {isPaymentAwaitingConfirmation && !orderResult && createPortal(
                 <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 text-center border border-gray-100">
                         <img src="/assets/wait.svg" alt="Processing payment" className="w-32 h-32 mx-auto" />
@@ -1057,9 +1058,11 @@ export default function Checkout() {
                         </p>
                     </div>
                 </div>
+                ,
+                document.body
             )}
 
-            {orderResult && (
+            {orderResult && createPortal(
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
                     <div className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 animate-fade-in border border-gray-100">
                         <img src={logo} alt="SSC Jewellery" className="h-10 w-auto mb-3" />
@@ -1142,6 +1145,8 @@ export default function Checkout() {
                         <p className="text-[11px] text-gray-400 mt-4">View your order in the Orders page.</p>
                     </div>
                 </div>
+                ,
+                document.body
             )}
         </div>
     );

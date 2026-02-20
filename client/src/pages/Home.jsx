@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
 import { productService } from '../services/productService';
@@ -605,7 +606,7 @@ export default function Home() {
                 </div>
             )}
 
-            {showBirthdayModal && (
+            {showBirthdayModal && createPortal(
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
                     <div className="relative w-full max-w-md rounded-3xl bg-white shadow-2xl border border-amber-100 p-6 overflow-hidden animate-fade-in">
                         <div className="absolute -top-20 -right-20 w-40 h-40 bg-amber-100 rounded-full blur-3xl opacity-70" />
@@ -664,6 +665,8 @@ export default function Home() {
                         </div>
                     </div>
                 </div>
+                ,
+                document.body
             )}
             
             <TextCarousel texts={heroTexts} />
