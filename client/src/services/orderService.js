@@ -42,6 +42,7 @@ let adminOrderDetailCache = {};
 const ADMIN_CACHE_TTL = 60 * 1000;
 const MY_ORDERS_CACHE_TTL = 5 * 60 * 1000;
 const MY_ORDERS_STORAGE_KEY = 'my_orders_cache_v1';
+const MAX_FETCH_RANGE_DAYS = 90;
 let myOrdersCache = {};
 
 const getCurrentUserId = () => {
@@ -63,7 +64,7 @@ const parseMyOrdersCacheKey = (key) => {
         userId: userId || '',
         page: Number(pageRaw || 1),
         limit: Number(limitRaw || 10),
-        duration: duration || 'all'
+        duration: duration || String(MAX_FETCH_RANGE_DAYS)
     };
 };
 
@@ -88,14 +89,15 @@ const writeMyOrdersCache = () => {
 myOrdersCache = readMyOrdersCache();
 
 const durationMatches = (createdAt, duration) => {
-    if (!duration || duration === 'all') return true;
+    if (!duration) return true;
     if (duration === 'latest_10') return true;
     const days = Number(duration);
     if (!Number.isFinite(days) || days <= 0) return true;
+    const safeDays = Math.min(MAX_FETCH_RANGE_DAYS, days);
     const created = new Date(createdAt);
     if (Number.isNaN(created.getTime())) return true;
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setDate(cutoff.getDate() - safeDays);
     return created >= cutoff;
 };
 
@@ -165,8 +167,8 @@ const normalizeOrderForCache = (order) => {
 };
 
 const matchesAdminQuickRange = (createdAt, query = {}) => {
-    const quickRange = String(query.quickRange || 'all');
-    if (quickRange === 'all' || quickRange === 'latest_10' || quickRange === 'custom') return true;
+    const quickRange = String(query.quickRange || 'last_90_days');
+    if (quickRange === 'latest_10' || quickRange === 'custom') return true;
     const created = new Date(createdAt);
     if (Number.isNaN(created.getTime())) return true;
     const now = new Date();
@@ -179,9 +181,8 @@ const matchesAdminQuickRange = (createdAt, query = {}) => {
         cutoff.setMonth(cutoff.getMonth() - 1);
         return created >= cutoff;
     }
-    if (quickRange === 'last_1_year') {
-        const cutoff = new Date(now);
-        cutoff.setFullYear(cutoff.getFullYear() - 1);
+    if (quickRange === 'last_90_days') {
+        const cutoff = new Date(now.getTime() - MAX_FETCH_RANGE_DAYS * 24 * 60 * 60 * 1000);
         return created >= cutoff;
     }
     return true;
@@ -413,7 +414,7 @@ export const orderService = {
         search = '',
         startDate = '',
         endDate = '',
-        quickRange = 'all',
+        quickRange = 'last_90_days',
         sortBy = 'newest'
     }) => {
         const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${quickRange}_${sortBy}`;
@@ -508,13 +509,21 @@ export const orderService = {
     },
     getMyOrders: async ({ page = 1, limit = 10, duration = 'latest_10', force = false } = {}) => {
         const userId = getCurrentUserId();
-        const cacheKey = buildMyOrdersCacheKey({ userId, page, limit, duration });
+        let safeDuration = String(duration || '').trim().toLowerCase();
+        if (!safeDuration || safeDuration === 'all') safeDuration = String(MAX_FETCH_RANGE_DAYS);
+        if (safeDuration !== 'latest_10') {
+            const days = Number(safeDuration);
+            safeDuration = Number.isFinite(days) && days > 0
+                ? String(Math.min(MAX_FETCH_RANGE_DAYS, Math.round(days)))
+                : String(MAX_FETCH_RANGE_DAYS);
+        }
+        const cacheKey = buildMyOrdersCacheKey({ userId, page, limit, duration: safeDuration });
         const cached = myOrdersCache[cacheKey];
         if (!force && cached && Date.now() - cached.ts < MY_ORDERS_CACHE_TTL) {
             return cached.data;
         }
 
-        const query = `?page=${page}&limit=${limit}&duration=${encodeURIComponent(duration)}`;
+        const query = `?page=${page}&limit=${limit}&duration=${encodeURIComponent(safeDuration)}`;
         const res = await fetch(`${API_URL}/my${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         myOrdersCache[cacheKey] = { ts: Date.now(), data };
@@ -569,7 +578,15 @@ export const orderService = {
     },
     getCachedMyOrders: ({ page = 1, limit = 10, duration = 'latest_10' } = {}) => {
         const userId = getCurrentUserId();
-        const cacheKey = buildMyOrdersCacheKey({ userId, page, limit, duration });
+        let safeDuration = String(duration || '').trim().toLowerCase();
+        if (!safeDuration || safeDuration === 'all') safeDuration = String(MAX_FETCH_RANGE_DAYS);
+        if (safeDuration !== 'latest_10') {
+            const days = Number(safeDuration);
+            safeDuration = Number.isFinite(days) && days > 0
+                ? String(Math.min(MAX_FETCH_RANGE_DAYS, Math.round(days)))
+                : String(MAX_FETCH_RANGE_DAYS);
+        }
+        const cacheKey = buildMyOrdersCacheKey({ userId, page, limit, duration: safeDuration });
         const cached = myOrdersCache[cacheKey];
         if (!cached || Date.now() - cached.ts >= MY_ORDERS_CACHE_TTL) return null;
         return cached.data;

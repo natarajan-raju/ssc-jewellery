@@ -931,14 +931,36 @@ const getCheckoutSummary = async (req, res) => {
 
 const getAdminOrders = async (req, res) => {
     try {
+        const MAX_RANGE_DAYS = 90;
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const status = req.query.status || 'all';
         const search = req.query.search || '';
         const startDate = req.query.startDate || '';
         const endDate = req.query.endDate || '';
-        const quickRange = req.query.quickRange || 'all';
+        const quickRange = req.query.quickRange || 'last_90_days';
         const sortBy = req.query.sortBy || 'newest';
+        if (quickRange === 'custom') {
+            const now = new Date();
+            const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
+            const end = endDate ? new Date(`${endDate}T00:00:00`) : null;
+            if (start && end) {
+                const diff = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+                if (Number.isFinite(diff) && diff > MAX_RANGE_DAYS) {
+                    return res.status(400).json({ message: `Date range cannot exceed ${MAX_RANGE_DAYS} days` });
+                }
+            } else if (start) {
+                const diff = Math.floor((now.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+                if (Number.isFinite(diff) && diff > MAX_RANGE_DAYS) {
+                    return res.status(400).json({ message: `Start date cannot be older than ${MAX_RANGE_DAYS} days` });
+                }
+            } else if (end) {
+                const diff = Math.floor((end.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+                if (Number.isFinite(diff) && diff > MAX_RANGE_DAYS) {
+                    return res.status(400).json({ message: `End date cannot exceed ${MAX_RANGE_DAYS} days from today` });
+                }
+            }
+        }
         const filters = { status, search, startDate, endDate, quickRange, sortBy };
         const result = await Order.getPaginated({ page, limit, ...filters });
         const metrics = await Order.getMetrics(filters);
@@ -960,9 +982,17 @@ const getAdminOrderById = async (req, res) => {
 
 const getMyOrders = async (req, res) => {
     try {
+        const MAX_RANGE_DAYS = 90;
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 10;
-        const duration = req.query.duration || 'all';
+        const durationRaw = String(req.query.duration || `${MAX_RANGE_DAYS}`).trim().toLowerCase();
+        let duration = durationRaw;
+        if (duration === 'all') duration = `${MAX_RANGE_DAYS}`;
+        if (duration !== 'latest_10') {
+            const days = Number(duration);
+            if (!Number.isFinite(days) || days <= 0) duration = `${MAX_RANGE_DAYS}`;
+            if (Number.isFinite(days) && days > MAX_RANGE_DAYS) duration = `${MAX_RANGE_DAYS}`;
+        }
         const result = await Order.getByUserPaginated({ userId: req.user.id, page, limit, duration });
         res.json({
             orders: result.orders,

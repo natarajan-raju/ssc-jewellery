@@ -166,7 +166,7 @@ export default function Products({ onNavigate }) {
             {/* --- HEADER & ACTIONS --- */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
-                    <h1 className="text-2xl md:text-3xl font-serif font-bold text-gray-800">Products</h1>
+                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Products</h1>
                     <p className="text-gray-500 text-sm mt-1">Manage your catalogue</p>
                 </div>
                 

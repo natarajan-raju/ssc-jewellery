@@ -26,7 +26,7 @@ const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
-    const [expandedMenu, setExpandedMenu] = useState('products'); // Default open for demo
+    const [expandedMenu, setExpandedMenu] = useState('');
     const [focusOrderId, setFocusOrderId] = useState(null);
     const [incomingOrders, setIncomingOrders] = useState([]);
     const [incomingModalOpen, setIncomingModalOpen] = useState(false);
@@ -229,7 +229,7 @@ export default function AdminDashboard() {
                     <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" />
                     <NavItem icon={Settings} label="Company Info" id="companyInfo" />
                     <div className="pt-2 mt-2 border-t border-white/10">
-                        <NavItem icon={Images} label="Hero CMS" id="cms" />
+                        <NavItem icon={Images} label="CMS" id="cms" />
                     </div>
                 </nav>
 

@@ -13,7 +13,7 @@ const toOrderMetricsKey = (query = {}) => [
     String(query.search || ''),
     String(query.startDate || ''),
     String(query.endDate || ''),
-    String(query.quickRange || 'all')
+    String(query.quickRange || 'last_90_days')
 ].join('::');
 
 const toAbandonedInsightsKey = (rangeDays = 30) => String(Number(rangeDays || 30));
@@ -78,7 +78,7 @@ export const AdminKPIProvider = ({ children }) => {
             search: query.search || '',
             startDate: query.startDate || '',
             endDate: query.endDate || '',
-            quickRange: query.quickRange || 'all',
+            quickRange: query.quickRange || 'last_90_days',
             sortBy: 'newest'
         });
         setOrderMetricsSnapshot(query, res?.metrics || null);

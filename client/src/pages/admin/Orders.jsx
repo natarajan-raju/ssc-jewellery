@@ -9,13 +9,35 @@ import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 
 const QUICK_RANGES = [
-    { value: 'all', label: 'All Time' },
     { value: 'latest_10', label: 'Latest Orders (10)' },
     { value: 'last_7_days', label: 'Last 7 Days' },
     { value: 'last_1_month', label: 'Last 1 Month' },
-    { value: 'last_1_year', label: 'Last 1 Year' },
+    { value: 'last_90_days', label: 'Last 90 Days' },
     { value: 'custom', label: 'Custom Range' }
 ];
+
+const MAX_RANGE_DAYS = 90;
+
+const toDateOnly = (value) => {
+    if (!value) return null;
+    const parsed = new Date(`${value}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const diffInDays = (startDate, endDate) => {
+    if (!startDate || !endDate) return 0;
+    const diff = endDate.getTime() - startDate.getTime();
+    return Math.floor(diff / (24 * 60 * 60 * 1000));
+};
+
+const addDays = (value, days) => {
+    const date = toDateOnly(value);
+    if (!date) return '';
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() + Number(days || 0));
+    const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+};
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -39,8 +61,8 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [quickRange, setQuickRange] = useState('all');
-    const [draftQuickRange, setDraftQuickRange] = useState('all');
+    const [quickRange, setQuickRange] = useState('last_90_days');
+    const [draftQuickRange, setDraftQuickRange] = useState('last_90_days');
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
     const startDateInputRef = useRef(null);
@@ -331,6 +353,15 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         const nextQuickRange = draftQuickRange;
         const nextStartDate = nextQuickRange === 'custom' ? draftStartDate : '';
         const nextEndDate = nextQuickRange === 'custom' ? draftEndDate : '';
+        const start = toDateOnly(nextStartDate);
+        const end = toDateOnly(nextEndDate);
+        if (nextQuickRange === 'custom' && start && end) {
+            const span = diffInDays(start, end);
+            if (span > MAX_RANGE_DAYS) {
+                toast.error(`Custom range cannot exceed ${MAX_RANGE_DAYS} days`);
+                return;
+            }
+        }
         const hasChanges = (
             statusFilter !== draftStatusFilter ||
             quickRange !== nextQuickRange ||
@@ -854,7 +885,15 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                         </select>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
-                        <input ref={startDateInputRef} type="date" value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} className="sr-only" />
+                        <input
+                            ref={startDateInputRef}
+                            type="date"
+                            value={draftStartDate}
+                            min={draftEndDate ? addDays(draftEndDate, -MAX_RANGE_DAYS) : undefined}
+                            max={draftEndDate || undefined}
+                            onChange={(e) => setDraftStartDate(e.target.value)}
+                            className="sr-only"
+                        />
                         <button
                             type="button"
                             onClick={() => {
@@ -867,7 +906,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                         >
                             {draftStartDate ? formatRangeDate(draftStartDate) : 'Start Date'}
                         </button>
-                        <input ref={endDateInputRef} type="date" value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} className="sr-only" />
+                        <input ref={endDateInputRef} type="date" value={draftEndDate} min={draftStartDate || undefined} max={draftStartDate ? addDays(draftStartDate, MAX_RANGE_DAYS) : undefined} onChange={(e) => setDraftEndDate(e.target.value)} className="sr-only" />
                         <button
                             type="button"
                             onClick={() => {

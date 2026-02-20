@@ -995,11 +995,15 @@ class AbandonedCart {
         search = '',
         sortBy = 'newest',
         limit = 50,
-        offset = 0
+        offset = 0,
+        rangeDays = 90
     } = {}) {
         const campaign = await AbandonedCart.getCampaign();
+        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 90)));
         const params = [];
         let where = 'WHERE 1=1';
+        where += ' AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+        params.push(safeRangeDays);
         if (status && status !== 'all') {
             where += ' AND j.status = ?';
             params.push(status);
@@ -1059,7 +1063,7 @@ class AbandonedCart {
     }
 
     static async getInsights({ rangeDays = 30 } = {}) {
-        const safeDays = Math.max(1, Number(rangeDays || 30));
+        const safeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
         const [summaryRows] = await db.execute(
             `SELECT
                 COUNT(*) as total_journeys,

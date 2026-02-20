@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Filter, RefreshCw, Search, Settings2, X } from 'lucide-react';
+import { Download, Filter, RefreshCw, Search, Settings2, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
@@ -107,6 +107,7 @@ export default function AbandonedCarts() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSavingCampaign, setIsSavingCampaign] = useState(false);
     const [isProcessingNow, setIsProcessingNow] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [selectedTimeline, setSelectedTimeline] = useState(null);
     const [isTimelineLoading, setIsTimelineLoading] = useState(false);
@@ -378,6 +379,131 @@ export default function AbandonedCarts() {
 
     const closeTimeline = () => setSelectedTimeline(null);
 
+    const toCsvCell = (value) => {
+        const safe = String(value ?? '').replace(/"/g, '""');
+        return `"${safe}"`;
+    };
+
+    const toCsvDateTime = (value) => {
+        if (!value) return '';
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toISOString();
+    };
+
+    const handleExportReport = async () => {
+        setIsExporting(true);
+        try {
+            const allJourneys = [];
+            let offset = 0;
+            const limit = 100;
+            while (offset <= 5000) {
+                const batch = await adminService.getAbandonedCartJourneys({ status, search, sortBy, limit, offset });
+                const rows = Array.isArray(batch?.journeys) ? batch.journeys : [];
+                allJourneys.push(...rows);
+                if (rows.length < limit || rows.length === 0) break;
+                offset += limit;
+            }
+            if (allJourneys.length === 0) {
+                toast.error('No abandoned cart journeys found for export');
+                return;
+            }
+
+            const exportRows = [];
+            for (const journey of allJourneys) {
+                const timeline = await adminService.getAbandonedCartJourneyTimeline(journey.id).catch(() => null);
+                const attempts = Array.isArray(timeline?.attempts) ? timeline.attempts : [];
+                const discounts = Array.isArray(timeline?.discounts) ? timeline.discounts : [];
+                const rowCount = Math.max(1, attempts.length, discounts.length);
+                for (let idx = 0; idx < rowCount; idx += 1) {
+                    const attempt = attempts[idx] || {};
+                    const discount = discounts[idx] || {};
+                    exportRows.push([
+                        journey.id,
+                        journey.status || '',
+                        journey.customer_name || '',
+                        journey.customer_email || '',
+                        journey.customer_mobile || '',
+                        Number(journey.cart_total_subunits || 0) / 100,
+                        Number(journey.last_attempt_no || 0),
+                        toCsvDateTime(journey.computed_last_activity_at || journey.last_activity_at || journey.updated_at),
+                        toCsvDateTime(journey.next_attempt_at || ''),
+                        journey.recovered_order_ref || '',
+                        timeline?.journey?.recovery_reason || timeline?.journey?.reason || '',
+                        toCsvDateTime(journey.created_at),
+                        toCsvDateTime(journey.updated_at),
+                        attempt.attempt_no ?? attempt.attemptNo ?? '',
+                        attempt.status || '',
+                        Array.isArray(attempt.channels_json)
+                            ? attempt.channels_json.join('|')
+                            : Array.isArray(attempt.channels)
+                                ? attempt.channels.join('|')
+                                : '',
+                        Number(attempt.discount_percent || attempt.discountPercent || 0),
+                        toCsvDateTime(attempt.sent_at || attempt.sentAt || attempt.created_at),
+                        attempt.payment_link_id || attempt.paymentLinkId || '',
+                        attempt.payment_id || attempt.paymentId || '',
+                        toCsvDateTime(attempt.created_at),
+                        discount.code || '',
+                        Number(discount.discount_percent || discount.discountPercent || 0),
+                        discount.status || '',
+                        toCsvDateTime(discount.expires_at || discount.expiresAt),
+                        toCsvDateTime(discount.redeemed_at || discount.redeemedAt),
+                        toCsvDateTime(discount.created_at)
+                    ]);
+                }
+            }
+
+            const header = [
+                'Journey ID',
+                'Journey Status',
+                'Customer Name',
+                'Customer Email',
+                'Customer Mobile',
+                'Cart Value',
+                'Attempt Count',
+                'Last Activity',
+                'Next Attempt',
+                'Recovered Order Ref',
+                'Recovery Reason',
+                'Journey Created At',
+                'Journey Updated At',
+                'Attempt No',
+                'Attempt Status',
+                'Attempt Channels',
+                'Attempt Discount Percent',
+                'Attempt Sent At',
+                'Attempt Payment Link ID',
+                'Attempt Payment ID',
+                'Attempt Created At',
+                'Discount Code',
+                'Discount Percent',
+                'Discount Status',
+                'Discount Expires At',
+                'Discount Redeemed At',
+                'Discount Created At'
+            ];
+            const csv = [
+                header.map(toCsvCell).join(','),
+                ...exportRows.map((row) => row.map(toCsvCell).join(','))
+            ].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `abandoned-cart-report-${new Date().toISOString().slice(0, 10)}.csv`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            URL.revokeObjectURL(url);
+            toast.success(`Exported ${exportRows.length} rows from ${allJourneys.length} journeys`);
+        } catch (error) {
+            toast.error(error.message || 'Failed to export report');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     const scheduleRealtimeRefresh = useCallback(() => {
         if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
         realtimeRefreshTimerRef.current = setTimeout(() => {
@@ -523,6 +649,15 @@ export default function AbandonedCarts() {
                     <p className="text-sm text-gray-500 mt-1">Campaign settings, recovery insights, journeys and timelines.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={handleExportReport}
+                        disabled={isExporting || isLoading}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+                    >
+                        <Download size={14} />
+                        {isExporting ? 'Exporting...' : 'Export Report'}
+                    </button>
                     <button
                         type="button"
                         onClick={() => setIsSettingsOpen(true)}

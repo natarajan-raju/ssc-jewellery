@@ -23,9 +23,23 @@ import { formatAdminDate } from '../../utils/dateFormat';
 import customerIllustration from '../../assets/customer.svg';
 
 const CUSTOMER_PAGE_SIZE = 20;
+const MAX_COUPON_RANGE_DAYS = 90;
 const getTodayDateInput = () => {
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+};
+const toDateOnly = (value) => {
+    if (!value) return null;
+    const parsed = new Date(`${value}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+const addDaysToInput = (value, days) => {
+    const date = toDateOnly(value);
+    if (!date) return '';
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() + Number(days || 0));
+    const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
 };
 
@@ -291,6 +305,14 @@ export default function Customers({ onOpenLoyalty }) {
         if (couponForm.expiresAt && couponForm.expiresAt < couponForm.startsAt) {
             return toast.error('End date must be on or after start date');
         }
+        if (couponForm.startsAt && couponForm.expiresAt) {
+            const start = toDateOnly(couponForm.startsAt);
+            const end = toDateOnly(couponForm.expiresAt);
+            const diffDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+            if (Number.isFinite(diffDays) && diffDays > MAX_COUPON_RANGE_DAYS) {
+                return toast.error(`Coupon validity cannot exceed ${MAX_COUPON_RANGE_DAYS} days`);
+            }
+        }
         setCouponSaving(true);
         try {
             const payload = {
@@ -433,6 +455,8 @@ export default function Customers({ onOpenLoyalty }) {
                                         className="absolute inset-0 opacity-0 cursor-pointer"
                                         type="date"
                                         value={couponForm.startsAt}
+                                        min={couponForm.expiresAt ? addDaysToInput(couponForm.expiresAt, -MAX_COUPON_RANGE_DAYS) : undefined}
+                                        max={couponForm.expiresAt || undefined}
                                         onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))}
                                         required
                                     />
@@ -453,6 +477,7 @@ export default function Customers({ onOpenLoyalty }) {
                                         className="absolute inset-0 opacity-0 cursor-pointer"
                                         type="date"
                                         min={couponForm.startsAt || undefined}
+                                        max={couponForm.startsAt ? addDaysToInput(couponForm.startsAt, MAX_COUPON_RANGE_DAYS) : undefined}
                                         value={couponForm.expiresAt}
                                         onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))}
                                     />

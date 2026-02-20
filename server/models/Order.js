@@ -94,7 +94,9 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
     return Number(eligible[0].rate || 0);
 };
 
-const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'all' } = {}) => {
+const MAX_FETCH_RANGE_DAYS = 90;
+
+const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days' } = {}) => {
     const params = [];
     let where = 'WHERE 1=1';
     let latestLimit = null;
@@ -117,10 +119,11 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
         case 'last_1_month':
             where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)';
             break;
-        case 'last_1_year':
-            where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)';
+        case 'last_90_days':
+            where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
             break;
         case 'latest_10':
+            where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
             latestLimit = 10;
             break;
         default:
@@ -132,13 +135,16 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
                 where += ' AND DATE(o.created_at) <= ?';
                 params.push(endDate);
             }
+            if (!startDate && !endDate) {
+                where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
+            }
             break;
     }
 
     return { where, params, latestLimit };
 };
 
-const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'all' } = {}) => {
+const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'last_90_days' } = {}) => {
     if (quickRange === 'latest_10') return 'o.created_at DESC';
     switch (sortBy) {
         case 'priority':
@@ -891,7 +897,7 @@ class Order {
         search = '',
         startDate = '',
         endDate = '',
-        quickRange = 'all',
+        quickRange = 'last_90_days',
         sortBy = 'newest'
     }) {
         const safeLimit = Math.max(1, Number(limit) || 20);
@@ -906,8 +912,10 @@ class Order {
                     return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
                 case 'last_1_month':
                     return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`;
-                case 'last_1_year':
-                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 1 YEAR)`;
+                case 'last_90_days':
+                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
+                case 'latest_10':
+                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
                 default: {
                     let clause = '';
                     if (startDate) {
@@ -917,6 +925,9 @@ class Order {
                     if (endDate) {
                         clause += ` AND DATE(${alias}.created_at) <= ?`;
                         params.push(endDate);
+                    }
+                    if (!startDate && !endDate) {
+                        clause += ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
                     }
                     return clause;
                 }
@@ -1192,11 +1203,11 @@ class Order {
     }
 
     static async getByUser(userId) {
-        const result = await Order.getByUserPaginated({ userId, page: 1, limit: 500, duration: 'all' });
+        const result = await Order.getByUserPaginated({ userId, page: 1, limit: 500, duration: String(MAX_FETCH_RANGE_DAYS) });
         return result.orders;
     }
 
-    static async getByUserPaginated({ userId, page = 1, limit = 10, duration = 'all' }) {
+    static async getByUserPaginated({ userId, page = 1, limit = 10, duration = String(MAX_FETCH_RANGE_DAYS) }) {
         const safeLimit = Math.max(1, Number(limit) || 10);
         const safePage = Math.max(1, Number(page) || 1);
         const offset = (safePage - 1) * safeLimit;
@@ -1205,13 +1216,19 @@ class Order {
         const params = [userId];
 
         if (duration === 'latest_10') {
+            where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
             latestLimit = 10;
-        } else if (duration && duration !== 'all') {
+        } else if (duration) {
             const days = Number(duration);
             if (Number.isFinite(days) && days > 0) {
+                const safeDays = Math.min(MAX_FETCH_RANGE_DAYS, Math.max(1, Math.round(days)));
                 where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
-                params.push(days);
+                params.push(safeDays);
+            } else {
+                where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
             }
+        } else {
+            where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
         }
 
         const [countRows] = await db.execute(
@@ -1317,7 +1334,7 @@ class Order {
         };
     }
 
-    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'all' } = {}) {
+    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days' } = {}) {
         const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange });
         let summaryRows = [];
         if (latestLimit) {

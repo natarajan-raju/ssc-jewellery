@@ -322,7 +322,6 @@ export default function Orders() {
                                 className="px-3 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 bg-white"
                             >
                                 <option value="latest_10">Latest Orders (10)</option>
-                                <option value="all">All time</option>
                                 <option value="7">Last 7 days</option>
                                 <option value="30">Last 30 days</option>
                                 <option value="90">Last 90 days</option>

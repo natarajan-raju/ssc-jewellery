@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Crown, Gem, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, Trash2, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
@@ -6,12 +6,27 @@ import { productService } from '../../services/productService';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
+import { formatAdminDate } from '../../utils/dateFormat';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
 const getTodayDateInput = () => {
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+};
+const MAX_COUPON_RANGE_DAYS = 90;
+const toDateOnly = (value) => {
+    if (!value) return null;
+    const parsed = new Date(`${value}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+const addDaysToInput = (value, days) => {
+    const date = toDateOnly(value);
+    if (!date) return '';
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() + Number(days || 0));
+    const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
 };
 
@@ -120,7 +135,7 @@ export default function LoyaltySettings({ onBack }) {
     const [couponCreating, setCouponCreating] = useState(false);
     const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponRefreshKey, setCouponRefreshKey] = useState(0);
-    const [openSection, setOpenSection] = useState('tier');
+    const [openSection, setOpenSection] = useState('coupon');
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
         title: '',
@@ -130,6 +145,8 @@ export default function LoyaltySettings({ onBack }) {
         coupon: null
     });
     const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
+    const couponStartDateInputRef = useRef(null);
+    const couponEndDateInputRef = useRef(null);
 
     const applyConfigRows = (config = []) => {
         const byTier = Object.fromEntries((Array.isArray(config) ? config : []).map((item) => [String(item.tier || '').toLowerCase(), item]));
@@ -260,6 +277,15 @@ export default function LoyaltySettings({ onBack }) {
             toast.error('End date must be on or after start date');
             return;
         }
+        if (couponForm.startsAt && couponForm.expiresAt) {
+            const start = toDateOnly(couponForm.startsAt);
+            const end = toDateOnly(couponForm.expiresAt);
+            const diffDays = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+            if (Number.isFinite(diffDays) && diffDays > MAX_COUPON_RANGE_DAYS) {
+                toast.error(`Coupon validity cannot exceed ${MAX_COUPON_RANGE_DAYS} days`);
+                return;
+            }
+        }
         setCouponCreating(true);
         try {
             const payload = {
@@ -330,17 +356,18 @@ export default function LoyaltySettings({ onBack }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <h2 className="text-2xl md:text-3xl font-serif text-primary font-bold">Loyalty Settings</h2>
+                    <p className="text-sm text-gray-500 mt-1">Select tier tab and edit its card.</p>
+                </div>
                 <button type="button" onClick={onBack} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                     <ArrowLeft size={16} /> Back
                 </button>
-                <div>
-                    <h2 className="text-2xl font-serif text-primary font-bold">Loyalty Settings</h2>
-                    <p className="text-sm text-gray-500 mt-1">Select tier tab and edit its card.</p>
-                </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className="flex flex-col gap-4">
+            <div className="order-2 rounded-2xl border border-gray-200 bg-white overflow-hidden">
                 <button
                     type="button"
                     onClick={() => setOpenSection((prev) => (prev === 'tier' ? '' : 'tier'))}
@@ -406,7 +433,7 @@ export default function LoyaltySettings({ onBack }) {
                 </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className="order-1 rounded-2xl border border-gray-200 bg-white overflow-hidden">
                 <button
                     type="button"
                     onClick={() => setOpenSection((prev) => (prev === 'coupon' ? '' : 'coupon'))}
@@ -521,6 +548,7 @@ export default function LoyaltySettings({ onBack }) {
                     </div>
                 </div>
             </div>
+            </div>
 
             {isCouponModalOpen && createPortal(
                 <div className="fixed inset-0 z-[210]">
@@ -538,8 +566,50 @@ export default function LoyaltySettings({ onBack }) {
                                 <label className="text-xs text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option></select></label>
                                 <label className="text-xs text-gray-600">Discount Value<input className="input-field mt-1" type="number" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
                                 <label className="text-xs text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
-                                <label className="text-xs text-gray-600">Start Date <span className="text-red-500">*</span><input className="input-field mt-1" type="date" value={couponForm.startsAt} onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))} /></label>
-                                <label className="text-xs text-gray-600">End Date (Optional)<input className="input-field mt-1" type="date" value={couponForm.expiresAt} min={couponForm.startsAt || undefined} onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))} /></label>
+                                <label className="text-xs text-gray-600">
+                                    Start Date <span className="text-red-500">*</span>
+                                    <input
+                                        ref={couponStartDateInputRef}
+                                        className="sr-only"
+                                        type="date"
+                                        value={couponForm.startsAt}
+                                        min={couponForm.expiresAt ? addDaysToInput(couponForm.expiresAt, -MAX_COUPON_RANGE_DAYS) : undefined}
+                                        max={couponForm.expiresAt || undefined}
+                                        onChange={(e) => setCouponForm((p) => ({ ...p, startsAt: e.target.value }))}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (couponStartDateInputRef.current?.showPicker) couponStartDateInputRef.current.showPicker();
+                                            else couponStartDateInputRef.current?.click();
+                                        }}
+                                        className="w-full input-field mt-1 text-left"
+                                    >
+                                        {couponForm.startsAt ? formatAdminDate(`${couponForm.startsAt}T00:00:00`) : 'Start Date'}
+                                    </button>
+                                </label>
+                                <label className="text-xs text-gray-600">
+                                    End Date (Optional)
+                                    <input
+                                        ref={couponEndDateInputRef}
+                                        className="sr-only"
+                                        type="date"
+                                        value={couponForm.expiresAt}
+                                        min={couponForm.startsAt || undefined}
+                                        max={couponForm.startsAt ? addDaysToInput(couponForm.startsAt, MAX_COUPON_RANGE_DAYS) : undefined}
+                                        onChange={(e) => setCouponForm((p) => ({ ...p, expiresAt: e.target.value }))}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (couponEndDateInputRef.current?.showPicker) couponEndDateInputRef.current.showPicker();
+                                            else couponEndDateInputRef.current?.click();
+                                        }}
+                                        className="w-full input-field mt-1 text-left"
+                                    >
+                                        {couponForm.expiresAt ? formatAdminDate(`${couponForm.expiresAt}T00:00:00`) : 'End Date'}
+                                    </button>
+                                </label>
                                 {couponForm.scopeType === 'tier' && (
                                     <label className="text-xs text-gray-600">Tier Scope<select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>{ORDER.map((tier) => <option key={tier} value={tier}>{tierLabel(tier).toUpperCase()}</option>)}</select></label>
                                 )}

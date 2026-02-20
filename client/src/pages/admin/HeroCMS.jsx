@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
-import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon } from 'lucide-react';
+import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
@@ -43,6 +43,7 @@ export default function HeroCMS() {
     const [heroTextInput, setHeroTextInput] = useState('');
     const [isHeroTextLoading, setIsHeroTextLoading] = useState(false);
     const [draggedTextIndex, setDraggedTextIndex] = useState(null);
+    const [openCmsSection, setOpenCmsSection] = useState('hero-carousel');
     const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, type: 'delete', title: '', message: '', targetId: null 
     });
@@ -371,6 +372,30 @@ export default function HeroCMS() {
         }
     };
 
+    const AccordionSection = ({ id, title, subtitle = '', children }) => {
+        const isOpen = openCmsSection === id;
+        return (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setOpenCmsSection((prev) => (prev === id ? '' : id))}
+                    className="w-full px-6 py-4 flex items-center justify-between gap-4 text-left"
+                >
+                    <div>
+                        <h3 className="font-bold text-gray-700">{title}</h3>
+                        {!!subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+                    </div>
+                    <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isOpen && (
+                    <div className="px-6 pb-6 border-t border-gray-100 pt-4">
+                        {children}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     return (
         <div className="animate-fade-in space-y-8 max-w-5xl mx-auto">
             <Modal 
@@ -385,126 +410,113 @@ export default function HeroCMS() {
             
             {/* HEADER */}
             <div>
-                <h1 className="text-3xl font-serif font-bold text-gray-800">Hero Carousel</h1>
-                <p className="text-gray-500 mt-1">Manage homepage banner slides (Desktop Only)</p>
+                <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">CMS Settings</h1>
+                <p className="text-gray-500 text-sm mt-1">Manage homepage content blocks and promotional assets.</p>
             </div>
 
-            {/* UPLOAD SECTION */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                    <Plus size={20} className="text-primary"/> Add New Slide
-                </h3>
-                
-                <form onSubmit={handleUpload} className="flex flex-col md:flex-row gap-6">
-                    {/* Image Input */}
-                    <div className="w-full md:w-1/3">
-                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
-                            {previewUrl ? (
-                                <img src={previewUrl} className="w-full h-full object-cover rounded-xl" />
-                            ) : (
-                                <div className="text-center p-4">
-                                    <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
-                                    <span className="text-sm text-gray-500 font-medium">Click to upload image</span>
-                                    <span className="text-xs text-gray-400 block mt-1">(1920x1080 recommended)</span>
-                                </div>
-                            )}
-                            <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
-                        </label>
-                    </div>
-
-                    {/* Text Inputs */}
-                    <div className="flex-1 space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input 
-                                placeholder="Main Title (e.g. Artisanal Excellence)" 
-                                className="input-field"
-                                value={newSlide.title}
-                                onChange={e => setNewSlide({...newSlide, title: e.target.value})}
-                            />
-                            <input 
-                                placeholder="Subtitle (e.g. Handmade with Love)" 
-                                className="input-field"
-                                value={newSlide.subtitle}
-                                onChange={e => setNewSlide({...newSlide, subtitle: e.target.value})}
-                            />
-                        </div>
-                        <input 
-                            placeholder="Button Link (e.g. /shop/necklaces)" 
-                            className="input-field"
-                            value={newSlide.link}
-                            onChange={e => setNewSlide({...newSlide, link: e.target.value})}
-                        />
-                        
-                        <div className="pt-2 flex justify-end">
-                            <button 
-                                type="submit" 
-                                disabled={isUploading || !selectedFile}
-                                className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {isUploading ? <Loader2 className="animate-spin"/> : <Save size={18} />}
-                                Save Slide
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-
-            {/* SLIDES LIST */}
-            <div className="space-y-4">
-                <h3 className="font-bold text-gray-700">Current Slides (Drag to Reorder)</h3>
-                
-                {isLoading ? (
-                    <div className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
-                ) : slides.length === 0 ? (
-                    <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-300 text-gray-400">
-                        No slides yet. Upload one above!
-                    </div>
-                ) : (
-                    <div className="grid gap-4">
-                        {slides.map((slide, index) => (
-                            <div 
-                                key={slide.id}
-                                draggable
-                                onDragStart={() => handleDragStart(index)}
-                                onDragOver={(e) => handleDragOver(e, index)}
-                                onDragEnd={handleDragEnd}
-                                className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4 group transition-all
-                                ${draggedIndex === index ? 'opacity-50 border-accent scale-[0.99]' : 'hover:shadow-md'}`}
-                            >
-                                <div className="cursor-grab text-gray-400 hover:text-gray-600 p-2">
-                                    <GripVertical size={20} />
-                                </div>
-                                
-                                <div className="w-32 h-20 bg-gray-100 rounded-lg overflow-hidden shrink-0 border border-gray-100">
-                                    <img src={slide.image_url} className="w-full h-full object-cover" />
-                                </div>
-
-                                <div className="flex-1">
-                                    <h4 className="font-bold text-gray-800">{slide.title || <span className="text-gray-400 italic">No Title</span>}</h4>
-                                    <p className="text-sm text-gray-500">{slide.subtitle}</p>
-                                    {slide.link && <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full mt-1 inline-block">{slide.link}</span>}
-                                </div>
-
-                                <button 
-                                    onClick={() => openDeleteModal(slide.id)}
-                                    className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                >
-                                    <Trash2 size={20} />
-                                </button>
+            <AccordionSection id="hero-carousel" title="Hero Carousel" subtitle="Manage slides and their order">
+                <div className="space-y-6">
+                    <div className="bg-white p-4 rounded-xl border border-gray-200">
+                        <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                            <Plus size={20} className="text-primary"/> Add New Slide
+                        </h3>
+                        <form onSubmit={handleUpload} className="flex flex-col md:flex-row gap-6">
+                            <div className="w-full md:w-1/3">
+                                <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                                    {previewUrl ? (
+                                        <img src={previewUrl} className="w-full h-full object-cover rounded-xl" />
+                                    ) : (
+                                        <div className="text-center p-4">
+                                            <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
+                                            <span className="text-sm text-gray-500 font-medium">Click to upload image</span>
+                                            <span className="text-xs text-gray-400 block mt-1">(1920x1080 recommended)</span>
+                                        </div>
+                                    )}
+                                    <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
+                                </label>
                             </div>
-                        ))}
+                            <div className="flex-1 space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <input
+                                        placeholder="Main Title (e.g. Artisanal Excellence)"
+                                        className="input-field"
+                                        value={newSlide.title}
+                                        onChange={e => setNewSlide({ ...newSlide, title: e.target.value })}
+                                    />
+                                    <input
+                                        placeholder="Subtitle (e.g. Handmade with Love)"
+                                        className="input-field"
+                                        value={newSlide.subtitle}
+                                        onChange={e => setNewSlide({ ...newSlide, subtitle: e.target.value })}
+                                    />
+                                </div>
+                                <input
+                                    placeholder="Button Link (e.g. /shop/necklaces)"
+                                    className="input-field"
+                                    value={newSlide.link}
+                                    onChange={e => setNewSlide({ ...newSlide, link: e.target.value })}
+                                />
+                                <div className="pt-2 flex justify-end">
+                                    <button
+                                        type="submit"
+                                        disabled={isUploading || !selectedFile}
+                                        className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {isUploading ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                                        Save Slide
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
                     </div>
-                )}
-            </div>
+
+                    <div className="space-y-4">
+                        <h3 className="font-bold text-gray-700">Current Slides (Drag to Reorder)</h3>
+                        {isLoading ? (
+                            <div className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+                        ) : slides.length === 0 ? (
+                            <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-300 text-gray-400">
+                                No slides yet. Upload one above!
+                            </div>
+                        ) : (
+                            <div className="grid gap-4">
+                                {slides.map((slide, index) => (
+                                    <div
+                                        key={slide.id}
+                                        draggable
+                                        onDragStart={() => handleDragStart(index)}
+                                        onDragOver={(e) => handleDragOver(e, index)}
+                                        onDragEnd={handleDragEnd}
+                                        className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4 group transition-all
+                                        ${draggedIndex === index ? 'opacity-50 border-accent scale-[0.99]' : 'hover:shadow-md'}`}
+                                    >
+                                        <div className="cursor-grab text-gray-400 hover:text-gray-600 p-2">
+                                            <GripVertical size={20} />
+                                        </div>
+                                        <div className="w-32 h-20 bg-gray-100 rounded-lg overflow-hidden shrink-0 border border-gray-100">
+                                            <img src={slide.image_url} className="w-full h-full object-cover" />
+                                        </div>
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-gray-800">{slide.title || <span className="text-gray-400 italic">No Title</span>}</h4>
+                                            <p className="text-sm text-gray-500">{slide.subtitle}</p>
+                                            {slide.link && <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full mt-1 inline-block">{slide.link}</span>}
+                                        </div>
+                                        <button
+                                            onClick={() => openDeleteModal(slide.id)}
+                                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        >
+                                            <Trash2 size={20} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </AccordionSection>
 
             {/* HERO TEXTS SECTION */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                <div>
-                    <h3 className="font-bold text-gray-700 mb-1 flex items-center gap-2">
-                        <ImageIcon size={20} className="text-primary"/> Hero Text Carousel
-                    </h3>
-                    <p className="text-xs text-gray-400">Short single-line highlights shown above the hero.</p>
-                </div>
+            <AccordionSection id="hero-texts" title="Hero Text Carousel" subtitle="Short single-line highlights shown above the hero.">
                 <form onSubmit={handleHeroTextAdd} className="flex flex-col md:flex-row gap-3">
                     <input
                         placeholder="Add new text..."
@@ -563,13 +575,10 @@ export default function HeroCMS() {
                         ))}
                     </div>
                 )}
-            </div>
+            </AccordionSection>
 
             {/* HOME BANNER SECTION */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                    <ImageIcon size={20} className="text-primary"/> Home Banner (16:9)
-                </h3>
+            <AccordionSection id="home-banner-1" title="Home Banner (16:9)">
                 <form onSubmit={handleBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
                         <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
@@ -607,13 +616,10 @@ export default function HeroCMS() {
                         )}
                     </div>
                 </form>
-            </div>
+            </AccordionSection>
 
             {/* SECONDARY HOME BANNER SECTION */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                    <ImageIcon size={20} className="text-primary"/> Home Banner 2 (16:9)
-                </h3>
+            <AccordionSection id="home-banner-2" title="Home Banner 2 (16:9)">
                 <form onSubmit={handleSecondaryBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
                         <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
@@ -651,13 +657,10 @@ export default function HeroCMS() {
                         )}
                     </div>
                 </form>
-            </div>
+            </AccordionSection>
 
             {/* FEATURED CATEGORY SECTION */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                    <ImageIcon size={20} className="text-primary"/> Featured Category Section
-                </h3>
+            <AccordionSection id="featured-category" title="Featured Category Section">
                 <form onSubmit={handleFeaturedCategorySave} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <select
@@ -703,7 +706,7 @@ export default function HeroCMS() {
                         </button>
                     </div>
                 </form>
-            </div>
+            </AccordionSection>
         </div>
     );
 }

@@ -159,7 +159,7 @@ class Coupon {
         const safeLimit = Math.max(1, Math.min(100, Number(limit || 20)));
         const offset = (safePage - 1) * safeLimit;
         const params = [];
-        let where = 'WHERE 1=1';
+        let where = 'WHERE c.is_active = 1';
         if (search) {
             where += ' AND (c.code LIKE ? OR c.name LIKE ?)';
             const term = `%${search}%`;

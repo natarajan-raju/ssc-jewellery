@@ -169,12 +169,13 @@ export const adminService = {
     },
 
     getAbandonedCartInsights: async (rangeDays = 30) => {
-        const cacheKey = String(rangeDays);
+        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const cacheKey = String(safeRangeDays);
         const cached = abandonedCache.insights[cacheKey];
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await fetch(`${API_URL}/communications/abandoned-carts/insights?rangeDays=${encodeURIComponent(rangeDays)}`, { headers: getAuthHeader() });
+        const res = await fetch(`${API_URL}/communications/abandoned-carts/insights?rangeDays=${encodeURIComponent(safeRangeDays)}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         abandonedCache.insights[cacheKey] = { ts: Date.now(), data };
         return data;
