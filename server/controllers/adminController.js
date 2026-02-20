@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const CompanyProfile = require('../models/CompanyProfile');
 const Coupon = require('../models/Coupon');
 const AbandonedCart = require('../models/AbandonedCart');
+const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
 const {
     verifyEmailTransport,
     sendEmailCommunication,
@@ -240,6 +241,24 @@ const getLoyaltyConfig = async (_req, res) => {
         return res.json({ config });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to fetch loyalty config' });
+    }
+};
+
+const getLoyaltyPopupConfig = async (_req, res) => {
+    try {
+        const popup = await LoyaltyPopupConfig.getAdminConfig();
+        return res.json({ popup });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch popup config' });
+    }
+};
+
+const updateLoyaltyPopupConfig = async (req, res) => {
+    try {
+        const popup = await LoyaltyPopupConfig.updateAdminConfig(req.body || {});
+        return res.json({ popup });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to update popup config' });
     }
 };
 
@@ -533,6 +552,8 @@ module.exports = {
     updateCompanyInfo,
     getLoyaltyConfig,
     updateLoyaltyConfig,
+    getLoyaltyPopupConfig,
+    updateLoyaltyPopupConfig,
     listCoupons,
     createCoupon,
     deleteCoupon,

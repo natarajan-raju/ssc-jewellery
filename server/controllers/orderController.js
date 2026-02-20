@@ -5,6 +5,8 @@ const WebhookEvent = require('../models/WebhookEvent');
 const { createRazorpayClient } = require('../services/razorpayService');
 const { markRecoveredByOrder } = require('../services/abandonedCartRecoveryService');
 const AbandonedCart = require('../models/AbandonedCart');
+const Coupon = require('../models/Coupon');
+const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
 const User = require('../models/User');
 const CompanyProfile = require('../models/CompanyProfile');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
@@ -914,6 +916,68 @@ const getAvailableCoupons = async (req, res) => {
     }
 };
 
+const getCustomerPopupData = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+        const loyaltyTier = String(user?.loyaltyTier || 'regular').toLowerCase();
+        const coupons = await Coupon.getActiveCouponsByUser({ userId, loyaltyTier });
+        const latestCoupon = [...(Array.isArray(coupons) ? coupons : [])]
+            .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())[0] || null;
+        const genericPopup = await LoyaltyPopupConfig.getClientActivePopup();
+
+        const couponCandidate = latestCoupon ? {
+            type: 'coupon',
+            key: `coupon:${latestCoupon.id || latestCoupon.code}`,
+            createdAt: latestCoupon.createdAt || null,
+            title: 'Exclusive Coupon Unlocked',
+            summary: `${latestCoupon.code || 'Coupon'} is now active for your account.`,
+            content: latestCoupon.sourceType === 'abandoned'
+                ? 'We saved your cart offer. Use this recovery coupon before it expires.'
+                : 'A new coupon has been issued for your account. Apply it during checkout.',
+            encouragement: 'Great pick. Continue shopping and save more on your next order.',
+            imageUrl: '',
+            audioUrl: '',
+            buttonLabel: 'Shop Now',
+            buttonLink: '/shop',
+            coupon: latestCoupon
+        } : null;
+
+        const genericCandidate = genericPopup ? {
+            type: 'generic',
+            key: `generic:${genericPopup.id || 1}:${genericPopup.updatedAt || ''}`,
+            createdAt: genericPopup.updatedAt || null,
+            title: genericPopup.title || 'Special Offer',
+            summary: genericPopup.summary || 'A new offer is available for you.',
+            content: genericPopup.content || '',
+            encouragement: genericPopup.encouragement || '',
+            imageUrl: genericPopup.imageUrl || '',
+            audioUrl: genericPopup.audioUrl || '',
+            buttonLabel: genericPopup.buttonLabel || 'Shop Now',
+            buttonLink: genericPopup.buttonLink || '/shop',
+            coupon: (genericPopup.couponCode || genericPopup.discountType) ? {
+                id: `generic:${genericPopup.id}`,
+                code: genericPopup.couponCode || 'SPECIAL-OFFER',
+                name: 'Special Offer',
+                sourceType: 'generic',
+                scopeType: 'customer',
+                discountType: genericPopup.discountType || 'percent',
+                discountValue: Number(genericPopup.discountValue || 0),
+                usageLimitPerUser: 1,
+                expiresAt: genericPopup.endsAt || null,
+                createdAt: genericPopup.updatedAt || null
+            } : null
+        } : null;
+
+        const popup = [couponCandidate, genericCandidate]
+            .filter(Boolean)
+            .sort((a, b) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime())[0] || null;
+        return res.json({ popup });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load popup data' });
+    }
+};
+
 const getCheckoutSummary = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -1168,6 +1232,7 @@ const deleteAdminPaymentAttempt = async (req, res) => {
 
 const fetchAdminPaymentStatus = async (req, res) => {
     try {
+        const isRazorpayTestMode = String(process.env.RAZORPAY_KEY_ID || '').trim().toLowerCase().startsWith('rzp_test_');
         const {
             orderId = null,
             attemptId = null,
@@ -1341,6 +1406,10 @@ const fetchAdminPaymentStatus = async (req, res) => {
             paymentStatus,
             order: updatedOrder || null,
             attempt: updatedAttempt || null,
+            settlementContext: {
+                mode: isRazorpayTestMode ? 'test' : 'live',
+                isTestMode: isRazorpayTestMode
+            },
             razorpay: {
                 order: razorpayOrder ? {
                     id: razorpayOrder.id,
@@ -1505,6 +1574,7 @@ module.exports = {
     getCheckoutSummary,
     validateRecoveryCoupon,
     getAvailableCoupons,
+    getCustomerPopupData,
     retryRazorpayPayment,
     verifyRazorpayPayment,
     handleRazorpayWebhook,

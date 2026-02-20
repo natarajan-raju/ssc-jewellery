@@ -98,6 +98,31 @@ const getDefaultCouponForm = () => ({
     expiresAt: ''
 });
 
+const getDefaultPopupForm = () => ({
+    isActive: false,
+    title: '',
+    summary: '',
+    content: '',
+    encouragement: '',
+    imageUrl: '',
+    audioUrl: '',
+    buttonLabel: 'Shop Now',
+    buttonLink: '/shop',
+    discountType: '',
+    discountValue: '',
+    couponCode: '',
+    startsAt: '',
+    endsAt: ''
+});
+
+const toDateInput = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+};
+
 const normalizeCategoryOptions = (value) => {
     const rows = Array.isArray(value) ? value : [];
     const mapped = rows.map((row) => {
@@ -136,6 +161,10 @@ export default function LoyaltySettings({ onBack }) {
     const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponRefreshKey, setCouponRefreshKey] = useState(0);
     const [openSection, setOpenSection] = useState('coupon');
+    const [popupForm, setPopupForm] = useState(getDefaultPopupForm());
+    const [popupSaving, setPopupSaving] = useState(false);
+    const [popupImageUploading, setPopupImageUploading] = useState(false);
+    const [popupAudioUploading, setPopupAudioUploading] = useState(false);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
         title: '',
@@ -173,11 +202,29 @@ export default function LoyaltySettings({ onBack }) {
         let cancelled = false;
         Promise.all([
             adminService.getLoyaltyConfig(),
+            adminService.getLoyaltyPopupConfig().catch(() => ({ popup: null })),
             productService.getCategoryStats().catch(() => null),
             productService.getCategories().catch(() => ({ categories: [] }))
-        ]).then(([data, categoryStats, cats]) => {
+        ]).then(([data, popupData, categoryStats, cats]) => {
             if (cancelled) return;
             applyConfigRows(Array.isArray(data?.config) ? data.config : []);
+            const popup = popupData?.popup || null;
+            setPopupForm({
+                isActive: Boolean(popup?.isActive),
+                title: popup?.title || '',
+                summary: popup?.summary || '',
+                content: popup?.content || '',
+                encouragement: popup?.encouragement || '',
+                imageUrl: popup?.imageUrl || '',
+                audioUrl: popup?.audioUrl || '',
+                buttonLabel: popup?.buttonLabel || 'Shop Now',
+                buttonLink: popup?.buttonLink || '/shop',
+                discountType: popup?.discountType || '',
+                discountValue: popup?.discountValue == null ? '' : popup.discountValue,
+                couponCode: popup?.couponCode || '',
+                startsAt: toDateInput(popup?.startsAt),
+                endsAt: toDateInput(popup?.endsAt)
+            });
             const statRows = Array.isArray(categoryStats)
                 ? categoryStats
                 : (Array.isArray(categoryStats?.categories) ? categoryStats.categories : []);
@@ -346,6 +393,73 @@ export default function LoyaltySettings({ onBack }) {
         } finally {
             setCouponDeletingId(null);
             setIsConfirmProcessing(false);
+        }
+    };
+
+    const handlePopupImageUpload = async (file) => {
+        if (!file) return;
+        setPopupImageUploading(true);
+        try {
+            const data = await adminService.uploadLoyaltyPopupImage(file);
+            setPopupForm((prev) => ({ ...prev, imageUrl: data?.url || prev.imageUrl }));
+            toast.success('Popup image uploaded');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to upload popup image');
+        } finally {
+            setPopupImageUploading(false);
+        }
+    };
+
+    const handlePopupAudioUpload = async (file) => {
+        if (!file) return;
+        setPopupAudioUploading(true);
+        try {
+            const data = await adminService.uploadLoyaltyPopupAudio(file);
+            setPopupForm((prev) => ({ ...prev, audioUrl: data?.url || prev.audioUrl }));
+            toast.success('Popup audio uploaded');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to upload popup audio');
+        } finally {
+            setPopupAudioUploading(false);
+        }
+    };
+
+    const handleSavePopup = async () => {
+        if (popupForm.startsAt && popupForm.endsAt && popupForm.endsAt < popupForm.startsAt) {
+            toast.error('Popup end date must be on or after start date');
+            return;
+        }
+        setPopupSaving(true);
+        try {
+            const payload = {
+                isActive: Boolean(popupForm.isActive),
+                title: popupForm.title,
+                summary: popupForm.summary,
+                content: popupForm.content,
+                encouragement: popupForm.encouragement,
+                imageUrl: popupForm.imageUrl,
+                audioUrl: popupForm.audioUrl,
+                buttonLabel: popupForm.buttonLabel,
+                buttonLink: popupForm.buttonLink,
+                discountType: popupForm.discountType || null,
+                discountValue: popupForm.discountValue === '' ? null : Number(popupForm.discountValue || 0),
+                couponCode: popupForm.couponCode || null,
+                startsAt: popupForm.startsAt ? new Date(`${popupForm.startsAt}T00:00:00`).toISOString() : null,
+                endsAt: popupForm.endsAt ? new Date(`${popupForm.endsAt}T23:59:59`).toISOString() : null
+            };
+            const data = await adminService.updateLoyaltyPopupConfig(payload);
+            const popup = data?.popup || null;
+            setPopupForm((prev) => ({
+                ...prev,
+                isActive: Boolean(popup?.isActive),
+                startsAt: toDateInput(popup?.startsAt),
+                endsAt: toDateInput(popup?.endsAt)
+            }));
+            toast.success('Popup settings saved');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to save popup settings');
+        } finally {
+            setPopupSaving(false);
         }
     };
 
@@ -545,6 +659,55 @@ export default function LoyaltySettings({ onBack }) {
                         <button type="button" onClick={() => setCouponPage((p) => Math.max(1, p - 1))} disabled={couponPage <= 1} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Prev</button>
                         <span className="text-sm text-gray-500">Page {couponPage} / {Math.max(1, couponTotalPages)}</span>
                         <button type="button" onClick={() => setCouponPage((p) => Math.min(couponTotalPages, p + 1))} disabled={couponPage >= couponTotalPages} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Next</button>
+                    </div>
+                </div>
+            </div>
+            <div className="order-3 rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setOpenSection((prev) => (prev === 'popup' ? '' : 'popup'))}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left"
+                >
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-900">Popup Management</h3>
+                        <p className="text-sm text-gray-500">Configure customer popup card and media.</p>
+                    </div>
+                    <span className="text-sm font-semibold text-gray-500">{openSection === 'popup' ? '−' : '+'}</span>
+                </button>
+                <div className={`${openSection === 'popup' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
+                    <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                        <input type="checkbox" checked={Boolean(popupForm.isActive)} onChange={(e) => setPopupForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
+                        Popup enabled
+                    </label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="text-xs text-gray-600">Title<input className="input-field mt-1" value={popupForm.title} onChange={(e) => setPopupForm((prev) => ({ ...prev, title: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600">Summary<input className="input-field mt-1" value={popupForm.summary} onChange={(e) => setPopupForm((prev) => ({ ...prev, summary: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600 md:col-span-2">Content<textarea className="input-field mt-1 min-h-[88px]" value={popupForm.content} onChange={(e) => setPopupForm((prev) => ({ ...prev, content: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600 md:col-span-2">Encouragement Message<input className="input-field mt-1" value={popupForm.encouragement} onChange={(e) => setPopupForm((prev) => ({ ...prev, encouragement: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600">Button Label<input className="input-field mt-1" value={popupForm.buttonLabel} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLabel: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600">Button Link<input className="input-field mt-1" value={popupForm.buttonLink} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLink: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600">Discount Type<select className="input-field mt-1" value={popupForm.discountType} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountType: e.target.value }))}><option value="">None</option><option value="percent">Percent</option><option value="fixed">Fixed INR</option></select></label>
+                        <label className="text-xs text-gray-600">Discount Value<input className="input-field mt-1" type="number" value={popupForm.discountValue} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountValue: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600">Coupon Code<input className="input-field mt-1" value={popupForm.couponCode} onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))} /></label>
+                        <label className="text-xs text-gray-600">Start Date<input className="input-field mt-1" type="date" value={popupForm.startsAt} onChange={(e) => setPopupForm((prev) => ({ ...prev, startsAt: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600">End Date<input className="input-field mt-1" type="date" value={popupForm.endsAt} min={popupForm.startsAt || undefined} onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600 md:col-span-2">Popup Image URL<input className="input-field mt-1" value={popupForm.imageUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, imageUrl: e.target.value }))} /></label>
+                        <label className="text-xs text-gray-600 md:col-span-2">Audio URL<input className="input-field mt-1" value={popupForm.audioUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, audioUrl: e.target.value }))} /></label>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                            {popupImageUploading ? 'Uploading image...' : 'Upload Popup Image'}
+                            <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePopupImageUpload(e.target.files?.[0])} />
+                        </label>
+                        <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                            {popupAudioUploading ? 'Uploading audio...' : 'Upload Popup Audio'}
+                            <input type="file" accept="audio/*" className="hidden" onChange={(e) => handlePopupAudioUpload(e.target.files?.[0])} />
+                        </label>
+                    </div>
+                    <div className="flex justify-end">
+                        <button type="button" onClick={handleSavePopup} disabled={popupSaving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
+                            <Save size={16} /> {popupSaving ? 'Saving...' : 'Save Popup'}
+                        </button>
                     </div>
                 </div>
             </div>

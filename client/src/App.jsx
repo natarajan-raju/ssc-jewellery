@@ -17,6 +17,7 @@ import Shop from './pages/Shop';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import FloatingWhatsApp from './components/FloatingWhatsApp';
+import CustomerCouponPopup from './components/CustomerCouponPopup';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -63,6 +64,7 @@ const PublicLayout = () => {
         <Outlet />
       </main>
       <FloatingWhatsApp />
+      <CustomerCouponPopup />
       <Footer />
     </>
   );

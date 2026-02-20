@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -45,6 +45,8 @@ router.get('/company-info', getCompanyInfo);
 router.put('/company-info', updateCompanyInfo);
 router.get('/loyalty/config', getLoyaltyConfig);
 router.put('/loyalty/config', updateLoyaltyConfig);
+router.get('/loyalty/popup', getLoyaltyPopupConfig);
+router.put('/loyalty/popup', updateLoyaltyPopupConfig);
 router.get('/loyalty/coupons', listCoupons);
 router.post('/loyalty/coupons', createCoupon);
 router.delete('/loyalty/coupons/:couponId', deleteCoupon);

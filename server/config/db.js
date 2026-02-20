@@ -799,6 +799,27 @@ const initDB = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS loyalty_popup_config (
+                id INT PRIMARY KEY,
+                is_active TINYINT(1) NOT NULL DEFAULT 0,
+                title VARCHAR(255) NOT NULL DEFAULT '',
+                summary VARCHAR(255) NOT NULL DEFAULT '',
+                content TEXT,
+                encouragement VARCHAR(255) NOT NULL DEFAULT '',
+                image_url TEXT,
+                audio_url TEXT,
+                button_label VARCHAR(80) NOT NULL DEFAULT 'Shop Now',
+                button_link VARCHAR(255) NOT NULL DEFAULT '/shop',
+                discount_type VARCHAR(20) NULL,
+                discount_value DECIMAL(10,2) NULL,
+                coupon_code VARCHAR(60) NULL,
+                starts_at DATETIME NULL,
+                ends_at DATETIME NULL,
+                metadata_json JSON,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
         // Ensure singleton rows exist (Primary + Secondary)
         const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id IN (1, 2)');
         const existingIds = new Set(bannerRows.map(r => r.id));
@@ -831,6 +852,15 @@ const initDB = async () => {
                 (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [1, 'SSC Jewellery', '', '', '', '', '', '', '']
+            );
+        }
+        const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');
+        if (popupRows.length === 0) {
+            await connection.execute(
+                `INSERT INTO loyalty_popup_config
+                (id, is_active, title, summary, content, encouragement, image_url, audio_url, button_label, button_link, discount_type, discount_value, coupon_code, starts_at, ends_at, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 0, '', '', '', '', '', '', 'Shop Now', '/shop', null, null, null, null, null, JSON.stringify({})]
             );
         }
         // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)

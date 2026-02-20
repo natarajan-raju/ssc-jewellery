@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2 } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
@@ -37,6 +37,13 @@ const addDays = (value, days) => {
     copy.setDate(copy.getDate() + Number(days || 0));
     const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
+};
+
+const getWhatsappLink = (mobile = '') => {
+    const digits = String(mobile || '').replace(/\D/g, '');
+    if (!digits) return '';
+    const full = digits.length === 10 ? `91${digits}` : digits;
+    return `https://wa.me/${full}`;
 };
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
@@ -78,6 +85,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     const [processRefundOnCancel, setProcessRefundOnCancel] = useState(false);
     const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
+    const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
     const [deletingOrderId, setDeletingOrderId] = useState(null);
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
     const [bulkStatus, setBulkStatus] = useState('pending');
@@ -494,6 +502,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         setIsDetailsOpen(true);
         const hasSeedData = Boolean(order && !isAttemptEntry(order));
         setIsDetailsLoading(!hasSeedData);
+        setSettlementContext({ mode: null, isTestMode: false });
         if (order) {
             setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
             setPendingStatus(order.status || 'confirmed');
@@ -528,6 +537,9 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                         setSelectedOrder(sync.order);
                         patchOrderRow(sync.order);
                         setDetailsLastSyncedAt(new Date().toISOString());
+                    }
+                    if (sync?.settlementContext) {
+                        setSettlementContext(sync.settlementContext);
                     }
                 } catch {}
             }
@@ -599,6 +611,9 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                 setSelectedOrder((prev) => ({ ...(prev || {}), payment_status: data.paymentStatus }));
                 setDetailsLastSyncedAt(new Date().toISOString());
             }
+            if (data?.settlementContext) {
+                setSettlementContext(data.settlementContext);
+            }
             if (reason === 'refund') {
                 toast.success(`Refund status synced: ${data?.order?.refund_status || data?.paymentStatus || 'updated'}`);
             } else {
@@ -630,6 +645,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                     setSelectedOrder(target);
                     setPendingStatus(target.status || 'confirmed');
                     setDetailsLastSyncedAt(new Date().toISOString());
+                    setSettlementContext({ mode: null, isTestMode: false });
                 }
             } catch (error) {
                 toast.error(error.message || 'Failed to open focused order');
@@ -1328,17 +1344,34 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                         {selectedOrder.status || 'confirmed'}
                                     </span>
                                 </div>
+                                <div className="mt-3">
+                                    <p className="text-sm font-semibold text-gray-800 truncate">{selectedOrder.customer_name || 'Guest'}</p>
+                                    <p className="text-xs text-gray-500">{selectedOrder.customer_mobile || 'No mobile number'}</p>
+                                </div>
                                 {canDownloadInvoice(selectedOrder) && (
                                     <div className="mt-3 flex justify-end">
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
-                                            disabled={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
-                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-60"
-                                        >
-                                            <Download size={14} />
-                                            {downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating...' : 'Download Invoice'}
-                                        </button>
+                                        <div className="inline-flex items-center gap-2">
+                                            {getWhatsappLink(selectedOrder.customer_mobile) && (
+                                                <a
+                                                    href={getWhatsappLink(selectedOrder.customer_mobile)}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                                    title="Contact customer on WhatsApp"
+                                                >
+                                                    <MessageCircle size={16} />
+                                                </a>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
+                                                disabled={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
+                                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-60"
+                                            >
+                                                <Download size={14} />
+                                                {downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating...' : 'Download Invoice'}
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
 
@@ -1464,9 +1497,16 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                                     <p><span className="text-gray-500">Created At:</span> {selectedOrder.settlement_snapshot.created_at ? formatAdminDateTime(new Date(Number(selectedOrder.settlement_snapshot.created_at) * 1000).toISOString()) : '—'}</p>
                                                 </div>
                                             ) : (
-                                                <p className="mt-2 text-sm text-gray-500">
-                                                    Settlement info is not available yet for this payment.
-                                                </p>
+                                                <div className="mt-2 space-y-1">
+                                                    <p className="text-sm text-gray-500">
+                                                        Settlement info is not available yet for this payment.
+                                                    </p>
+                                                    {settlementContext?.isTestMode && (
+                                                        <p className="text-xs text-amber-700">
+                                                            Razorpay is in test mode. Settlement records are usually not generated in test mode.
+                                                        </p>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
                                     )}

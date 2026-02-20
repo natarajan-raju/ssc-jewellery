@@ -4,6 +4,7 @@ const { createUploader } = require('../utils/upload');
 
 const router = express.Router();
 const uploadProfile = createUploader('profile');
+const uploadPopup = createUploader('popup');
 
 router.post('/profile-image', protect, uploadProfile.single('image'), (req, res) => {
     if (!req.file) {
@@ -11,6 +12,22 @@ router.post('/profile-image', protect, uploadProfile.single('image'), (req, res)
     }
     const url = `/uploads/profile/${req.file.filename}`;
     res.json({ url });
+});
+
+router.post('/popup-image', protect, uploadPopup.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No image uploaded' });
+    }
+    const url = `/uploads/popup/${req.file.filename}`;
+    return res.json({ url });
+});
+
+router.post('/popup-audio', protect, uploadPopup.single('audio'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No audio uploaded' });
+    }
+    const url = `/uploads/popup/${req.file.filename}`;
+    return res.json({ url });
 });
 
 module.exports = router;

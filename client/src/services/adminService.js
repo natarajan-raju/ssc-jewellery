@@ -1,6 +1,9 @@
 const API_URL = import.meta.env.PROD 
   ? '/api/admin' 
   : 'http://localhost:5000/api/admin';
+const UPLOAD_API_URL = import.meta.env.PROD
+  ? '/api/uploads'
+  : 'http://localhost:5000/api/uploads';
 
 // 1. Get Token Securely
 const getAuthHeader = () => {
@@ -226,6 +229,40 @@ export const adminService = {
             method: 'PUT',
             headers: getAuthHeader(),
             body: JSON.stringify({ config })
+        });
+        return handleResponse(res);
+    },
+    getLoyaltyPopupConfig: async () => {
+        const res = await fetch(`${API_URL}/loyalty/popup`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    updateLoyaltyPopupConfig: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/loyalty/popup`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    uploadLoyaltyPopupImage: async (file) => {
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch(`${UPLOAD_API_URL}/popup-image`, {
+            method: 'POST',
+            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+        });
+        return handleResponse(res);
+    },
+    uploadLoyaltyPopupAudio: async (file) => {
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('audio', file);
+        const res = await fetch(`${UPLOAD_API_URL}/popup-audio`, {
+            method: 'POST',
+            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
         });
         return handleResponse(res);
     },

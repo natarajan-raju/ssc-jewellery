@@ -445,11 +445,12 @@ class Coupon {
                 discountType: row.discount_type,
                 discountValue: Number(row.discount_value || 0),
                 usageLimitPerUser: Number(row.usage_limit_per_user || 1),
-                expiresAt: row.expires_at || null
+                expiresAt: row.expires_at || null,
+                createdAt: row.created_at || null
             });
         }
         const [recoveryRows] = await db.execute(
-            `SELECT d.code, d.discount_type, d.discount_percent, d.min_cart_subunits, d.expires_at
+            `SELECT d.code, d.discount_type, d.discount_percent, d.min_cart_subunits, d.expires_at, d.created_at
              FROM abandoned_cart_discounts d
              WHERE d.user_id = ?
                AND d.status = 'active'
@@ -469,7 +470,8 @@ class Coupon {
                 discountValue: Number(row.discount_percent || 0),
                 usageLimitPerUser: 1,
                 minCartValue: fromSubunits(row.min_cart_subunits || 0),
-                expiresAt: row.expires_at || null
+                expiresAt: row.expires_at || null,
+                createdAt: row.created_at || null
             });
         }
         return out;
