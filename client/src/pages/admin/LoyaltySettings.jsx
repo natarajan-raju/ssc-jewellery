@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Crown, Gem, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Calendar, Crown, Gem, Megaphone, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, TicketPercent, Trash2, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -43,6 +43,14 @@ const formatCouponExpiry = (value) => {
         month: 'short',
         year: 'numeric'
     });
+};
+const formatDiscountOffer = (type, value) => {
+    const discountType = String(type || '').toLowerCase();
+    const discountValue = Number(value || 0);
+    if (discountType === 'fixed') return `₹${discountValue.toLocaleString('en-IN')} OFF`;
+    if (discountType === 'shipping_full') return 'Free Shipping';
+    if (discountType === 'shipping_partial') return `${discountValue}% Shipping Off`;
+    return `${discountValue}% OFF`;
 };
 
 const shippingPriorityLabel = (value = 'standard') => {
@@ -176,6 +184,8 @@ export default function LoyaltySettings({ onBack }) {
     const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
     const couponStartDateInputRef = useRef(null);
     const couponEndDateInputRef = useRef(null);
+    const popupStartDateInputRef = useRef(null);
+    const popupEndDateInputRef = useRef(null);
 
     const applyConfigRows = (config = []) => {
         const byTier = Object.fromEntries((Array.isArray(config) ? config : []).map((item) => [String(item.tier || '').toLowerCase(), item]));
@@ -491,7 +501,10 @@ export default function LoyaltySettings({ onBack }) {
                         <h3 className="text-lg font-semibold text-gray-900">Tier Management</h3>
                         <p className="text-sm text-gray-500">Edit thresholds, discounts and shipping priority by tier.</p>
                     </div>
-                    <span className="text-sm font-semibold text-gray-500">{openSection === 'tier' ? '−' : '+'}</span>
+                    <div className="flex items-center gap-3">
+                        <Crown size={34} className="text-amber-200" />
+                        <span className="text-sm font-semibold text-gray-500">{openSection === 'tier' ? '−' : '+'}</span>
+                    </div>
                 </button>
                 <div className={`${openSection === 'tier' ? 'block' : 'hidden'} border-t border-gray-100 p-3`}>
                     <div className="flex flex-wrap gap-2">
@@ -557,7 +570,10 @@ export default function LoyaltySettings({ onBack }) {
                         <h3 className="text-lg font-semibold text-gray-900">Coupon Management</h3>
                         <p className="text-sm text-gray-500">Issue and deactivate loyalty coupons.</p>
                     </div>
-                    <span className="text-sm font-semibold text-gray-500">{openSection === 'coupon' ? '−' : '+'}</span>
+                    <div className="flex items-center gap-3">
+                        <TicketPercent size={34} className="text-slate-200" />
+                        <span className="text-sm font-semibold text-gray-500">{openSection === 'coupon' ? '−' : '+'}</span>
+                    </div>
                 </button>
                 <div className={`${openSection === 'coupon' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
                     <div className="flex items-center justify-between gap-3">
@@ -599,7 +615,7 @@ export default function LoyaltySettings({ onBack }) {
                                         <td className="px-3 py-2 font-semibold text-gray-800">{cp.code}</td>
                                         <td className="px-3 py-2 text-gray-600">{cp.name || 'Coupon'}</td>
                                         <td className="px-3 py-2 text-gray-600">{String(cp.scope_type || 'generic')}</td>
-                                        <td className="px-3 py-2 text-gray-600">{cp.discount_type === 'fixed' ? `₹${Number(cp.discount_value || 0).toLocaleString('en-IN')}` : `${Number(cp.discount_value || 0)}%`}</td>
+                                        <td className="px-3 py-2 text-gray-600">{formatDiscountOffer(cp.discount_type, cp.discount_value)}</td>
                                         <td className="px-3 py-2 text-gray-600">{Number(cp.used_count || 0)}</td>
                                         <td className="px-3 py-2 text-gray-600">{formatCouponExpiry(cp.expires_at || cp.expiresAt)}</td>
                                         <td className="px-3 py-2 text-right">
@@ -635,7 +651,7 @@ export default function LoyaltySettings({ onBack }) {
                                             <p className="font-semibold text-gray-800">{cp.code}</p>
                                             <p className="text-xs text-gray-500 mt-0.5">{cp.name || 'Coupon'}</p>
                                             <p className="text-xs text-gray-500 mt-0.5">
-                                                {String(cp.scope_type || 'generic')} • {cp.discount_type === 'fixed' ? `₹${Number(cp.discount_value || 0).toLocaleString('en-IN')}` : `${Number(cp.discount_value || 0)}%`} • Used {Number(cp.used_count || 0)}
+                                                {String(cp.scope_type || 'generic')} • {formatDiscountOffer(cp.discount_type, cp.discount_value)} • Used {Number(cp.used_count || 0)}
                                             </p>
                                             <p className="text-xs text-gray-500 mt-0.5">Expiry: {formatCouponExpiry(cp.expires_at || cp.expiresAt)}</p>
                                         </td>
@@ -672,7 +688,10 @@ export default function LoyaltySettings({ onBack }) {
                         <h3 className="text-lg font-semibold text-gray-900">Popup Management</h3>
                         <p className="text-sm text-gray-500">Configure customer popup card and media.</p>
                     </div>
-                    <span className="text-sm font-semibold text-gray-500">{openSection === 'popup' ? '−' : '+'}</span>
+                    <div className="flex items-center gap-3">
+                        <Megaphone size={34} className="text-slate-200" />
+                        <span className="text-sm font-semibold text-gray-500">{openSection === 'popup' ? '−' : '+'}</span>
+                    </div>
                 </button>
                 <div className={`${openSection === 'popup' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
                     <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -680,19 +699,33 @@ export default function LoyaltySettings({ onBack }) {
                         Popup enabled
                     </label>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <label className="text-xs text-gray-600">Title<input className="input-field mt-1" value={popupForm.title} onChange={(e) => setPopupForm((prev) => ({ ...prev, title: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600">Summary<input className="input-field mt-1" value={popupForm.summary} onChange={(e) => setPopupForm((prev) => ({ ...prev, summary: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600 md:col-span-2">Content<textarea className="input-field mt-1 min-h-[88px]" value={popupForm.content} onChange={(e) => setPopupForm((prev) => ({ ...prev, content: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600 md:col-span-2">Encouragement Message<input className="input-field mt-1" value={popupForm.encouragement} onChange={(e) => setPopupForm((prev) => ({ ...prev, encouragement: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600">Button Label<input className="input-field mt-1" value={popupForm.buttonLabel} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLabel: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600">Button Link<input className="input-field mt-1" value={popupForm.buttonLink} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLink: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600">Discount Type<select className="input-field mt-1" value={popupForm.discountType} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountType: e.target.value }))}><option value="">None</option><option value="percent">Percent</option><option value="fixed">Fixed INR</option></select></label>
-                        <label className="text-xs text-gray-600">Discount Value<input className="input-field mt-1" type="number" value={popupForm.discountValue} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountValue: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600">Coupon Code<input className="input-field mt-1" value={popupForm.couponCode} onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))} /></label>
-                        <label className="text-xs text-gray-600">Start Date<input className="input-field mt-1" type="date" value={popupForm.startsAt} onChange={(e) => setPopupForm((prev) => ({ ...prev, startsAt: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600">End Date<input className="input-field mt-1" type="date" value={popupForm.endsAt} min={popupForm.startsAt || undefined} onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600 md:col-span-2">Popup Image URL<input className="input-field mt-1" value={popupForm.imageUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, imageUrl: e.target.value }))} /></label>
-                        <label className="text-xs text-gray-600 md:col-span-2">Audio URL<input className="input-field mt-1" value={popupForm.audioUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, audioUrl: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600">Title<input className="input-field mt-1" value={popupForm.title} onChange={(e) => setPopupForm((prev) => ({ ...prev, title: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600">Summary<input className="input-field mt-1" value={popupForm.summary} onChange={(e) => setPopupForm((prev) => ({ ...prev, summary: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600 md:col-span-2">Content<textarea className="input-field mt-1 min-h-[88px]" value={popupForm.content} onChange={(e) => setPopupForm((prev) => ({ ...prev, content: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600 md:col-span-2">Encouragement Message<input className="input-field mt-1" value={popupForm.encouragement} onChange={(e) => setPopupForm((prev) => ({ ...prev, encouragement: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600">Button Label<input className="input-field mt-1" value={popupForm.buttonLabel} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLabel: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600">Button Link<input className="input-field mt-1" value={popupForm.buttonLink} onChange={(e) => setPopupForm((prev) => ({ ...prev, buttonLink: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={popupForm.discountType} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountType: e.target.value }))}><option value="">None</option><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
+                        <label className="text-sm text-gray-600">Discount Value<input className="input-field mt-1" type="number" disabled={!popupForm.discountType || popupForm.discountType === 'shipping_full'} value={popupForm.discountValue} onChange={(e) => setPopupForm((prev) => ({ ...prev, discountValue: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600">Coupon Code<input className="input-field mt-1" value={popupForm.couponCode} onChange={(e) => setPopupForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))} /></label>
+                        <label className="text-sm text-gray-600">
+                            Start Date
+                            <div className="relative mt-1">
+                                <input className="input-field pr-10" type="text" placeholder="20th Feb 2026" value={popupForm.startsAt ? formatAdminDate(`${popupForm.startsAt}T00:00:00`) : ''} readOnly />
+                                <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                <input ref={popupStartDateInputRef} className="absolute inset-0 opacity-0 cursor-pointer" type="date" value={popupForm.startsAt} max={popupForm.endsAt || undefined} onChange={(e) => setPopupForm((prev) => ({ ...prev, startsAt: e.target.value }))} />
+                            </div>
+                        </label>
+                        <label className="text-sm text-gray-600">
+                            End Date
+                            <div className="relative mt-1">
+                                <input className="input-field pr-10" type="text" placeholder="20th Feb 2026" value={popupForm.endsAt ? formatAdminDate(`${popupForm.endsAt}T00:00:00`) : ''} readOnly />
+                                <Calendar size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                                <input ref={popupEndDateInputRef} className="absolute inset-0 opacity-0 cursor-pointer" type="date" value={popupForm.endsAt} min={popupForm.startsAt || undefined} onChange={(e) => setPopupForm((prev) => ({ ...prev, endsAt: e.target.value }))} />
+                            </div>
+                        </label>
+                        <label className="text-sm text-gray-600 md:col-span-2">Popup Image URL<input className="input-field mt-1" value={popupForm.imageUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, imageUrl: e.target.value }))} /></label>
+                        <label className="text-sm text-gray-600 md:col-span-2">Audio URL<input className="input-field mt-1" value={popupForm.audioUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, audioUrl: e.target.value }))} /></label>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
@@ -724,12 +757,12 @@ export default function LoyaltySettings({ onBack }) {
                         </div>
                         <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <label className="text-xs text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
-                                <label className="text-xs text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
-                                <label className="text-xs text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option></select></label>
-                                <label className="text-xs text-gray-600">Discount Value<input className="input-field mt-1" type="number" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
-                                <label className="text-xs text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
-                                <label className="text-xs text-gray-600">
+                                <label className="text-sm text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
+                                <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
+                                <label className="text-sm text-gray-600">Discount Value<input className="input-field mt-1" type="number" disabled={couponForm.discountType === 'shipping_full'} value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">
                                     Start Date <span className="text-red-500">*</span>
                                     <input
                                         ref={couponStartDateInputRef}
@@ -751,7 +784,7 @@ export default function LoyaltySettings({ onBack }) {
                                         {couponForm.startsAt ? formatAdminDate(`${couponForm.startsAt}T00:00:00`) : 'Start Date'}
                                     </button>
                                 </label>
-                                <label className="text-xs text-gray-600">
+                                <label className="text-sm text-gray-600">
                                     End Date (Optional)
                                     <input
                                         ref={couponEndDateInputRef}
@@ -774,11 +807,11 @@ export default function LoyaltySettings({ onBack }) {
                                     </button>
                                 </label>
                                 {couponForm.scopeType === 'tier' && (
-                                    <label className="text-xs text-gray-600">Tier Scope<select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>{ORDER.map((tier) => <option key={tier} value={tier}>{tierLabel(tier).toUpperCase()}</option>)}</select></label>
+                                    <label className="text-sm text-gray-600">Tier Scope<select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>{ORDER.map((tier) => <option key={tier} value={tier}>{tierLabel(tier).toUpperCase()}</option>)}</select></label>
                                 )}
                             </div>
                             {couponForm.scopeType === 'category' && (
-                                <label className="text-xs text-gray-600 block">Category Scope (Multi-select)
+                                <label className="text-sm text-gray-600 block">Category Scope (Multi-select)
                                     <select
                                         multiple
                                         className="input-field mt-1 min-h-[140px]"
@@ -797,7 +830,7 @@ export default function LoyaltySettings({ onBack }) {
                                     )}
                                 </label>
                             )}
-                            <p className="text-xs text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). End date is optional.</p>
+                            <p className="text-sm text-gray-500">Date format: DD MMM YYYY (eg 17th Feb 2026). End date is optional.</p>
                         </div>
                         <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
                             <button type="button" onClick={() => setIsCouponModalOpen(false)} className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
@@ -820,15 +853,15 @@ export default function LoyaltySettings({ onBack }) {
                         </div>
                         <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <label className="text-xs text-gray-600">Threshold (INR)<input className="input-field mt-1" type="number" value={editRow.threshold} onChange={(e) => updateRow(editRow.tier, { threshold: e.target.value })} /></label>
-                                <label className="text-xs text-gray-600">Window Days<input className="input-field mt-1" type="number" value={editRow.windowDays} onChange={(e) => updateRow(editRow.tier, { windowDays: e.target.value })} /></label>
-                                <label className="text-xs text-gray-600">Extra Discount %<input className="input-field mt-1" type="number" step="0.1" value={editRow.extraDiscountPct} onChange={(e) => updateRow(editRow.tier, { extraDiscountPct: e.target.value })} /></label>
-                                <label className="text-xs text-gray-600">Shipping Discount %<input className="input-field mt-1" type="number" step="0.1" value={editRow.shippingDiscountPct} onChange={(e) => updateRow(editRow.tier, { shippingDiscountPct: e.target.value })} /></label>
-                                <label className="text-xs text-gray-600">Birthday Discount %<input className="input-field mt-1" type="number" step="0.1" value={editRow.birthdayDiscountPct} onChange={(e) => updateRow(editRow.tier, { birthdayDiscountPct: e.target.value })} /></label>
-                                <label className="text-xs text-gray-600">Abandoned Cart Boost %<input className="input-field mt-1" type="number" step="0.1" value={editRow.abandonedCartBoostPct} onChange={(e) => updateRow(editRow.tier, { abandonedCartBoostPct: e.target.value })} /></label>
-                                <label className="text-xs text-gray-600">Priority Weight<input className="input-field mt-1" type="number" value={editRow.priorityWeight} onChange={(e) => updateRow(editRow.tier, { priorityWeight: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Threshold (INR)<input className="input-field mt-1" type="number" value={editRow.threshold} onChange={(e) => updateRow(editRow.tier, { threshold: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Window Days<input className="input-field mt-1" type="number" value={editRow.windowDays} onChange={(e) => updateRow(editRow.tier, { windowDays: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Extra Discount %<input className="input-field mt-1" type="number" step="0.1" value={editRow.extraDiscountPct} onChange={(e) => updateRow(editRow.tier, { extraDiscountPct: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Shipping Discount %<input className="input-field mt-1" type="number" step="0.1" value={editRow.shippingDiscountPct} onChange={(e) => updateRow(editRow.tier, { shippingDiscountPct: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Birthday Discount %<input className="input-field mt-1" type="number" step="0.1" value={editRow.birthdayDiscountPct} onChange={(e) => updateRow(editRow.tier, { birthdayDiscountPct: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Abandoned Cart Boost %<input className="input-field mt-1" type="number" step="0.1" value={editRow.abandonedCartBoostPct} onChange={(e) => updateRow(editRow.tier, { abandonedCartBoostPct: e.target.value })} /></label>
+                                <label className="text-sm text-gray-600">Priority Weight<input className="input-field mt-1" type="number" value={editRow.priorityWeight} onChange={(e) => updateRow(editRow.tier, { priorityWeight: e.target.value })} /></label>
                             </div>
-                            <label className="text-xs text-gray-600 block">
+                            <label className="text-sm text-gray-600 block">
                                 Shipping Priority
                                 <select className="input-field mt-1" value={editRow.shippingPriority} onChange={(e) => updateRow(editRow.tier, { shippingPriority: e.target.value })}>
                                     {SHIPPING_PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}

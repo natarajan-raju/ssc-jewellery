@@ -273,6 +273,7 @@ class Order {
                     code: couponCode,
                     userId,
                     cartTotalSubunits: toSubunits(subtotal),
+                    shippingFeeSubunits: toSubunits(shippingFee),
                     loyaltyTier: loyaltyStatus?.tier || 'regular',
                     cartProductIds,
                     connection
@@ -292,7 +293,8 @@ class Order {
                     discountSubunits: Number(discount.discountSubunits || 0)
                 };
             }
-            if (couponDiscountTotal > subtotal) couponDiscountTotal = subtotal;
+            const maxCouponDiscount = Math.max(0, subtotal + shippingFee);
+            if (couponDiscountTotal > maxCouponDiscount) couponDiscountTotal = maxCouponDiscount;
 
             const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
                 subtotal,
@@ -486,6 +488,7 @@ class Order {
                     code: couponCode,
                     userId,
                     cartTotalSubunits: toSubunits(subtotal),
+                    shippingFeeSubunits: toSubunits(shippingFee),
                     loyaltyTier: loyaltyStatus?.tier || 'regular',
                     cartProductIds,
                     connection
@@ -505,7 +508,8 @@ class Order {
                     discountSubunits: Number(discount.discountSubunits || 0)
                 };
             }
-            if (couponDiscountTotal > subtotal) couponDiscountTotal = subtotal;
+            const maxCouponDiscount = Math.max(0, subtotal + shippingFee);
+            if (couponDiscountTotal > maxCouponDiscount) couponDiscountTotal = maxCouponDiscount;
 
             const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
                 subtotal,

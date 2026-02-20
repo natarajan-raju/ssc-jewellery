@@ -41,6 +41,12 @@ const isWithinDateWindow = (row) => {
     return true;
 };
 
+const normalizeDiscountType = (value = 'percent') => {
+    const type = String(value || 'percent').toLowerCase();
+    if (['fixed', 'percent', 'shipping_full', 'shipping_partial'].includes(type)) return type;
+    return 'percent';
+};
+
 class Coupon {
     static async generateUniqueCode({ connection = db, prefix = 'SSC' } = {}) {
         for (let i = 0; i < 10; i += 1) {
@@ -57,9 +63,9 @@ class Coupon {
         const categoryIds = Array.isArray(payload.categoryIds) ? [...new Set(payload.categoryIds.map((id) => Number(id)).filter((n) => Number.isFinite(n) && n > 0))] : [];
         const scopeType = String(payload.scopeType || 'generic').toLowerCase();
         const sourceType = String(payload.sourceType || 'admin').toLowerCase();
-        const discountType = String(payload.discountType || 'percent').toLowerCase() === 'fixed' ? 'fixed' : 'percent';
+        const discountType = normalizeDiscountType(payload.discountType || 'percent');
         const discountValue = Number(payload.discountValue || 0);
-        if (!Number.isFinite(discountValue) || discountValue <= 0) {
+        if (discountType !== 'shipping_full' && (!Number.isFinite(discountValue) || discountValue <= 0)) {
             throw new Error('discountValue must be greater than 0');
         }
         if (!['generic', 'category', 'customer', 'tier'].includes(scopeType)) {
@@ -199,6 +205,7 @@ class Coupon {
         code,
         userId,
         cartTotalSubunits = 0,
+        shippingFeeSubunits = 0,
         loyaltyTier = 'regular',
         cartProductIds = [],
         connection = db
@@ -264,17 +271,24 @@ class Coupon {
                 if (!matchRows.length) return null;
             }
 
-            const discountType = String(coupon.discount_type || 'percent').toLowerCase() === 'fixed' ? 'fixed' : 'percent';
+            const discountType = normalizeDiscountType(coupon.discount_type || 'percent');
             let discountSubunits = 0;
             if (discountType === 'fixed') {
                 discountSubunits = toSubunits(coupon.discount_value);
+            } else if (discountType === 'shipping_full') {
+                discountSubunits = Number(shippingFeeSubunits || 0);
+            } else if (discountType === 'shipping_partial') {
+                discountSubunits = Math.round(Number(shippingFeeSubunits || 0) * (Number(coupon.discount_value || 0) / 100));
             } else {
                 discountSubunits = Math.round(Number(cartTotalSubunits || 0) * (Number(coupon.discount_value || 0) / 100));
             }
             if (coupon.max_discount_subunits != null) {
                 discountSubunits = Math.min(discountSubunits, Number(coupon.max_discount_subunits || 0));
             }
-            discountSubunits = Math.max(0, Math.min(discountSubunits, Number(cartTotalSubunits || 0)));
+            const maxEligibleBase = ['shipping_full', 'shipping_partial'].includes(discountType)
+                ? Number(shippingFeeSubunits || 0)
+                : Number(cartTotalSubunits || 0);
+            discountSubunits = Math.max(0, Math.min(discountSubunits, maxEligibleBase));
             if (discountSubunits <= 0) return null;
 
             return {
@@ -282,7 +296,7 @@ class Coupon {
                 id: coupon.id,
                 code: coupon.code,
                 type: discountType,
-                percent: discountType === 'percent' ? Number(coupon.discount_value || 0) : 0,
+                percent: ['percent', 'shipping_partial'].includes(discountType) ? Number(coupon.discount_value || 0) : 0,
                 fixedAmount: discountType === 'fixed' ? Number(coupon.discount_value || 0) : 0,
                 discountSubunits,
                 journeyId: null,

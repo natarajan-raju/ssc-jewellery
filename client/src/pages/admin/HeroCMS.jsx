@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
-import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown } from 'lucide-react';
+import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
@@ -372,7 +372,7 @@ export default function HeroCMS() {
         }
     };
 
-    const AccordionSection = ({ id, title, subtitle = '', children }) => {
+    const AccordionSection = ({ id, title, subtitle = '', icon: Icon = ImageIcon, children }) => {
         const isOpen = openCmsSection === id;
         return (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -385,7 +385,10 @@ export default function HeroCMS() {
                         <h3 className="font-bold text-gray-700">{title}</h3>
                         {!!subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
                     </div>
-                    <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                    <div className="flex items-center gap-3">
+                        <Icon size={32} className="text-slate-200" />
+                        <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                    </div>
                 </button>
                 {isOpen && (
                     <div className="px-6 pb-6 border-t border-gray-100 pt-4">
@@ -414,7 +417,7 @@ export default function HeroCMS() {
                 <p className="text-gray-500 text-sm mt-1">Manage homepage content blocks and promotional assets.</p>
             </div>
 
-            <AccordionSection id="hero-carousel" title="Hero Carousel" subtitle="Manage slides and their order">
+            <AccordionSection id="hero-carousel" title="Hero Carousel" subtitle="Manage slides and their order" icon={ImageIcon}>
                 <div className="space-y-6">
                     <div className="bg-white p-4 rounded-xl border border-gray-200">
                         <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
@@ -516,7 +519,7 @@ export default function HeroCMS() {
             </AccordionSection>
 
             {/* HERO TEXTS SECTION */}
-            <AccordionSection id="hero-texts" title="Hero Text Carousel" subtitle="Short single-line highlights shown above the hero.">
+            <AccordionSection id="hero-texts" title="Hero Text Carousel" subtitle="Short single-line highlights shown above the hero." icon={Sparkles}>
                 <form onSubmit={handleHeroTextAdd} className="flex flex-col md:flex-row gap-3">
                     <input
                         placeholder="Add new text..."
@@ -578,7 +581,7 @@ export default function HeroCMS() {
             </AccordionSection>
 
             {/* HOME BANNER SECTION */}
-            <AccordionSection id="home-banner-1" title="Home Banner (16:9)">
+            <AccordionSection id="home-banner-1" title="Home Banner (16:9)" icon={ImageIcon}>
                 <form onSubmit={handleBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
                         <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
@@ -619,7 +622,7 @@ export default function HeroCMS() {
             </AccordionSection>
 
             {/* SECONDARY HOME BANNER SECTION */}
-            <AccordionSection id="home-banner-2" title="Home Banner 2 (16:9)">
+            <AccordionSection id="home-banner-2" title="Home Banner 2 (16:9)" icon={ImageIcon}>
                 <form onSubmit={handleSecondaryBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
                         <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
@@ -660,7 +663,7 @@ export default function HeroCMS() {
             </AccordionSection>
 
             {/* FEATURED CATEGORY SECTION */}
-            <AccordionSection id="featured-category" title="Featured Category Section">
+            <AccordionSection id="featured-category" title="Featured Category Section" icon={Save}>
                 <form onSubmit={handleFeaturedCategorySave} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <select

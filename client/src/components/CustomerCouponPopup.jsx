@@ -19,6 +19,15 @@ const formatLongDate = (value) => {
     return `${day}${suffix} ${month} ${year}`;
 };
 
+const formatCouponOffer = (coupon = {}) => {
+    const type = String(coupon.discountType || '').toLowerCase();
+    const value = Number(coupon.discountValue || 0);
+    if (type === 'fixed') return `₹${value.toLocaleString('en-IN')} OFF`;
+    if (type === 'shipping_full') return 'FREE SHIPPING';
+    if (type === 'shipping_partial') return `${value}% SHIPPING OFF`;
+    return `${value}% OFF`;
+};
+
 export default function CustomerCouponPopup() {
     const { user } = useAuth();
     const [open, setOpen] = useState(false);
@@ -95,13 +104,15 @@ export default function CustomerCouponPopup() {
                             <div className="relative rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[104px]">
                                 <div className="bg-primary px-4 py-3 flex flex-col justify-center">
                                     <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
-                                    <p className="text-sm font-bold mt-1 text-white leading-5 break-all min-h-[2.5rem] max-h-[2.5rem] line-clamp-2">{coupon.code}</p>
+                                    <p className="mt-1">
+                                        <span className="inline-flex w-fit max-w-full rounded-md bg-white/10 px-2 py-1 text-sm font-bold leading-5 text-white break-all">
+                                            {coupon.code}
+                                        </span>
+                                    </p>
                                 </div>
                                 <div className="bg-accent px-4 py-3 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
                                     <p className="text-[15px] font-extrabold tracking-wide">
-                                        {coupon.discountType === 'fixed'
-                                            ? `₹${Number(coupon.discountValue || 0).toLocaleString('en-IN')} OFF`
-                                            : `${Number(coupon.discountValue || 0)}% OFF`}
+                                        {formatCouponOffer(coupon)}
                                     </p>
                                     <p className="text-[11px] mt-1 text-primary/80 font-medium">
                                         {coupon.expiresAt ? `Expires ${formatLongDate(coupon.expiresAt)}` : 'No expiry'}

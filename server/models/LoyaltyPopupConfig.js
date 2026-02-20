@@ -66,8 +66,8 @@ class LoyaltyPopupConfig {
         if (next.endsAt && next.startsAt && next.endsAt.getTime() < next.startsAt.getTime()) {
             throw new Error('Popup end date must be on or after start date');
         }
-        if (next.discountType && !['percent', 'fixed'].includes(next.discountType)) {
-            throw new Error('Popup discount type must be percent or fixed');
+        if (next.discountType && !['percent', 'fixed', 'shipping_full', 'shipping_partial'].includes(next.discountType)) {
+            throw new Error('Popup discount type must be percent, fixed, shipping_full, or shipping_partial');
         }
         await db.execute(
             `INSERT INTO loyalty_popup_config

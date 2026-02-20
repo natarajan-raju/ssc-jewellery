@@ -67,6 +67,14 @@ const formatLongDate = (value) => {
     const year = date.getFullYear();
     return `${day}${suffix} ${month} ${year}`;
 };
+const formatCouponOffer = (entry = {}) => {
+    const type = String(entry.discountType || '').toLowerCase();
+    const value = Number(entry.discountValue || 0);
+    if (type === 'fixed') return `₹${value.toLocaleString('en-IN')} OFF`;
+    if (type === 'shipping_full') return 'FREE SHIPPING';
+    if (type === 'shipping_partial') return `${value}% SHIPPING OFF`;
+    return `${value}% OFF`;
+};
 
 const TIER_THEME = {
     regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/25', fill: 'bg-white', tag: 'bg-white/20 border-white/35 text-white' },
@@ -837,9 +845,7 @@ export default function Checkout() {
                                                         </div>
                                                         <div className="bg-accent px-4 py-3 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
                                                             <p className="text-[15px] font-extrabold tracking-wide">
-                                                                {entry.discountType === 'fixed'
-                                                                    ? `₹${Number(entry.discountValue || 0).toLocaleString('en-IN')} OFF`
-                                                                    : `${Number(entry.discountValue || 0)}% OFF`}
+                                                                {formatCouponOffer(entry)}
                                                             </p>
                                                             <p className="text-[11px] mt-1 text-primary/80 font-medium">
                                                                 {entry.expiresAt ? `Expires ${formatLongDate(entry.expiresAt)}` : 'No expiry'}

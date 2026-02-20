@@ -80,6 +80,14 @@ const formatLongDate = (value) => {
     const year = date.getFullYear();
     return `${day}${suffix} ${month} ${year}`;
 };
+const formatCouponOffer = (coupon = {}) => {
+    const type = String(coupon.discountType || coupon.discount_type || '').toLowerCase();
+    const value = Number(coupon.discountValue ?? coupon.discount_value ?? 0);
+    if (type === 'fixed') return `₹${value.toLocaleString('en-IN')} off`;
+    if (type === 'shipping_full') return 'Free shipping';
+    if (type === 'shipping_partial') return `${value}% shipping off`;
+    return `${value}% off`;
+};
 
 export default function Customers({ onOpenLoyalty }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
@@ -425,11 +433,13 @@ export default function Customers({ onOpenLoyalty }) {
                                 <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
                                     <option value="percent">Percent</option>
                                     <option value="fixed">Fixed INR</option>
+                                    <option value="shipping_full">Shipping Full</option>
+                                    <option value="shipping_partial">Shipping Partial (%)</option>
                                 </select>
                             </label>
                             <label className="text-xs text-gray-600">
                                 Discount Value
-                                <input className="input-field mt-1" type="number" placeholder="Discount value" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
+                                <input className="input-field mt-1" type="number" disabled={couponForm.discountType === 'shipping_full'} placeholder="Discount value" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
                             </label>
                             <label className="text-xs text-gray-600">
                                 Minimum Cart Value (INR)
@@ -572,9 +582,7 @@ export default function Customers({ onOpenLoyalty }) {
                                             <div className="min-w-0">
                                                 <p className="text-xs font-semibold text-gray-800 truncate">{cp.code}</p>
                                                 <p className="text-[11px] text-gray-600 mt-1">
-                                                    {(cp.discountType || cp.discount_type) === 'fixed'
-                                                        ? `₹${Number(cp.discountValue ?? cp.discount_value ?? 0).toLocaleString('en-IN')} off`
-                                                        : `${Number(cp.discountValue ?? cp.discount_value ?? 0)}% off`}
+                                                    {formatCouponOffer(cp)}
                                                     {(cp.sourceType || cp.source_type) === 'abandoned' ? ' • Abandoned cart' : ''}
                                                     {(cp.expiresAt || cp.expires_at) ? ` • Expires ${formatLongDate(cp.expiresAt || cp.expires_at)}` : ' • No expiry'}
                                                 </p>

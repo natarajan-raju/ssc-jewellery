@@ -4,7 +4,7 @@ export const burstConfetti = () => {
     canvas.style.position = 'fixed';
     canvas.style.inset = '0';
     canvas.style.pointerEvents = 'none';
-    canvas.style.zIndex = '120';
+    canvas.style.zIndex = '320';
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     document.body.appendChild(canvas);

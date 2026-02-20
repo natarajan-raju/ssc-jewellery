@@ -356,9 +356,15 @@ const issueCouponToUser = async (req, res) => {
 
         const customerName = user.name || 'Customer';
         const expiryLabel = coupon.expires_at ? new Date(coupon.expires_at).toLocaleDateString('en-IN') : 'No expiry';
-        const offerLabel = String(coupon.discount_type || body.discountType || 'percent').toLowerCase() === 'fixed'
-            ? `₹${Number(coupon.discount_value || body.discountValue || 0).toLocaleString('en-IN')} OFF`
-            : `${Number(coupon.discount_value || body.discountValue || 0)}% OFF`;
+        const offerType = String(coupon.discount_type || body.discountType || 'percent').toLowerCase();
+        const offerValue = Number(coupon.discount_value || body.discountValue || 0);
+        const offerLabel = offerType === 'fixed'
+            ? `₹${offerValue.toLocaleString('en-IN')} OFF`
+            : offerType === 'shipping_full'
+                ? 'FREE SHIPPING'
+                : offerType === 'shipping_partial'
+                    ? `${offerValue}% SHIPPING OFF`
+                    : `${offerValue}% OFF`;
         const message = `Hi ${customerName}, your coupon code is ${coupon.code}.`;
         const [emailResult, whatsappResult] = await Promise.all([
             user.email
