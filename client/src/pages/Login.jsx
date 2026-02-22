@@ -14,7 +14,7 @@ export default function Login() {
   const [searchParams] = useSearchParams();
   // State for UI
   const [method, setMethod] = useState('password');
-  const [formData, setFormData] = useState({ identifier: '', password: '', mobile: '', otp: '' });
+  const [formData, setFormData] = useState({ identifier: '', password: '', otpIdentifier: '', otp: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [timer, setTimer] = useState(0);
@@ -80,23 +80,50 @@ export default function Login() {
   const handleAutoLogin = async () => {
     setOtpStatus('checking');
     setIsLoading(true);
-    await performLogin({ type: 'otp', mobile: formData.mobile, otp: formData.otp });
+    await performLogin({ type: 'otp', identifier: formData.otpIdentifier, otp: formData.otp });
   };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'mobile' && !/^\d*$/.test(value)) return;
     setFormData({ ...formData, [name]: value });
     if (name === 'otp') setOtpStatus('neutral');
   };
 
   const handleSendOtp = async () => {
-    if (formData.mobile.length !== 10) return toast.error("Enter valid 10-digit mobile");
+    const email = String(formData.otpIdentifier || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast.error("Enter a valid email");
     setIsLoading(true);
     try {
-        await authService.sendOtp(formData.mobile);
+        const res = await authService.sendOtp({ identifier: email, purpose: 'login' });
+        if (!res?.ok) {
+          toast.error(res?.message || "Failed to send OTP");
+          return;
+        }
+
         setTimer(30);
-        toast.success("OTP Sent!");
+        const contacts = res?.delivery?.contacts || {};
+        const sent = Array.isArray(res?.delivery?.sent) ? res.delivery.sent : [];
+        const missing = Array.isArray(res?.delivery?.missing) ? res.delivery.missing : [];
+        const failed = Array.isArray(res?.delivery?.failed) ? res.delivery.failed : [];
+        if (missing.length > 0) {
+          const missingLabel = missing.map((entry) => entry.toUpperCase()).join(' & ');
+          toast.warning(`${missingLabel} is not available for this account.`);
+        }
+
+        if (failed.length > 0) {
+          const failedLabel = failed.map((entry) => String(entry?.channel || '').toUpperCase()).filter(Boolean).join(' & ');
+          toast.warning(`Could not send OTP via ${failedLabel || 'some channels'}.`);
+        }
+
+        const sentEmail = sent.includes('email') ? contacts.email : '';
+        const sentWhatsApp = sent.includes('whatsapp') ? contacts.whatsapp : '';
+        if (sentEmail && sentWhatsApp) {
+          toast.success(`OTP sent to Email ${sentEmail} and WhatsApp ${sentWhatsApp}`);
+        } else if (sentEmail) {
+          toast.success(`OTP sent to your Email ${sentEmail}`);
+        } else {
+          toast.success("OTP sent");
+        }
     } catch (error) {
         toast.error("Failed to send OTP");
     } finally {
@@ -122,7 +149,7 @@ export default function Login() {
 
     const payload = method === 'password' 
       ? { type: 'password', identifier: formData.identifier, password: formData.password }
-      : { type: 'otp', mobile: formData.mobile, otp: formData.otp };
+      : { type: 'otp', identifier: formData.otpIdentifier, otp: formData.otp };
 
     await performLogin(payload);
   };
@@ -238,7 +265,7 @@ export default function Login() {
           ) : (
             <div className="animate-fade-in space-y-4">
               <div className="flex gap-2">
-                <input name="mobile" placeholder="Mobile Number" maxLength={10} className="input-field flex-1" value={formData.mobile} onChange={handleChange} />
+                <input name="otpIdentifier" placeholder="Registered Email" className="input-field flex-1" value={formData.otpIdentifier} onChange={handleChange} />
                 <button type="button" onClick={handleSendOtp} disabled={isLoading || timer > 0} className={`px-3 rounded-lg text-sm font-medium transition-colors min-w-[100px] ${(isLoading || timer > 0) ? 'bg-gray-200 text-gray-500' : 'bg-primary text-accent hover:bg-primary-light'}`}>
                     {timer > 0 ? `Resend ${timer}s` : "Send OTP"}
                 </button>

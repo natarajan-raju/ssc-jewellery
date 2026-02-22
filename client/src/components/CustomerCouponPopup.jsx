@@ -204,7 +204,7 @@ export default function CustomerCouponPopup() {
 
     const handleScratchMove = (event) => {
         if (!isScratching) return;
-        event.preventDefault();
+        if (event.cancelable) event.preventDefault();
         scratchAt(event);
         updateScratchProgress();
     };

@@ -311,32 +311,113 @@ const sendTierUpgradeMail = async ({ user, previousTier, newTier, status }) => {
         order: { order_ref: `Tier Upgrade`, total: 0 }
     }).catch(() => {});
     const label = getLoyaltyProfileByTier(newTier).label;
+    const template = buildLoyaltyMailTemplate({
+        user,
+        seed: `tier-upgrade|${user.id}|${newTier}`,
+        subjects: Array.from({ length: 10 }, (_, i) => `Membership Upgrade: ${label} (${i + 1}/10)`),
+        bodyBlocks: [
+            `Great news. Your membership has been upgraded from <strong>${previousTier}</strong> to <strong>${label}</strong>.`,
+            status?.progress?.message || 'Your recent engagement unlocked this upgrade.',
+            'You now have access to enhanced tier benefits configured for your account.'
+        ],
+        actionItems: [
+            'Review your updated tier benefits in your profile.',
+            'Use your new benefits on upcoming orders.',
+            'Reply to this email if you want a benefit walkthrough.'
+        ],
+        assuranceVariants: [
+            'Our loyalty team will continue to monitor your tier progression and keep you informed.',
+            'Need help understanding the new benefits? Reply and we will assist immediately.',
+            'Thank you for your loyalty. We are here for any membership support you need.',
+            'Our administration team is available for any membership clarification.',
+            'You can count on us for transparent membership updates at every milestone.',
+            'If anything looks incorrect, reply and we will verify your benefits promptly.',
+            'We appreciate your trust and remain available for support.',
+            'Our customer success team will help you maximize your new tier benefits.',
+            'Please keep this email for future membership reference.',
+            'We are committed to delivering a seamless loyalty experience.'
+        ]
+    });
     await sendEmailCommunication({
         to: user.email,
-        subject: `Membership Upgrade: ${label}`,
-        text: `Hi ${user.name || 'Customer'}, your membership has been upgraded from ${previousTier} to ${newTier}.`,
-        html: `<p>Hi ${user.name || 'Customer'},</p><p>Great news! Your membership has been upgraded from <strong>${previousTier}</strong> to <strong>${label}</strong>.</p><p>${status?.progress?.message || ''}</p>`
+        subject: template.subject,
+        text: template.text,
+        html: template.html
     });
 };
 
 const sendTierDowngradeMail = async ({ user, previousTier, newTier, status }) => {
     if (!user?.email) return;
     const newLabel = getLoyaltyProfileByTier(newTier).label;
+    const template = buildLoyaltyMailTemplate({
+        user,
+        seed: `tier-downgrade|${user.id}|${newTier}`,
+        subjects: Array.from({ length: 10 }, (_, i) => `Membership Update: ${newLabel} (${i + 1}/10)`),
+        bodyBlocks: [
+            `Your membership has moved from <strong>${previousTier}</strong> to <strong>${newLabel}</strong>.`,
+            status?.progress?.message || 'This change is based on your recent qualifying activity window.',
+            'You can regain higher tiers by continuing regular purchases within the evaluation period.'
+        ],
+        actionItems: [
+            'Review current tier criteria in your account.',
+            'Plan next purchases to move back to the next tier.',
+            'Reply if you want help understanding qualification thresholds.'
+        ],
+        assuranceVariants: [
+            'Our team can help you with a clear path to your next upgrade.',
+            'This update keeps your membership accurate and transparent.',
+            'Reply to this email if you need a personalized progression explanation.',
+            'We are available for immediate assistance with any membership questions.',
+            'Your loyalty journey continues, and we are here to support you.',
+            'Our administration team can validate your latest tier metrics on request.',
+            'You can still access active benefits of your current tier.',
+            'Thank you for staying with SSC Jewellery; we are ready to help.',
+            'You will receive another update when your tier changes again.',
+            'Please keep this message for your membership records.'
+        ]
+    });
     await sendEmailCommunication({
         to: user.email,
-        subject: `Membership Update: ${newLabel}`,
-        text: `Hi ${user.name || 'Customer'}, your membership has moved from ${previousTier} to ${newTier}.`,
-        html: `<p>Hi ${user.name || 'Customer'},</p><p>Your membership has changed from <strong>${previousTier}</strong> to <strong>${newLabel}</strong>.</p><p>${status?.progress?.message || ''}</p>`
+        subject: template.subject,
+        text: template.text,
+        html: template.html
     });
 };
 
 const sendMonthlyStatusSummaryMail = async ({ user, status }) => {
     if (!user?.email || !status) return;
+    const template = buildLoyaltyMailTemplate({
+        user,
+        seed: `monthly-summary|${user.id}|${status?.tier || 'regular'}`,
+        subjects: Array.from({ length: 10 }, (_, i) => `Your Monthly Membership Summary (${i + 1}/10)`),
+        bodyBlocks: [
+            `Current tier: <strong>${status?.profile?.label || status?.tier || 'Basic'}</strong>.`,
+            status?.progress?.message || 'Your latest progress is available in your profile dashboard.',
+            'This monthly summary helps you track your loyalty progress and available benefits.'
+        ],
+        actionItems: [
+            'Review your tier benefits in your account.',
+            'Check progress towards the next membership tier.',
+            'Reply if you want assistance planning benefit usage.'
+        ],
+        assuranceVariants: [
+            'We will continue sending periodic updates to keep your membership journey clear.',
+            'Our team is available for any loyalty-related clarification.',
+            'Please contact us if you need a detailed benefit breakdown.',
+            'We appreciate your continued trust in SSC Jewellery.',
+            'Your membership progress is continuously monitored by our system.',
+            'Reply to this email for personalized membership support.',
+            'We are here to help you maximize your tier advantages.',
+            'Thank you for staying engaged with our loyalty program.',
+            'Our administration desk can resolve any tier-related concerns.',
+            'You can expect transparent updates whenever your tier changes.'
+        ]
+    });
     await sendEmailCommunication({
         to: user.email,
-        subject: `Your Monthly Membership Summary`,
-        text: `Current tier: ${status?.profile?.label || status?.tier || 'Basic'}. ${status?.progress?.message || ''}`,
-        html: `<p>Hi ${user.name || 'Customer'},</p><p>Current tier: <strong>${status?.profile?.label || status?.tier || 'Basic'}</strong>.</p><p>${status?.progress?.message || ''}</p>`
+        subject: template.subject,
+        text: template.text,
+        html: template.html
     });
 };
 
@@ -347,12 +428,124 @@ const sendFomoMailIfEligible = async ({ user, status }) => {
     const nextTier = status?.progress?.nextTier;
     if (!nextTier) return;
     const nextLabel = getLoyaltyProfileByTier(nextTier).label;
+    const template = buildLoyaltyMailTemplate({
+        user,
+        seed: `fomo|${user.id}|${nextTier}|${pct}`,
+        subjects: Array.from({ length: 10 }, (_, i) => `You are close to ${nextLabel} tier (${i + 1}/10)`),
+        bodyBlocks: [
+            `You are currently <strong>${pct}%</strong> towards <strong>${nextLabel}</strong> tier.`,
+            status?.progress?.message || 'A small additional spend can unlock your next membership level.',
+            'Unlocking the next tier gives you better loyalty benefits on eligible orders.'
+        ],
+        actionItems: [
+            'Review your next-tier target in your profile.',
+            'Complete qualifying purchases before evaluation closes.',
+            'Reply for assistance with tier planning.'
+        ],
+        assuranceVariants: [
+            'Our team is happy to guide you to your next tier quickly.',
+            'Reply if you want help understanding qualification requirements.',
+            'We are here to help you unlock your next membership milestone.',
+            'Your loyalty progress is tracked accurately and updated regularly.',
+            'Thank you for your continued engagement with SSC Jewellery.',
+            'Our support team can suggest the fastest route to your next tier.',
+            'You are very close; we are available for any guidance you need.',
+            'Keep this note as a reminder of your current progress.',
+            'You will receive confirmation once the next tier is achieved.',
+            'Our administration team remains available for clarification.'
+        ]
+    });
     await sendEmailCommunication({
         to: user.email,
-        subject: `You are close to ${nextLabel} tier`,
-        text: `Hi ${user.name || 'Customer'}, ${status?.progress?.message || ''}`,
-        html: `<p>Hi ${user.name || 'Customer'},</p><p>You are <strong>${pct}%</strong> towards <strong>${nextLabel}</strong>.</p><p>${status?.progress?.message || ''}</p>`
+        subject: template.subject,
+        text: template.text,
+        html: template.html
     });
+};
+
+const hashSeed = (input = '') => {
+    const value = String(input || '');
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+};
+
+const pickVariant = (variants = [], seed = '') => {
+    const list = Array.isArray(variants) ? variants : [];
+    if (!list.length) return '';
+    return list[hashSeed(seed) % list.length];
+};
+
+const buildLoyaltyMailTemplate = ({
+    user = {},
+    seed = '',
+    subjects = [],
+    bodyBlocks = [],
+    actionItems = [],
+    assuranceVariants = []
+}) => {
+    const customerName = String(user?.name || 'Customer').trim() || 'Customer';
+    const greetingVariants = [
+        `Dear ${customerName},`,
+        `Hello ${customerName},`,
+        `Hi ${customerName},`,
+        `Greetings ${customerName},`,
+        `Dear Valued Customer ${customerName},`,
+        `Hello ${customerName}, thank you for being with SSC Jewellery.`,
+        `Hi ${customerName}, this is your loyalty update.`,
+        `Dear ${customerName}, please find your membership communication below.`,
+        `Hello ${customerName}, we are sharing an account reward update.`,
+        `${customerName}, thank you for shopping with SSC Jewellery.`
+    ];
+    const closingVariants = [
+        'Regards,\nSSC Jewellery Loyalty Desk',
+        'Warm regards,\nSSC Jewellery Customer Care',
+        'Sincerely,\nSSC Jewellery Team',
+        'Best regards,\nSSC Jewellery Membership Team',
+        'Thank you,\nSSC Jewellery Support',
+        'Kind regards,\nSSC Jewellery Administration',
+        'With appreciation,\nSSC Jewellery Service Team',
+        'Respectfully,\nSSC Jewellery Customer Success Team',
+        'Yours faithfully,\nSSC Jewellery Help Desk',
+        'Thank you for your trust,\nSSC Jewellery Team'
+    ];
+    const subject = pickVariant(subjects, `${seed}|subject`);
+    const greeting = pickVariant(greetingVariants, `${seed}|greeting`);
+    const closing = pickVariant(closingVariants, `${seed}|closing`);
+    const assurance = pickVariant(assuranceVariants, `${seed}|assurance`);
+
+    const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:20px;color:#111827;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+                <tr>
+                    <td style="padding:22px;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 12px;">${greeting}</p>
+                        ${bodyBlocks.map((item) => `<p style="margin:0 0 12px;">${item}</p>`).join('')}
+                        ${actionItems.length ? `<p style="margin:0 0 8px;"><strong>Recommended next steps:</strong></p><ol style="margin:0 0 12px 18px;padding:0;">${actionItems.map((item) => `<li>${item}</li>`).join('')}</ol>` : ''}
+                        <p style="margin:0 0 12px;">${assurance}</p>
+                        <p style="margin:0;white-space:pre-line;">${closing}</p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    `;
+    const text = [
+        greeting,
+        '',
+        ...bodyBlocks.map((line) => String(line).replace(/<[^>]+>/g, '')),
+        actionItems.length ? '' : null,
+        actionItems.length ? 'Recommended next steps:' : null,
+        ...actionItems.map((item, index) => `${index + 1}. ${item}`),
+        '',
+        assurance,
+        '',
+        closing
+    ].filter(Boolean).join('\n');
+
+    return { subject, html, text };
 };
 
 const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendNotifications = false } = {}) => {
@@ -485,11 +678,38 @@ const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => 
     }
 
     if (sendEmail && coupon?.code && !existingRows.length) {
+        const template = buildLoyaltyMailTemplate({
+            user,
+            seed: `birthday|${user.id}|${year}|${coupon.code}`,
+            subjects: Array.from({ length: 10 }, (_, i) => `Happy Birthday ${user.name || ''}! Your ${new Date().getFullYear()} coupon is here (${i + 1}/10)`),
+            bodyBlocks: [
+                'Happy Birthday from SSC Jewellery.',
+                `Your birthday coupon code is <strong>${coupon.code}</strong>.`,
+                'This coupon can be used once within the validity period for eligible purchases.'
+            ],
+            actionItems: [
+                'Copy your coupon code for checkout.',
+                'Apply the code before placing your next order.',
+                'Reply if you need help applying the coupon.'
+            ],
+            assuranceVariants: [
+                'We wish you a joyful year ahead and are here if you need support.',
+                'Our team is available for any coupon-usage assistance.',
+                'Thank you for celebrating with SSC Jewellery.',
+                'Reply to this email if your coupon does not apply as expected.',
+                'We are happy to help you redeem this birthday benefit.',
+                'Enjoy your special reward from our team.',
+                'Our customer support can assist with any checkout issue.',
+                'Wishing you happiness and a wonderful celebration.',
+                'Keep this email for coupon reference during checkout.',
+                'We appreciate your trust and wish you a lovely birthday.'
+            ]
+        });
         await sendEmailCommunication({
             to: user.email,
-            subject: `Happy Birthday ${user.name || ''}! Your ${new Date().getFullYear()} coupon is here`,
-            text: `Happy Birthday! Use code ${coupon.code} to enjoy your birthday offer.`,
-            html: `<p>Hi ${user.name || 'Customer'},</p><p>Happy Birthday from SSC Jewellery.</p><p>Your birthday coupon code: <strong>${coupon.code}</strong></p><p>You can use this once this year.</p>`
+            subject: template.subject,
+            text: template.text,
+            html: template.html
         }).catch(() => {});
     }
     return { created: !existingRows.length, coupon };

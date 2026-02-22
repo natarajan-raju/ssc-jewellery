@@ -169,7 +169,13 @@ const buildRecoverySubject = ({ attemptNo = 1, discountPercent = 0 } = {}) => {
             `Good news: unlock ${discountPercent}% OFF before your cart expires`,
             `Your saved picks now have ${discountPercent}% OFF waiting`,
             `Before it is gone: enjoy ${discountPercent}% OFF on your cart`,
-            `Final reminder: claim ${discountPercent}% OFF on your cart`
+            `Final reminder: claim ${discountPercent}% OFF on your cart`,
+            `Special cart recovery: ${discountPercent}% OFF is active`,
+            `Your curated picks with ${discountPercent}% OFF are ready`,
+            `Checkout incentive: ${discountPercent}% OFF available now`,
+            `Do not miss ${discountPercent}% OFF on your saved cart`,
+            `Recovery offer unlocked: ${discountPercent}% OFF`,
+            `Secure your selection with ${discountPercent}% OFF today`
         ];
         return discountSubjects[Math.min(idx, discountSubjects.length - 1)];
     }
@@ -179,7 +185,13 @@ const buildRecoverySubject = ({ attemptNo = 1, discountPercent = 0 } = {}) => {
         'Still thinking it over? Your cart is ready',
         'Your saved picks are waiting for checkout',
         'A quick reminder: your cart is still live',
-        'Last chance to complete your saved cart'
+        'Last chance to complete your saved cart',
+        'We saved your cart so checkout is easy',
+        'Your selected items are still available',
+        'Your cart is waiting for a final step',
+        'Continue your order in one click',
+        'Your SSC Jewellery cart is preserved',
+        'Friendly reminder: your cart is active'
     ];
     return regularSubjects[Math.min(idx, regularSubjects.length - 1)];
 };
@@ -237,6 +249,46 @@ const buildRecoveryEmail = ({
     const ctaLabel = paymentLinkUrl
         ? 'Pay Now'
         : (discountCode && discountPercent > 0 ? 'Apply Coupon & Checkout' : 'Restore Cart');
+    const introVariants = [
+        `Hi ${user?.name || 'there'}, we saved your cart so you can continue in seconds.`,
+        `Hi ${user?.name || 'there'}, your shortlisted picks are still reserved in your cart.`,
+        `Hi ${user?.name || 'there'}, this is a reminder that your cart is ready for checkout.`,
+        `Hi ${user?.name || 'there'}, your selected products are waiting for confirmation.`,
+        `Hi ${user?.name || 'there'}, we kept your cart intact for a smooth checkout experience.`,
+        `Hi ${user?.name || 'there'}, your favourites are still available in your saved cart.`,
+        `Hi ${user?.name || 'there'}, checkout is one click away with your saved selections.`,
+        `Hi ${user?.name || 'there'}, your pending cart is still active and recoverable.`,
+        `Hi ${user?.name || 'there'}, we thought you might like to complete your order today.`,
+        `Hi ${user?.name || 'there'}, your cart recovery window is still open.`
+    ];
+    const actionVariants = [
+        'Review your items, confirm details, and complete checkout.',
+        'Use the primary button below to continue instantly.',
+        'Proceed now to avoid inventory changes on high-demand pieces.',
+        'Secure your chosen items before availability changes.',
+        'Complete your order now for the quickest turnaround.',
+        'Use the checkout button to finalize your purchase.',
+        'Confirm your order details and complete payment today.',
+        'Finish checkout while your selected products are still available.',
+        'Use your saved cart and place the order in one flow.',
+        'Continue checkout now and avoid reselecting products later.'
+    ];
+    const assuranceVariants = [
+        'Need help? Reply to this email and our support team will assist you.',
+        'Our administration team is available to help with checkout or payment issues.',
+        'If you need product guidance, reply and we will help immediately.',
+        'We can assist with delivery, payment, and coupon-related questions.',
+        'For urgent support, reply to this email and mention your mobile number.',
+        'Our support desk is ready to guide you through a successful checkout.',
+        'You can rely on us for fast assistance at every checkout step.',
+        'We are available for any clarification before you place the order.',
+        'Our team will ensure a smooth and secure recovery checkout.',
+        'Contact us anytime if you need help completing your order.'
+    ];
+    const variantIndex = Math.min(Math.max(0, Number(attemptNo || 1) - 1), 9);
+    const introText = introVariants[variantIndex];
+    const actionText = actionVariants[variantIndex];
+    const assuranceText = assuranceVariants[variantIndex];
 
     const subject = buildRecoverySubject({ attemptNo, discountPercent });
     const signatureName = String(process.env.MAIL_FROM_NAME || 'SSC Jewellery').trim() || 'SSC Jewellery';
@@ -249,7 +301,7 @@ const buildRecoveryEmail = ({
                 <tr>
                     <td style="padding:22px 22px 8px;">
                         <div style="font-size:22px;font-weight:700;color:#111827;">Your cart is still waiting</div>
-                        <div style="font-size:14px;color:#4b5563;margin-top:8px;">Hi ${user?.name || 'there'}, we saved your items so you can complete checkout in one click.</div>
+                        <div style="font-size:14px;color:#4b5563;margin-top:8px;">${introText}</div>
                     </td>
                 </tr>
                 <tr>
@@ -259,6 +311,7 @@ const buildRecoveryEmail = ({
                         ${totalValue ? `<div style="font-size:14px;color:#111827;margin-top:4px;">Total to pay: <strong>${totalValue}</strong></div>` : ''}
                         ${expiryText ? `<div style="font-size:12px;color:#6b7280;margin-top:6px;">${expiryText}</div>` : ''}
                         <div style="font-size:14px;color:#111827;margin-top:4px;">${discountText}</div>
+                        <div style="font-size:14px;color:#111827;margin-top:4px;">${actionText}</div>
                     </td>
                 </tr>
                 <tr>
@@ -284,7 +337,7 @@ const buildRecoveryEmail = ({
                 </tr>
                 <tr>
                     <td style="padding:8px 22px 20px;font-size:12px;color:#6b7280;">
-                        Need help? Reply to this email and our team will assist you.
+                        ${assuranceText}
                         <br/><br/>
                         Regards,<br/>
                         <strong>${signatureName}</strong>
@@ -301,6 +354,8 @@ const buildRecoveryEmail = ({
         totalValue ? `Total to pay: ${totalValue}` : null,
         expiryText || null,
         discountCode && discountPercent > 0 ? `Use code ${discountCode} for ${discountPercent}% OFF.` : 'Complete your purchase before items go out of stock.',
+        actionText,
+        assuranceText,
         `Continue here: ${ctaUrl}`
     ].filter(Boolean).join('\n');
     return { subject, html, text };

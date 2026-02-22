@@ -21,9 +21,10 @@ export const authService = {
     const res = await fetch(`${API_URL}/send-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile })
+      body: JSON.stringify(typeof mobile === 'object' ? mobile : { mobile })
     });
-    return res.json();
+    const data = await res.json();
+    return { ...data, ok: res.ok, status: res.status };
   },
   verifyOtp: async (mobile, otp) => {
     const res = await fetch(`${API_URL}/verify-otp`, {

@@ -21,9 +21,7 @@ const sendEmailCommunication = async ({
     cc = null,
     bcc = null,
     attachments = []
-}) => {
-    return sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
-};
+}) => sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
 
 const formatCurrency = (amount) => `INR ${Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatDate = (value) => {
@@ -36,96 +34,172 @@ const formatDate = (value) => {
     }
 };
 
-const buildOrderLifecycleTemplate = ({
-    stage = 'updated',
-    customer = {},
-    order = {},
-    includeInvoice = false
-} = {}) => {
+const hashSeed = (input = '') => {
+    const value = String(input || '');
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+};
+
+const pickVariant = (variants = [], seed = '') => {
+    const list = Array.isArray(variants) ? variants : [];
+    if (!list.length) return '';
+    return list[hashSeed(seed) % list.length];
+};
+
+const stripHtml = (value = '') => String(value).replace(/<[^>]+>/g, '');
+
+const buildRichMail = ({ greeting, subject, bodyBlocks = [], actionItems = [], assurance, closing }) => {
+    const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:20px;color:#111827;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+                <tr>
+                    <td style="padding:22px;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 12px;">${greeting}</p>
+                        ${bodyBlocks.map((item) => `<p style="margin:0 0 12px;">${item}</p>`).join('')}
+                        ${actionItems.length ? `<p style="margin:0 0 8px;"><strong>Recommended next steps:</strong></p><ol style="margin:0 0 12px 18px;padding:0;">${actionItems.map((item) => `<li>${item}</li>`).join('')}</ol>` : ''}
+                        ${assurance ? `<p style="margin:0 0 12px;">${assurance}</p>` : ''}
+                        <p style="margin:0;white-space:pre-line;">${closing}</p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    `;
+
+    const text = [
+        greeting,
+        '',
+        ...bodyBlocks.map(stripHtml),
+        actionItems.length ? '' : null,
+        actionItems.length ? 'Recommended next steps:' : null,
+        ...actionItems.map((item, idx) => `${idx + 1}. ${item}`),
+        assurance ? '' : null,
+        assurance || null,
+        '',
+        closing
+    ].filter(Boolean).join('\n');
+
+    return { subject, html, text };
+};
+
+const COMMON_GREETINGS = [
+    'Dear {name},',
+    'Hello {name},',
+    'Hi {name},',
+    'Greetings {name},',
+    'Dear Valued Customer {name},',
+    'Hello {name}, thank you for choosing SSC Jewellery,',
+    'Hi {name}, this is an update from SSC Jewellery,',
+    'Dear {name}, please find your latest order communication below,',
+    'Hello {name}, we are writing with an important update,',
+    '{name}, we appreciate your trust in SSC Jewellery.'
+];
+
+const COMMON_CLOSINGS = [
+    'Regards,\nSSC Jewellery Support Team',
+    'Warm regards,\nSSC Jewellery Operations Team',
+    'Sincerely,\nSSC Jewellery Customer Care',
+    'Best regards,\nSSC Jewellery Administration',
+    'Thank you,\nSSC Jewellery Team',
+    'Kind regards,\nSSC Jewellery Service Desk',
+    'With thanks,\nSSC Jewellery Support',
+    'Respectfully,\nSSC Jewellery Customer Success Team',
+    'Yours faithfully,\nSSC Jewellery Help Desk',
+    'Thank you for shopping with SSC Jewellery,\nCustomer Experience Team'
+];
+
+const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order = {}, includeInvoice = false } = {}) => {
     const recipient = normalizeCustomer(customer);
     const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
     const safeStage = String(stage || 'updated').trim().toLowerCase();
+    const stageKey = (safeStage === 'confirmed' || safeStage === 'confirmation')
+        ? (Number(order?.discount_total || 0) > 0 ? 'confirmation_discount' : 'confirmation_no_discount')
+        : safeStage;
+    const seed = `${stageKey}|${orderRef}|${recipient.email || recipient.mobile || recipient.name}`;
+
+    const subjects = {
+        confirmation_discount: Array.from({ length: 10 }, (_, i) => `Order Confirmed: ${orderRef} | Savings Applied (${i + 1}/10)`),
+        confirmation_no_discount: Array.from({ length: 10 }, (_, i) => `Order Confirmed: ${orderRef} (${i + 1}/10)`),
+        pending_delay: Array.from({ length: 10 }, (_, i) => `Delay update for order ${orderRef} (${i + 1}/10)`),
+        pending: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is pending (${i + 1}/10)`),
+        processing: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is processing (${i + 1}/10)`),
+        shipped: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} has shipped (${i + 1}/10)`),
+        delivered: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} delivered (${i + 1}/10)`),
+        cancelled: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} cancelled (${i + 1}/10)`),
+        failed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} needs attention (${i + 1}/10)`)
+    };
+
     const total = formatCurrency(order?.total || 0);
-    const discount = Number(order?.discount_total || 0);
-    const hasDiscount = discount > 0;
-    const discountLine = hasDiscount ? `You saved ${formatCurrency(discount)} on this order.` : '';
-    const supportLine = 'Need help? Reply to this email and our support team will assist you.';
-    const invoiceLine = includeInvoice ? 'Your invoice is attached to this email.' : '';
     const createdDate = formatDate(order?.created_at || order?.createdAt);
+    const discount = Number(order?.discount_total || 0);
+    const invoiceLine = includeInvoice ? 'Your invoice is attached with this communication for your records.' : '';
 
-    const templates = {
-        confirmation_discount: {
-            subject: `Order Confirmed: ${orderRef} | Savings Applied`,
-            text: `Hi ${recipient.name}, your order ${orderRef} is confirmed on ${createdDate}. Total: ${total}. ${discountLine} ${invoiceLine} ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> is confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}.</p><p>Total: <strong>${total}</strong></p><p><strong>${discountLine}</strong></p>${invoiceLine ? `<p>${invoiceLine}</p>` : ''}<p>${supportLine}</p>`
-        },
-        confirmation_no_discount: {
-            subject: `Order Confirmed: ${orderRef}`,
-            text: `Hi ${recipient.name}, your order ${orderRef} is confirmed on ${createdDate}. Total: ${total}. ${invoiceLine} ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> is confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}.</p><p>Total: <strong>${total}</strong></p>${invoiceLine ? `<p>${invoiceLine}</p>` : ''}<p>${supportLine}</p>`
-        },
-        pending_delay: {
-            subject: `We apologize for the delay: ${orderRef}`,
-            text: `Hi ${recipient.name}, we are sorry your order ${orderRef} is still pending. We are prioritizing it and will share an update shortly. ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>We sincerely apologize that your order <strong>${orderRef}</strong> is still pending longer than expected.</p><p>Our team is prioritizing it and we will share the next update shortly.</p><p>${supportLine}</p>`
-        },
-        pending: {
-            subject: `Order Status Update: ${orderRef} is Pending`,
-            text: `Hi ${recipient.name}, your order ${orderRef} is currently pending. We are processing it and will keep you posted. ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> is currently <strong>pending</strong>.</p><p>We are processing it and will keep you posted.</p><p>${supportLine}</p>`
-        },
-        processing: {
-            subject: `Order Status Update: ${orderRef} is Processing`,
-            text: `Hi ${recipient.name}, your order ${orderRef} is now being processed. ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> is now <strong>being processed</strong>.</p><p>${supportLine}</p>`
-        },
-        shipped: {
-            subject: `Order Shipped: ${orderRef}`,
-            text: `Hi ${recipient.name}, good news. Your order ${orderRef} has been shipped. ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>Good news. Your order <strong>${orderRef}</strong> has been <strong>shipped</strong>.</p><p>${supportLine}</p>`
-        },
-        delivered: {
-            subject: `Order Delivered: ${orderRef}`,
-            text: `Hi ${recipient.name}, your order ${orderRef} was delivered. Thank you for shopping with us.`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> was <strong>delivered</strong>.</p><p>Thank you for shopping with us.</p>`
-        },
-        cancelled: {
-            subject: `Order Cancelled: ${orderRef}`,
-            text: `Hi ${recipient.name}, your order ${orderRef} has been cancelled. ${supportLine}`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> has been <strong>cancelled</strong>.</p><p>${supportLine}</p>`
-        },
-        failed: {
-            subject: `Order Update: ${orderRef}`,
-            text: `Hi ${recipient.name}, your order ${orderRef} needs attention. Please contact support for help.`,
-            html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> needs attention. Please contact support for help.</p>`
-        }
+    const stageSummary = {
+        confirmation_discount: `Your order <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}. You saved <strong>${formatCurrency(discount)}</strong>.`,
+        confirmation_no_discount: `Your order <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}.`,
+        pending_delay: `Your order <strong>${orderRef}</strong> is delayed. Our team has escalated this and is prioritizing fulfillment.`,
+        pending: `Your order <strong>${orderRef}</strong> is currently pending and queued for processing.`,
+        processing: `Your order <strong>${orderRef}</strong> is now under active processing by our fulfillment team.`,
+        shipped: `Your order <strong>${orderRef}</strong> has been dispatched and is in transit.`,
+        delivered: `Your order <strong>${orderRef}</strong> has been delivered successfully.`,
+        cancelled: `Your order <strong>${orderRef}</strong> has been cancelled in our system.`,
+        failed: `Your order <strong>${orderRef}</strong> requires your attention before we can proceed.`
     };
 
-    if (safeStage === 'confirmed' || safeStage === 'confirmation') {
-        return hasDiscount ? templates.confirmation_discount : templates.confirmation_no_discount;
-    }
-    return templates[safeStage] || {
-        subject: `Order ${orderRef}: ${safeStage}`,
-        text: `Hi ${recipient.name}, your order ${orderRef} is now ${safeStage}.`,
-        html: `<p>Hi ${recipient.name},</p><p>Your order <strong>${orderRef}</strong> is now <strong>${safeStage}</strong>.</p>`
+    const actionItemsByStage = {
+        confirmation_discount: ['Review your order details in your account.', 'Keep this email for future reference.', 'Reply to this email if any correction is needed.'],
+        confirmation_no_discount: ['Review your order details in your account.', 'Keep this email for future reference.', 'Reply to this email if any correction is needed.'],
+        pending_delay: ['No action is needed right now.', 'Reply if the delivery is time-sensitive.', 'Our administration team will send the next update shortly.'],
+        pending: ['No action is needed from your side.', 'Keep your contact details reachable.', 'Reply if you need to update shipping details.'],
+        processing: ['No action is required at this stage.', 'We will notify you at dispatch.', 'Contact us if you need urgent delivery advice.'],
+        shipped: ['Track your order from your account page.', 'Keep delivery phone accessible.', 'Reply for support if tracking appears delayed.'],
+        delivered: ['Please verify package contents after delivery.', 'Reach us immediately if there is any issue.', 'Share your experience with our team.'],
+        cancelled: ['Review cancellation details in your account.', 'Reply if cancellation was not expected.', 'Place a new order anytime if needed.'],
+        failed: ['Reply to this email for immediate support.', 'Recheck payment/order details in your account.', 'Our team will guide you through quick resolution.']
     };
+
+    const assuranceByStage = [
+        'Need help? Reply to this email and our support team will assist you.',
+        'Our administration team is monitoring this order and will keep you updated.',
+        'If anything looks incorrect, respond to this email with your order reference.',
+        'Your satisfaction is our priority, and support is available whenever you need it.',
+        'We are committed to transparent, proactive communication for your order.',
+        'Thank you for your patience and trust in SSC Jewellery.',
+        'For urgent concerns, mention your order reference in your reply.',
+        'Our team is available to support product, payment, and delivery questions.',
+        'You can count on us for timely and clear status updates.',
+        'We appreciate your business and remain available for assistance.'
+    ];
+
+    const subject = pickVariant(subjects[stageKey] || [`Order ${orderRef}: ${stageKey}`], `${seed}|subject`);
+    const greeting = pickVariant(COMMON_GREETINGS, `${seed}|greeting`).replaceAll('{name}', recipient.name);
+    const closing = pickVariant(COMMON_CLOSINGS, `${seed}|closing`);
+    const assurance = pickVariant(assuranceByStage, `${seed}|assurance`);
+
+    const bodyBlocks = [
+        stageSummary[stageKey] || `Your order <strong>${orderRef}</strong> status is <strong>${stageKey}</strong>.`,
+        `Order reference: <strong>${orderRef}</strong>${createdDate ? ` | Date: <strong>${createdDate}</strong>` : ''}`,
+        `Order value: <strong>${total}</strong>`,
+        invoiceLine || null
+    ].filter(Boolean);
+
+    return buildRichMail({
+        greeting,
+        subject,
+        bodyBlocks,
+        actionItems: actionItemsByStage[stageKey] || ['Reply to this email if you need support.'],
+        assurance,
+        closing
+    });
 };
 
-const sendOrderLifecycleCommunication = async ({
-    stage,
-    customer = {},
-    order = {},
-    includeInvoice = false,
-    invoiceAttachment = null
-}) => {
+const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {}, includeInvoice = false, invoiceAttachment = null }) => {
     const recipient = normalizeCustomer(customer);
     const safeStage = String(stage || 'updated').trim().toLowerCase();
-    const template = buildOrderLifecycleTemplate({
-        stage: safeStage,
-        customer: recipient,
-        order,
-        includeInvoice
-    });
+    const template = buildOrderLifecycleTemplate({ stage: safeStage, customer: recipient, order, includeInvoice });
 
     const email = recipient.email
         ? await sendEmailCommunication({
@@ -137,71 +211,100 @@ const sendOrderLifecycleCommunication = async ({
         })
         : { ok: false, skipped: true, reason: 'missing_email' };
 
-    const whatsapp = await sendOrderWhatsapp({
-        stage: safeStage,
-        customer: recipient,
-        order
-    });
-
+    const whatsapp = await sendOrderWhatsapp({ stage: safeStage, customer: recipient, order });
     return { email, whatsapp };
 };
 
-const sendPaymentLifecycleCommunication = async ({
-    stage,
-    customer = {},
-    order = {},
-    payment = {}
-}) => {
+const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order = {}, payment = {} }) => {
     const recipient = normalizeCustomer(customer);
     const orderRef = order?.order_ref || order?.orderRef || payment?.razorpayOrderId || 'N/A';
     const safeStage = String(stage || payment?.paymentStatus || 'updated').trim();
-    const subject = `Payment update for ${orderRef}: ${safeStage}`;
-    const text = `Hi ${recipient.name}, payment status for ${orderRef} is ${safeStage}.`;
-    const html = `<p>Hi ${recipient.name},</p><p>Payment status for <strong>${orderRef}</strong> is <strong>${safeStage}</strong>.</p>`;
+    const seed = `${orderRef}|${safeStage}|${recipient.email || recipient.mobile || recipient.name}`;
 
-    const email = recipient.email
-        ? await sendEmailCommunication({
-            to: recipient.email,
-            subject,
-            text,
-            html
-        })
-        : { ok: false, skipped: true, reason: 'missing_email' };
+    const subject = pickVariant(Array.from({ length: 10 }, (_, i) => `Payment update for ${orderRef}: ${safeStage} (${i + 1}/10)`), `${seed}|subject`);
+    const greeting = pickVariant(COMMON_GREETINGS, `${seed}|greeting`).replaceAll('{name}', recipient.name);
+    const closing = pickVariant(COMMON_CLOSINGS, `${seed}|closing`);
+    const assurance = pickVariant([
+        'Our billing team is available to assist if you need clarification.',
+        'Please keep this email for your payment records.',
+        'If this status appears incorrect, reply and we will verify promptly.',
+        'Our administration team will continue monitoring reconciliation.',
+        'For urgent billing support, reply to this email with your order reference.',
+        'We are committed to accurate and timely payment updates.',
+        'Your transaction security remains our priority.',
+        'You can contact us anytime for payment support.',
+        'We appreciate your patience while payment processing completes.',
+        'Support is one reply away if anything needs correction.'
+    ], `${seed}|assurance`);
 
-    const whatsapp = await sendPaymentWhatsapp({
-        stage: safeStage,
-        customer: recipient,
-        order,
-        payment
+    const template = buildRichMail({
+        greeting,
+        subject,
+        bodyBlocks: [
+            `Payment status for order <strong>${orderRef}</strong> is currently <strong>${safeStage}</strong>.`,
+            'Please review this update and retain it for your records.',
+            'If this does not match your expected payment state, let us know immediately.'
+        ],
+        actionItems: [
+            'Check latest order and payment status in your account.',
+            'Keep transaction references handy if you contact support.',
+            'Reply to this email for direct billing assistance.'
+        ],
+        assurance,
+        closing
     });
 
+    const email = recipient.email
+        ? await sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
+        : { ok: false, skipped: true, reason: 'missing_email' };
+
+    const whatsapp = await sendPaymentWhatsapp({ stage: safeStage, customer: recipient, order, payment });
     return { email, whatsapp };
 };
 
-const sendAbandonedCartRecoveryCommunication = async ({
-    customer = {},
-    cart = {}
-}) => {
+const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {} }) => {
     const recipient = normalizeCustomer(customer);
     const itemCount = Number(cart?.itemCount || cart?.items?.length || 0);
-    const subject = 'You left items in your cart';
-    const text = `Hi ${recipient.name}, you have ${itemCount} item(s) waiting in your cart.`;
-    const html = `<p>Hi ${recipient.name},</p><p>You have <strong>${itemCount}</strong> item(s) waiting in your cart.</p>`;
+    const seed = `${recipient.email || recipient.mobile || recipient.name}|${itemCount}`;
 
-    const email = recipient.email
-        ? await sendEmailCommunication({
-            to: recipient.email,
-            subject,
-            text,
-            html
-        })
-        : { ok: false, skipped: true, reason: 'missing_email' };
+    const subject = pickVariant(Array.from({ length: 10 }, (_, i) => `Your saved cart is waiting (${itemCount} item${itemCount === 1 ? '' : 's'}) (${i + 1}/10)`), `${seed}|subject`);
+    const greeting = pickVariant(COMMON_GREETINGS, `${seed}|greeting`).replaceAll('{name}', recipient.name);
+    const closing = pickVariant(COMMON_CLOSINGS, `${seed}|closing`);
+    const assurance = pickVariant([
+        'Our team can help with product, pricing, or checkout questions.',
+        'Need help finalizing your cart? Reply and we will assist.',
+        'Your saved items are available for a limited recovery window.',
+        'Support is available for any payment or delivery concern.',
+        'We can help compare alternatives before checkout if needed.',
+        'Reply to this email for immediate assistance.',
+        'Your shopping convenience is important to us.',
+        'We are here to help you complete checkout confidently.',
+        'Our administration team can assist if you face any issue.',
+        'Thank you for considering SSC Jewellery for your purchase.'
+    ], `${seed}|assurance`);
 
-    const whatsapp = await sendAbandonedCartWhatsapp({
-        customer: recipient,
-        cart
+    const template = buildRichMail({
+        greeting,
+        subject,
+        bodyBlocks: [
+            `You currently have <strong>${itemCount}</strong> item(s) waiting in your cart.`,
+            'We preserved your selections so you can complete checkout quickly.',
+            'Completing soon helps avoid inventory or pricing changes on popular items.'
+        ],
+        actionItems: [
+            'Open your cart and review saved items.',
+            'Proceed to checkout when ready.',
+            'Reply for product or payment support.'
+        ],
+        assurance,
+        closing
     });
 
+    const email = recipient.email
+        ? await sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
+        : { ok: false, skipped: true, reason: 'missing_email' };
+
+    const whatsapp = await sendAbandonedCartWhatsapp({ customer: recipient, cart });
     return { email, whatsapp };
 };
 

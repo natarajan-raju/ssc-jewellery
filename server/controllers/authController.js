@@ -5,6 +5,7 @@ const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getUserLoyaltyStatus, reassessUserTier, issueBirthdayCouponForUser } = require('../services/loyaltyService');
+const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
 
 const generateToken = (user) => {
     return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
@@ -17,6 +18,142 @@ const sanitize = (str) => {
     if (typeof str !== 'string') return '';
     // Removes characters often used in SQL injection or XSS
     return str.replace(/['";=<>]/g, '').trim();
+};
+
+const isEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+const maskEmail = (value = '') => {
+    const email = String(value || '').trim();
+    const [local, domain] = email.split('@');
+    if (!local || !domain) return '';
+    const safeLocal = local.length <= 2
+        ? `${local[0] || ''}*`
+        : `${local.slice(0, 2)}${'*'.repeat(Math.max(1, local.length - 3))}${local.slice(-1)}`;
+    return `${safeLocal}@${domain}`;
+};
+const maskMobile = (value = '') => {
+    const mobile = String(value || '').replace(/\D/g, '');
+    if (mobile.length < 4) return '';
+    if (mobile.length <= 6) return `${mobile.slice(0, 2)}${'*'.repeat(Math.max(0, mobile.length - 2))}`;
+    return `${mobile.slice(0, 2)}${'*'.repeat(mobile.length - 4)}${mobile.slice(-2)}`;
+};
+
+const pickBySeed = (variants = [], seed = '') => {
+    const list = Array.isArray(variants) ? variants : [];
+    if (!list.length) return '';
+    let hash = 0;
+    const str = String(seed || '');
+    for (let i = 0; i < str.length; i += 1) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    const idx = Math.abs(hash) % list.length;
+    return list[idx];
+};
+
+const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' } = {}) => {
+    const customerName = String(user?.name || 'Customer').trim() || 'Customer';
+    const email = String(user?.email || '').trim().toLowerCase();
+    const seed = `${email}|${otp}|login-otp`;
+
+    const subjects = [
+        'Your Secure Login OTP for SSC Jewellery',
+        'SSC Jewellery Login Code: Action Required',
+        'Confirm Your Sign-In: One-Time Passcode Inside',
+        'Your OTP Is Ready: Complete Login Securely',
+        'SSC Jewellery Security Check: Enter Your OTP',
+        'Login Verification Code for Your SSC Account',
+        'Finish Sign-In: Your One-Time OTP',
+        'Account Access OTP from SSC Jewellery',
+        'Your Time-Sensitive Login OTP (Valid 5 Minutes)',
+        'Security Confirmation Needed: Use This OTP'
+    ];
+    const openings = [
+        `Dear ${customerName},`,
+        `Hello ${customerName},`,
+        `Hi ${customerName},`,
+        `Greetings ${customerName},`,
+        `${customerName}, welcome back,`,
+        `Dear Valued Customer ${customerName},`,
+        `Hello and thank you for choosing SSC Jewellery, ${customerName},`,
+        `Hi ${customerName}, this is your account verification mail,`,
+        `Dear ${customerName}, your login request was received,`,
+        `Hello ${customerName}, we are sharing your secure login passcode below.`
+    ];
+    const assurances = [
+        'If this request was not made by you, please ignore this email. Our team will continue to protect your account.',
+        'If you did not request this OTP, no action is required. The code expires automatically in 5 minutes.',
+        'For your safety, this OTP is valid only once and only for a short period.',
+        'Please do not share this code with anyone, including support staff.',
+        'Our administration team monitors suspicious login attempts and safeguards your account continuously.',
+        'If this was not you, we recommend resetting your password after this expires.',
+        'Your account security remains our priority; unauthorized attempts are automatically restricted.',
+        'This OTP can be used only for this login attempt and cannot be reused.',
+        'No payment or profile change can be made with this OTP alone.',
+        'You are receiving this because a login request was initiated for your account.'
+    ];
+    const closings = [
+        'Regards,\nSSC Jewellery Support Team',
+        'Warm regards,\nSSC Jewellery Administration',
+        'Sincerely,\nSSC Jewellery Customer Care',
+        'Best regards,\nSSC Jewellery Security Desk',
+        'Thank you,\nSSC Jewellery Team',
+        'Kind regards,\nSSC Jewellery Service Team',
+        'Respectfully,\nSSC Jewellery Account Protection Team',
+        'With care,\nSSC Jewellery Support',
+        'Thank you for trusting SSC Jewellery,\nCustomer Experience Team',
+        'Yours faithfully,\nSSC Jewellery Help Desk'
+    ];
+
+    const subject = pickBySeed(subjects, `${seed}|subject`);
+    const opening = pickBySeed(openings, `${seed}|opening`);
+    const assurance = pickBySeed(assurances, `${seed}|assurance`);
+    const closing = pickBySeed(closings, `${seed}|closing`);
+    const whatsappLine = maskedWhatsapp
+        ? `We also sent this OTP to your WhatsApp number ${maskedWhatsapp}.`
+        : 'No WhatsApp number is linked to this account, so OTP was delivered by email only.';
+
+    const text = [
+        opening,
+        '',
+        `Your One-Time Password (OTP) is: ${otp}`,
+        'This code is valid for 5 minutes.',
+        whatsappLine,
+        '',
+        'Next steps:',
+        '1. Enter this OTP on the login screen.',
+        '2. Complete sign-in before the code expires.',
+        '3. Request a new OTP if the timer runs out.',
+        '',
+        assurance,
+        '',
+        closing
+    ].join('\n');
+
+    const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:20px;color:#111827;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+                <tr>
+                    <td style="padding:24px 24px 12px;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 12px;">${opening}</p>
+                        <p style="margin:0 0 12px;">Please use the following One-Time Password to complete your login:</p>
+                        <div style="margin:14px 0;padding:14px 16px;border-radius:10px;background:#111827;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:4px;text-align:center;">${otp}</div>
+                        <p style="margin:0 0 12px;">This code is valid for <strong>5 minutes</strong>.</p>
+                        <p style="margin:0 0 12px;">${whatsappLine}</p>
+                        <p style="margin:0 0 8px;"><strong>Next steps:</strong></p>
+                        <ol style="margin:0 0 12px 18px;padding:0;">
+                            <li>Enter this OTP on the login screen.</li>
+                            <li>Complete sign-in before the code expires.</li>
+                            <li>Request a new OTP if needed.</li>
+                        </ol>
+                        <p style="margin:0 0 12px;">${assurance}</p>
+                        <p style="margin:0;white-space:pre-line;">${closing}</p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    `;
+
+    return { subject, text, html };
 };
 
 // 2. Validate Input Format
@@ -46,22 +183,117 @@ const validateRegistration = (data) => {
 exports.sendOtp = async (req, res) => {
     try {
         const mobile = sanitize(req.body.mobile);
-        if (!/^[0-9]{10,12}$/.test(mobile)) {
+        const identifier = sanitize(req.body.identifier).toLowerCase();
+        const purpose = String(req.body.purpose || '').trim().toLowerCase();
+
+        let user = null;
+        let otpIdentity = mobile;
+        if (purpose === 'login') {
+            if (!identifier || !isEmail(identifier)) {
+                return res.status(400).json({ message: 'Enter a valid registered email.' });
+            }
+            user = await User.findByEmail(identifier);
+            if (!user) {
+                return res.status(400).json({ message: 'Email not registered' });
+            }
+            if (!user.email || !isEmail(user.email)) {
+                return res.status(400).json({
+                    message: 'No email is registered for this account.',
+                    delivery: { purpose: 'login', attempted: [], sent: [], missing: ['email'], failed: [] }
+                });
+            }
+            otpIdentity = String(user.email).trim().toLowerCase();
+        } else if (!/^[0-9]{10,12}$/.test(mobile)) {
             return res.status(400).json({ message: "Invalid mobile number." });
         }
 
         // 1. Generate OTP Here
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpStorageKey = OtpService.buildStorageKey(otpIdentity, purpose === 'login' ? 'login' : 'mobile');
 
         // 2. Save using our new Hybrid Service
         // - Local: Saves to RAM
         // - Prod: Saves to DB (Tests connection!)
-        await OtpService.saveOtp(mobile, otp);
+        await OtpService.saveOtp(otpStorageKey, otp);
+
+        const delivery = {
+            purpose: purpose || 'general',
+            attempted: [],
+            sent: [],
+            missing: [],
+            failed: []
+        };
+
+        if (purpose === 'login' && user) {
+            const userEmail = String(user.email || '').trim();
+            const whatsappMobile = String(user.whatsapp || user.mobile || '').trim();
+            const isWhatsappMobileValid = /^[0-9]{10,12}$/.test(whatsappMobile);
+
+            if (!userEmail) {
+                delivery.missing.push('email');
+            } else {
+                delivery.attempted.push('email');
+                delivery.sent.push('email');
+            }
+
+            if (!isWhatsappMobileValid) {
+                delivery.missing.push('whatsapp');
+            } else {
+                delivery.attempted.push('whatsapp');
+                delivery.sent.push('whatsapp');
+            }
+
+            if (!delivery.sent.length) {
+                return res.status(400).json({
+                    message: 'OTP not sent. No active delivery channel found for this account.',
+                    delivery
+                });
+            }
+
+            delivery.contacts = {
+                email: userEmail ? maskEmail(userEmail) : '',
+                whatsapp: isWhatsappMobileValid ? maskMobile(whatsappMobile) : ''
+            };
+
+            // Fire-and-forget delivery so API response is instant for UI.
+            void (async () => {
+                if (userEmail) {
+                    try {
+                        const template = buildLoginOtpEmailTemplate({
+                            user,
+                            otp,
+                            maskedWhatsapp: isWhatsappMobileValid ? maskMobile(whatsappMobile) : ''
+                        });
+                        await sendEmailCommunication({
+                            to: userEmail,
+                            subject: template.subject,
+                            text: template.text,
+                            html: template.html
+                        });
+                    } catch (error) {
+                        console.error('OTP email delivery failed:', error?.message || error);
+                    }
+                }
+                if (isWhatsappMobileValid) {
+                    try {
+                        await sendWhatsapp({
+                            to: whatsappMobile,
+                            message: `Your SSC Jewellery OTP is ${otp}. Valid for 5 minutes.`,
+                            template: 'login_otp',
+                            data: { otp }
+                        });
+                    } catch (error) {
+                        console.error('OTP WhatsApp delivery failed:', error?.message || error);
+                    }
+                }
+            })();
+        }
 
         // 3. Send OTP to Frontend
         res.json({ 
             message: 'OTP generated', 
-            debug_otp: otp  // <--- This is how you retrieve it in Prod!
+            debug_otp: otp,  // <--- This is how you retrieve it in Prod!
+            delivery
         });
 
     } catch (error) {
@@ -102,7 +334,8 @@ exports.register = async (req, res) => {
         }
 
         // Verify OTP (Consume/Delete it here using 'true')
-        const isValidOtp = await OtpService.verifyOtp(safeData.mobile, safeData.otp, true);
+        const registerOtpKey = OtpService.buildStorageKey(safeData.mobile, 'mobile');
+        const isValidOtp = await OtpService.verifyOtp(registerOtpKey, safeData.otp, true);
         if (!isValidOtp) return res.status(400).json({ message: 'Invalid or Expired OTP' });
 
         // Hash & Create
@@ -149,10 +382,19 @@ exports.login = async (req, res) => {
             if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
         } 
         else if (type === 'otp') {
-            user = await User.findByMobile(safeMobile);
-            if (!user) return res.status(400).json({ message: 'Mobile not registered' });
+            const otpIdentifier = String(safeIdentifier || safeMobile || '').trim().toLowerCase();
+            if (!otpIdentifier) return res.status(400).json({ message: 'Email is required' });
+            user = isEmail(otpIdentifier)
+                ? await User.findByEmail(otpIdentifier)
+                : await User.findByMobile(otpIdentifier);
+            if (!user) return res.status(400).json({ message: 'User not found' });
 
-            const isValidOtp = await OtpService.verifyOtp(safeMobile, sanitize(otp));
+            const emailIdentity = String(user.email || '').trim().toLowerCase();
+            if (!emailIdentity || !isEmail(emailIdentity)) {
+                return res.status(400).json({ message: 'No email is registered for this account' });
+            }
+            const otpStorageKey = OtpService.buildStorageKey(emailIdentity, 'login');
+            const isValidOtp = await OtpService.verifyOtp(otpStorageKey, sanitize(otp));
             if (!isValidOtp) return res.status(400).json({ message: 'Invalid OTP' });
         }
 
@@ -355,7 +597,8 @@ exports.resetPassword = async (req, res) => {
         const user = User.findByMobile(mobile);
         if (!user) return res.status(400).json({ message: 'User not found' });
 
-        const isValidOtp = await OtpService.verifyOtp(mobile, otp);
+        const resetOtpKey = OtpService.buildStorageKey(mobile, 'mobile');
+        const isValidOtp = await OtpService.verifyOtp(resetOtpKey, otp);
         if (!isValidOtp) return res.status(400).json({ message: 'Invalid OTP' });
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
@@ -371,8 +614,9 @@ exports.resetPassword = async (req, res) => {
 exports.verifyOtpOnly = async (req, res) => {
     try {
         const { mobile, otp } = req.body;
+        const verifyOtpKey = OtpService.buildStorageKey(sanitize(mobile), 'mobile');
         // Pass 'false' to NOT delete the OTP yet
-        const isValid = await OtpService.verifyOtp(mobile, otp, false);
+        const isValid = await OtpService.verifyOtp(verifyOtpKey, sanitize(otp), false);
         
         if (isValid) {
             res.json({ message: "OTP Verified", valid: true });
