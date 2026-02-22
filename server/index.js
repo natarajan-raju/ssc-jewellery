@@ -1,15 +1,33 @@
 const path = require('path');
+const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
 
 const isDev = process.env.npm_lifecycle_event === 'server' || process.env.npm_lifecycle_event === 'dev';
+const projectRoot = path.join(__dirname, '..');
+const rootDevEnvPath = path.join(projectRoot, '.env.dev');
+const rootEnvPath = path.join(projectRoot, '.env');
+const serverDevEnvPath = path.join(__dirname, '.env.dev');
 
 if (isDev) {
-    require('dotenv').config({ path: path.join(__dirname, '.env.dev') });
-    console.log("🛠️  DEVELOPMENT MODE: Loaded .env.dev (Remote DB)");
+    if (fs.existsSync(rootDevEnvPath)) {
+        require('dotenv').config({ path: rootDevEnvPath });
+        console.log("🛠️  DEVELOPMENT MODE: Loaded root .env.dev");
+    } else if (fs.existsSync(serverDevEnvPath)) {
+        require('dotenv').config({ path: serverDevEnvPath });
+        console.log("🛠️  DEVELOPMENT MODE: Loaded server/.env.dev");
+    } else {
+        require('dotenv').config();
+        console.log("🛠️  DEVELOPMENT MODE: Loaded default .env");
+    }
 } else {
-    require('dotenv').config(); 
-    console.log("🚀 PRODUCTION MODE: Loaded .env (Local DB)");
+    if (fs.existsSync(rootEnvPath)) {
+        require('dotenv').config({ path: rootEnvPath });
+        console.log("🚀 PRODUCTION MODE: Loaded root .env");
+    } else {
+        require('dotenv').config();
+        console.log("🚀 PRODUCTION MODE: Loaded default .env");
+    }
 }
 const db = require('./config/db');
 

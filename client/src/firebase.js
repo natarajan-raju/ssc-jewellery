@@ -1,6 +1,6 @@
 // client/src/firebase.js
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, OAuthProvider } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
 // TODO: Replace these with your actual keys from Firebase Console
@@ -19,4 +19,5 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+export const appleProvider = new OAuthProvider('apple.com');
 const analytics = getAnalytics(app);

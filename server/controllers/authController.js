@@ -163,7 +163,7 @@ exports.login = async (req, res) => {
     }
 };
 
-exports.googleLogin = async (req, res) => {
+exports.socialLogin = async (req, res) => {
     try {
         const { idToken } = req.body;
         
@@ -191,9 +191,13 @@ exports.googleLogin = async (req, res) => {
                 role: 'customer'
             });
 
-            // MANUALLY CONSTRUCT THE USER OBJECT FOR NEW USERS
+            // MANUALLY CONSTRUCT THE USER OBJECT FOR NEW USERS.
+            // User.create() returns an object with `id` (string), not insertId.
+            const createdUserId = (result && typeof result === 'object' && result.id)
+                ? result.id
+                : (result?.insertId || result);
             user = {
-                id: result.insertId || result, // Handle various return types
+                id: createdUserId,
                 name: name || 'Google User',
                 email: email,
                 role: 'customer',
@@ -206,15 +210,15 @@ exports.googleLogin = async (req, res) => {
         
         // 4. Send Response
         res.json({ 
-            message: 'Google Login successful', 
+            message: 'Social Login successful', 
             token, 
             user: { ...user, picture } // Ensure 'role' is present in this object
         });
 
     } catch (error) {
-        console.error("Google Auth Error:", error);
+        console.error("Social Auth Error:", error);
         error: error.message,
-        res.status(401).json({ message: 'Invalid Google Token' });
+        res.status(401).json({ message: 'Invalid social auth token' });
     }
 };
 

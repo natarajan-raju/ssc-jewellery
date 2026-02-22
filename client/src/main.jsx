@@ -1,9 +1,18 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { GoogleOAuthProvider } from '@react-oauth/google'
 import App from './App.jsx'
 import './index.css'
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
+
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
+const appNode = googleClientId ? (
+  <GoogleOAuthProvider clientId={googleClientId}>
     <App />
-  </React.StrictMode>,
+  </GoogleOAuthProvider>
+) : (
+  <App />
+)
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  import.meta.env.DEV ? appNode : <React.StrictMode>{appNode}</React.StrictMode>,
 )

@@ -18,6 +18,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import FloatingWhatsApp from './components/FloatingWhatsApp';
 import CustomerCouponPopup from './components/CustomerCouponPopup';
+import GuestGoogleOneTap from './components/GuestGoogleOneTap';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -82,6 +83,7 @@ function App() {
                   <ShippingProvider>
                     <WishlistProvider>
                     <CartProvider>
+                  <GuestGoogleOneTap />
                   <Routes>
               
               {/* Public Routes */}

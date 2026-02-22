@@ -51,8 +51,8 @@ export const authService = {
     });
     return res.json();
   },
-  googleLogin: async (idToken) => {
-    const res = await fetch(`${API_URL}/google-login`, {
+  socialLogin: async (idToken) => {
+    const res = await fetch(`${API_URL}/social-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken })

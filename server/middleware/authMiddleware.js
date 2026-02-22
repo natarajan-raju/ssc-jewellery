@@ -15,10 +15,15 @@ const protect = async (req, res, next) => {
             }
 
             const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+            const userId = decoded?.id;
+
+            if (!userId || (typeof userId !== 'string' && typeof userId !== 'number')) {
+                return res.status(401).json({ message: 'Not authorized, invalid token payload' });
+            }
 
             // 2. Fetch User (MySQL Style)
             // Assuming User.findById returns the user object directly
-            const user = await User.findById(decoded.id);
+            const user = await User.findById(String(userId));
 
             if (!user) {
                 return res.status(401).json({ message: 'Not authorized, user not found' });

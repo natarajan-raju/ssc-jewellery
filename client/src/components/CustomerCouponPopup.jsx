@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
@@ -49,7 +49,9 @@ export default function CustomerCouponPopup() {
     const [popup, setPopup] = useState(null);
     const [dismissed, setDismissed] = useState(false);
     const [showGiftIntro, setShowGiftIntro] = useState(false);
-    const [creattieLoaded, setCreattieLoaded] = useState(false);
+    const [scratchUnlocked, setScratchUnlocked] = useState(false);
+    const [isScratching, setIsScratching] = useState(false);
+    const scratchCanvasRef = useRef(null);
     const isCustomer = !!user && String(user.role || '').toLowerCase() === 'customer';
 
     const storageKey = useMemo(() => {
@@ -57,39 +59,6 @@ export default function CustomerCouponPopup() {
         const owner = user?.id ? `user:${user.id}` : 'guest';
         return `customer-popup-dismissed:${owner}:${popup.key}`;
     }, [popup?.key, user?.id]);
-
-    useEffect(() => {
-        if (typeof document === 'undefined') return;
-        const scriptId = 'creattie-embed-script';
-        const waitForCreattie = async () => {
-            if (window.customElements?.get('creattie-embed')) {
-                setCreattieLoaded(true);
-                return;
-            }
-            try {
-                await Promise.race([
-                    window.customElements.whenDefined('creattie-embed'),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-                ]);
-                setCreattieLoaded(true);
-            } catch {
-                setCreattieLoaded(false);
-            }
-        };
-        const existing = document.getElementById(scriptId);
-        if (existing) {
-            existing.addEventListener('load', waitForCreattie, { once: true });
-            void waitForCreattie();
-            return;
-        }
-        const script = document.createElement('script');
-        script.id = scriptId;
-        script.src = 'https://creattie.com/js/embed.js?id=3efa1fcb5d85991e845a';
-        script.defer = true;
-        script.onload = () => { void waitForCreattie(); };
-        script.onerror = () => setCreattieLoaded(false);
-        document.body.appendChild(script);
-    }, []);
 
     useEffect(() => {
         if (loading) return;
@@ -151,6 +120,101 @@ export default function CustomerCouponPopup() {
         return () => clearTimeout(timer);
     }, [open, popup, showGiftIntro]);
 
+    useEffect(() => {
+        if (!showGiftIntro) return;
+        const canvas = scratchCanvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+
+        const dpr = Math.max(window.devicePixelRatio || 1, 1);
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        ctx.fillStyle = '#fff6df';
+        ctx.fillRect(0, 0, rect.width, rect.height);
+        const giftImg = new Image();
+        giftImg.onload = () => {
+            const scale = Math.min(rect.width / giftImg.width, rect.height / giftImg.height) * 0.7;
+            const drawW = giftImg.width * scale;
+            const drawH = giftImg.height * scale;
+            const x = (rect.width - drawW) / 2;
+            const y = (rect.height - drawH) / 2;
+            ctx.globalAlpha = 0.95;
+            ctx.drawImage(giftImg, x, y, drawW, drawH);
+            ctx.globalAlpha = 1;
+        };
+        giftImg.src = giftIllustration;
+        setScratchUnlocked(false);
+        setIsScratching(false);
+    }, [showGiftIntro]);
+
+    useEffect(() => {
+        if (!showGiftIntro || !scratchUnlocked) return;
+        const timer = setTimeout(() => {
+            setShowGiftIntro(false);
+        }, 700);
+        return () => clearTimeout(timer);
+    }, [scratchUnlocked, showGiftIntro]);
+
+    const scratchAt = (event) => {
+        const canvas = scratchCanvasRef.current;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const point = 'touches' in event
+            ? event.touches[0] || event.changedTouches?.[0]
+            : event;
+        if (!point) return;
+        const x = point.clientX - rect.left;
+        const y = point.clientY - rect.top;
+
+        const dpr = Math.max(window.devicePixelRatio || 1, 1);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(x, y, 18, 0, Math.PI * 2);
+        ctx.fill();
+    };
+
+    const updateScratchProgress = () => {
+        const canvas = scratchCanvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        let transparentCount = 0;
+        const totalPixels = data.length / 4;
+        for (let i = 3; i < data.length; i += 4) {
+            if (data[i] < 16) transparentCount += 1;
+        }
+        const percent = Math.min(100, Math.round((transparentCount / totalPixels) * 100));
+        if (percent >= 50) setScratchUnlocked(true);
+    };
+
+    const handleScratchStart = (event) => {
+        setIsScratching(true);
+        scratchAt(event);
+        updateScratchProgress();
+    };
+
+    const handleScratchMove = (event) => {
+        if (!isScratching) return;
+        event.preventDefault();
+        scratchAt(event);
+        updateScratchProgress();
+    };
+
+    const handleScratchEnd = () => {
+        if (!isScratching) return;
+        setIsScratching(false);
+        updateScratchProgress();
+    };
+
     const handleDontShowAgain = () => {
         if (storageKey) {
             localStorage.setItem(storageKey, '1');
@@ -162,6 +226,28 @@ export default function CustomerCouponPopup() {
     if (!open || !popup) return null;
     if (dismissed) return null;
     const coupon = popup.coupon || null;
+    const renderCouponCard = (extraClass = '') => (
+        <div className={`relative inline-grid max-w-full rounded-xl border overflow-hidden grid-cols-[auto_148px] ${extraClass}`}>
+            <div className="bg-primary px-5 py-4 flex flex-col justify-center">
+                <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
+                <p className="mt-1">
+                    <span className="inline-flex w-fit max-w-full rounded-md bg-white/10 px-2 py-1 text-sm font-bold leading-5 text-white break-all">
+                        {coupon?.code}
+                    </span>
+                </p>
+            </div>
+            <div className="bg-accent px-5 py-4 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
+                <p className="text-[15px] font-extrabold tracking-wide">
+                    {formatCouponOffer(coupon)}
+                </p>
+                <p className="text-[11px] mt-1 text-primary/80 font-medium">
+                    {coupon?.expiresAt ? `Expires ${formatLongDate(coupon.expiresAt)}` : 'No expiry'}
+                </p>
+            </div>
+            <span style={{ left: 'calc(100% - 148px)' }} className="absolute -top-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
+            <span style={{ left: 'calc(100% - 148px)' }} className="absolute -bottom-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
+        </div>
+    );
 
     return createPortal(
         <div className="fixed inset-0 z-[240]">
@@ -170,34 +256,27 @@ export default function CustomerCouponPopup() {
                 {showGiftIntro ? (
                     <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl text-center my-auto">
                         <p className="text-lg md:text-xl font-serif text-primary font-bold">Exclusive Gift for you</p>
-                        <p className="text-sm text-gray-500 mt-2">Tap to reveal your offer</p>
-                        <button
-                            type="button"
-                            onClick={() => setShowGiftIntro(false)}
-                            className="group relative mt-6 inline-flex items-center justify-center"
-                            aria-label="Reveal gift"
+                        <div
+                            className={`relative mt-5 mx-auto w-full max-w-[360px] touch-none transition-all duration-500 ${
+                                scratchUnlocked ? 'scale-[0.94] translate-y-4 opacity-90' : ''
+                            }`}
+                            onMouseDown={handleScratchStart}
+                            onMouseMove={handleScratchMove}
+                            onMouseUp={handleScratchEnd}
+                            onMouseLeave={handleScratchEnd}
+                            onTouchStart={handleScratchStart}
+                            onTouchMove={handleScratchMove}
+                            onTouchEnd={handleScratchEnd}
                         >
-                            <span className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-300/45 blur-2xl" />
-                            <span className="relative inline-flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-300 to-yellow-500 shadow-xl ring-4 ring-white/70 transition-transform duration-300 group-hover:scale-105 group-active:scale-95 overflow-hidden">
-                                {creattieLoaded ? (
-                                    <div
-                                        dangerouslySetInnerHTML={{
-                                            __html: `
-<creattie-embed
- src="https://d1jj76g3lut4fe.cloudfront.net/saved_colors/103226/ZO9A2pG06lNpSud4.json"
- delay="1"
- speed="100"
- frame_rate="24"
- trigger="loop"
- style="width:96px;height:96px;background-color:transparent;">
-</creattie-embed>`
-                                        }}
-                                    />
-                                ) : (
-                                    <img src={giftIllustration} alt="" className="h-11 w-11" />
-                                )}
-                            </span>
-                        </button>
+                            <div className={`transition-all duration-500 ${scratchUnlocked ? 'ring-4 ring-amber-300 shadow-2xl shadow-amber-200/60' : ''}`}>
+                                {renderCouponCard()}
+                            </div>
+                            <canvas
+                                ref={scratchCanvasRef}
+                                className="absolute inset-0 h-full w-full rounded-xl"
+                                style={{ pointerEvents: scratchUnlocked ? 'none' : 'auto' }}
+                            />
+                        </div>
                     </div>
                 ) : (
                 <div className="w-full max-w-2xl max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl my-auto">
@@ -222,26 +301,7 @@ export default function CustomerCouponPopup() {
                         </div>
                         {coupon && (
                             <div className="mt-4 flex justify-center">
-                                <div className="relative inline-grid max-w-full rounded-xl border overflow-hidden grid-cols-[auto_148px]">
-                                    <div className="bg-primary px-5 py-4 flex flex-col justify-center">
-                                        <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
-                                        <p className="mt-1">
-                                            <span className="inline-flex w-fit max-w-full rounded-md bg-white/10 px-2 py-1 text-sm font-bold leading-5 text-white break-all">
-                                                {coupon.code}
-                                            </span>
-                                        </p>
-                                    </div>
-                                    <div className="bg-accent px-5 py-4 text-primary border-l border-dashed border-primary/30 flex flex-col justify-center">
-                                        <p className="text-[15px] font-extrabold tracking-wide">
-                                            {formatCouponOffer(coupon)}
-                                        </p>
-                                        <p className="text-[11px] mt-1 text-primary/80 font-medium">
-                                            {coupon.expiresAt ? `Expires ${formatLongDate(coupon.expiresAt)}` : 'No expiry'}
-                                        </p>
-                                    </div>
-                                    <span style={{ left: 'calc(100% - 148px)' }} className="absolute -top-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
-                                    <span style={{ left: 'calc(100% - 148px)' }} className="absolute -bottom-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
-                                </div>
+                                {renderCouponCard()}
                             </div>
                         )}
 

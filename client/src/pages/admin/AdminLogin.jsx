@@ -58,7 +58,7 @@ export default function AdminLogin() {
                 const firebaseToken = await result.user.getIdToken();
     
                 // 3. Send to Backend
-                const res = await authService.googleLogin(firebaseToken);
+                const res = await authService.socialLogin(firebaseToken);
     
                 if (res.token) {
                     // [SECURITY] 4. Strict Role Check
