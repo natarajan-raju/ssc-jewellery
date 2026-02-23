@@ -1,5 +1,10 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User'); 
+const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
+
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is required for authMiddleware');
+}
 
 // 1. PROTECT ROUTE (Authentication)
 const protect = async (req, res, next) => {
@@ -14,7 +19,7 @@ const protect = async (req, res, next) => {
                 throw new Error('Invalid token format');
             }
 
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+            const decoded = jwt.verify(token, JWT_SECRET);
             const userId = decoded?.id;
 
             if (!userId || (typeof userId !== 'string' && typeof userId !== 'number')) {

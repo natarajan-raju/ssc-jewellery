@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
+import successDing from '../assets/success_ding.mp3';
+import failureDing from '../assets/ubuntu_fail.mp3';
 
 const ToastContext = createContext();
 
@@ -8,17 +11,41 @@ export const useToast = () => useContext(ToastContext);
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
   const toastSeqRef = useRef(0);
+  const successAudioRef = useRef(null);
+  const failureAudioRef = useRef(null);
+  const location = useLocation();
+
+  const playToastSound = useCallback((type) => {
+    const isAdminRoute = String(location?.pathname || '').startsWith('/admin');
+    if (!isAdminRoute) return;
+    try {
+      if (type === 'success') {
+        if (!successAudioRef.current) successAudioRef.current = new Audio(successDing);
+        successAudioRef.current.currentTime = 0;
+        void successAudioRef.current.play().catch(() => {});
+        return;
+      }
+      if (type === 'error') {
+        if (!failureAudioRef.current) failureAudioRef.current = new Audio(failureDing);
+        failureAudioRef.current.currentTime = 0;
+        void failureAudioRef.current.play().catch(() => {});
+      }
+    } catch {
+      // Ignore autoplay failures.
+    }
+  }, [location?.pathname]);
 
   const addToast = useCallback((message, type = 'info') => {
     toastSeqRef.current += 1;
     const id = `${Date.now()}-${toastSeqRef.current}`;
     setToasts((prev) => [...prev, { id, message, type }]);
+    playToastSound(type);
 
     // Auto-hide after 3 seconds
     setTimeout(() => {
       removeToast(id);
     }, 3000);
-  }, []);
+  }, [playToastSound]);
 
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));

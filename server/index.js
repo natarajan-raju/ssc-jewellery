@@ -3,24 +3,14 @@ const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
 
-const isDev = process.env.npm_lifecycle_event === 'server' || process.env.npm_lifecycle_event === 'dev';
+const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+const isProduction = nodeEnv === 'production';
 const projectRoot = path.join(__dirname, '..');
 const rootDevEnvPath = path.join(projectRoot, '.env.dev');
 const rootEnvPath = path.join(projectRoot, '.env');
 const serverDevEnvPath = path.join(__dirname, '.env.dev');
 
-if (isDev) {
-    if (fs.existsSync(rootDevEnvPath)) {
-        require('dotenv').config({ path: rootDevEnvPath });
-        console.log("🛠️  DEVELOPMENT MODE: Loaded root .env.dev");
-    } else if (fs.existsSync(serverDevEnvPath)) {
-        require('dotenv').config({ path: serverDevEnvPath });
-        console.log("🛠️  DEVELOPMENT MODE: Loaded server/.env.dev");
-    } else {
-        require('dotenv').config();
-        console.log("🛠️  DEVELOPMENT MODE: Loaded default .env");
-    }
-} else {
+if (isProduction) {
     if (fs.existsSync(rootEnvPath)) {
         require('dotenv').config({ path: rootEnvPath });
         console.log("🚀 PRODUCTION MODE: Loaded root .env");
@@ -28,7 +18,27 @@ if (isDev) {
         require('dotenv').config();
         console.log("🚀 PRODUCTION MODE: Loaded default .env");
     }
+} else {
+    if (fs.existsSync(rootDevEnvPath)) {
+        require('dotenv').config({ path: rootDevEnvPath });
+        console.log("🛠️  DEVELOPMENT MODE: Loaded root .env.dev");
+    } else if (fs.existsSync(serverDevEnvPath)) {
+        require('dotenv').config({ path: serverDevEnvPath });
+        console.log("🛠️  DEVELOPMENT MODE: Loaded server/.env.dev");
+    } else if (fs.existsSync(rootEnvPath)) {
+        require('dotenv').config({ path: rootEnvPath });
+        console.log("🛠️  DEVELOPMENT MODE: Loaded root .env");
+    } else {
+        require('dotenv').config();
+        console.log("🛠️  DEVELOPMENT MODE: Loaded default .env");
+    }
 }
+
+if (!String(process.env.JWT_SECRET || '').trim()) {
+    console.error('FATAL: JWT_SECRET is missing. Set JWT_SECRET in your environment before starting the server.');
+    process.exit(1);
+}
+
 const db = require('./config/db');
 
 const express = require('express');

@@ -1437,6 +1437,7 @@ class Order {
         const normalizedCourier = String(courierPartner || '').trim();
         const normalizedAwb = String(awbNumber || '').trim();
         const normalizedPaymentStatus = String(paymentStatus || '').trim().toLowerCase();
+        const paymentStatusValue = normalizedPaymentStatus || null;
         const normalizedRefundMode = String(refundMode || '').trim().toLowerCase();
         const normalizedRefundMethod = String(refundMethod || '').trim();
         const normalizedManualRefundRef = String(manualRefundRef || '').trim();
@@ -1449,7 +1450,7 @@ class Order {
         await db.execute(
             `UPDATE orders
              SET status = ?,
-                 payment_status = COALESCE(NULLIF(?, ''), payment_status),
+                 payment_status = COALESCE(?, payment_status),
                  refund_reference = COALESCE(?, refund_reference),
                  refund_amount = COALESCE(?, refund_amount),
                  refund_status = COALESCE(?, refund_status),
@@ -1472,7 +1473,7 @@ class Order {
              WHERE id = ?`,
             [
                 status,
-                normalizedPaymentStatus,
+                paymentStatusValue,
                 normalizedRefundReference || null,
                 refundAmount != null ? Number(refundAmount) : null,
                 String(refundStatus || '').trim() || null,

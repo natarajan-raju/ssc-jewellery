@@ -207,12 +207,38 @@ class Coupon {
              LIMIT ? OFFSET ?`,
             [...params, safeLimit, offset]
         );
+        const couponIds = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
+        const customerTargetsByCoupon = new Map();
+        if (couponIds.length > 0) {
+            const placeholders = couponIds.map(() => '?').join(',');
+            const [targetRows] = await connection.execute(
+                `SELECT cut.coupon_id, cut.user_id,
+                        COALESCE(u.name, '') as customer_name,
+                        COALESCE(u.mobile, '') as customer_mobile,
+                        COALESCE(u.email, '') as customer_email
+                 FROM coupon_user_targets cut
+                 LEFT JOIN users u ON u.id = cut.user_id
+                 WHERE cut.coupon_id IN (${placeholders})`,
+                couponIds
+            );
+            for (const row of targetRows) {
+                const key = Number(row.coupon_id);
+                if (!customerTargetsByCoupon.has(key)) customerTargetsByCoupon.set(key, []);
+                customerTargetsByCoupon.get(key).push({
+                    user_id: row.user_id,
+                    name: row.customer_name || '',
+                    mobile: row.customer_mobile || '',
+                    email: row.customer_email || ''
+                });
+            }
+        }
         return {
             coupons: rows.map((row) => ({
                 ...row,
                 category_scope_json: parseJson(row.category_scope_json, []),
                 metadata_json: parseJson(row.metadata_json, null),
-                used_count: Number(row.used_count || 0)
+                used_count: Number(row.used_count || 0),
+                customer_targets: customerTargetsByCoupon.get(Number(row.id)) || []
             })),
             total,
             totalPages: Math.ceil(total / safeLimit)

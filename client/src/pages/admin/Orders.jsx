@@ -81,6 +81,18 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 
+const getCouponDiscountSplit = (order = {}) => {
+    const type = String(order?.coupon_type || '').toLowerCase();
+    const couponTotal = Number(order?.coupon_discount_value || 0);
+    if (couponTotal <= 0) {
+        return { productDiscount: 0, shippingDiscount: 0 };
+    }
+    if (type === 'shipping_full' || type === 'shipping_partial') {
+        return { productDiscount: 0, shippingDiscount: couponTotal };
+    }
+    return { productDiscount: couponTotal, shippingDiscount: 0 };
+};
+
 export default function Orders({
     focusOrderId = null,
     onFocusHandled = () => {},
@@ -219,6 +231,20 @@ export default function Orders({
     };
     const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
     const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
+    const getRefundVoucherCode = (order) => {
+        const direct = String(order?.refund_coupon_code || '').trim();
+        if (direct) return direct;
+        const notes = (order?.refund_notes && typeof order.refund_notes === 'object') ? order.refund_notes : {};
+        const fallback = String(
+            notes?.refund_coupon_code
+            || notes?.refundCouponCode
+            || notes?.voucherCode
+            || notes?.couponCode
+            || notes?.issuedCouponCode
+            || ''
+        ).trim();
+        return fallback;
+    };
     const hasRefundInitiated = (order) => Boolean(
         getRefundReference(order)
         || String(order?.refund_status || '').trim()
@@ -1730,7 +1756,7 @@ export default function Orders({
                                                     <p><span className="text-gray-500">Refund Method:</span> {selectedOrder?.refund_method || '—'}</p>
                                                     <p><span className="text-gray-500">Manual Ref:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_ref || '—'}</span></p>
                                                     <p><span className="text-gray-500">Manual UTR:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_utr || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{selectedOrder?.refund_coupon_code || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{getRefundVoucherCode(selectedOrder) || '—'}</span></p>
                                                     <p><span className="text-gray-500">Non-refundable Shipping:</span> ₹{Number(selectedOrder?.refund_notes?.nonRefundableShippingFee ?? selectedOrder?.shipping_fee ?? 0).toLocaleString('en-IN')}</p>
                                                 </>
                                             )}
@@ -1801,14 +1827,31 @@ export default function Orders({
                                         <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                                             <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
                                             <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                {(() => {
+                                                    const couponSplit = getCouponDiscountSplit(selectedOrder);
+                                                    const memberProductDiscount = Number(selectedOrder.loyalty_discount_total || 0);
+                                                    const memberShippingDiscount = Number(selectedOrder.loyalty_shipping_discount_total || 0);
+                                                    const hasMemberBenefit = memberProductDiscount > 0 || memberShippingDiscount > 0;
+                                                    return (
+                                                        <>
                                                 <p><span className="text-gray-500">Membership Tier:</span> {getTierLabel(selectedOrder)}</p>
                                                 <p><span className="text-gray-500">Coupon:</span> {selectedOrder.coupon_code || '—'}</p>
                                                 <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
                                                 <p><span className="text-gray-500">Coupon Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Member Discount:</span> ₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Member Shipping Discount:</span> ₹{Number(selectedOrder.loyalty_shipping_discount_total || 0).toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Coupon Product Discount:</span> ₹{couponSplit.productDiscount.toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Coupon Shipping Discount:</span> ₹{couponSplit.shippingDiscount.toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Member Product Discount:</span> ₹{memberProductDiscount.toLocaleString()}</p>
+                                                <p><span className="text-gray-500">Member Shipping Discount:</span> ₹{memberShippingDiscount.toLocaleString()}</p>
+                                                {!hasMemberBenefit && Number(selectedOrder.coupon_discount_value || 0) > 0 && (
+                                                    <p className="text-xs text-emerald-700">
+                                                        Discount is fully from coupon benefits. No membership perk applied.
+                                                    </p>
+                                                )}
                                                 <p><span className="text-gray-500">Total Discount:</span> ₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</p>
                                                 <p><span className="text-gray-500">Source:</span> {isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout')}</p>
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     )}
@@ -1853,12 +1896,8 @@ export default function Orders({
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.shipping_fee || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Discount</span>
+                                        <span className="text-gray-500">Total Discount</span>
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Member Discount</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between text-base font-semibold">
                                         <span>Total</span>

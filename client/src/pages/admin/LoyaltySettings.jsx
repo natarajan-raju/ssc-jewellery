@@ -52,6 +52,29 @@ const formatDiscountOffer = (type, value) => {
     if (discountType === 'shipping_partial') return `${discountValue}% Shipping Off`;
     return `${discountValue}% OFF`;
 };
+const formatShippingApplicability = (discountType) => {
+    const type = String(discountType || '').toLowerCase();
+    if (type === 'shipping_full') return 'Shipping-only discount (full shipping waived)';
+    if (type === 'shipping_partial') return 'Shipping-only discount (partial shipping)';
+    return 'Product/cart discount';
+};
+const formatScopeSummary = (coupon, categories = []) => {
+    const scope = String(coupon?.scope_type || 'generic').toLowerCase();
+    if (scope === 'customer') return 'Customer specific voucher';
+    if (scope === 'tier') {
+        const tier = String(coupon?.tier_scope || '').trim();
+        return tier ? `Tier specific (${tier.toUpperCase()})` : 'Tier specific';
+    }
+    if (scope === 'category') {
+        const ids = Array.isArray(coupon?.category_scope_json) ? coupon.category_scope_json : [];
+        if (!ids.length) return 'Category specific';
+        const names = ids
+            .map((id) => categories.find((cat) => Number(cat.id) === Number(id))?.name || `Category #${id}`)
+            .slice(0, 3);
+        return `Category specific (${names.join(', ')}${ids.length > 3 ? ', ...' : ''})`;
+    }
+    return 'Generic (all eligible users)';
+};
 const buildCouponCodeDraft = (prefix = 'SSC') => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const part = (len = 4) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
@@ -176,6 +199,10 @@ export default function LoyaltySettings({ onBack }) {
     const [couponLoading, setCouponLoading] = useState(false);
     const [couponCreating, setCouponCreating] = useState(false);
     const [couponDeletingId, setCouponDeletingId] = useState(null);
+    const [bulkCouponDeleting, setBulkCouponDeleting] = useState(false);
+    const [selectedCouponIds, setSelectedCouponIds] = useState([]);
+    const [selectedCoupon, setSelectedCoupon] = useState(null);
+    const [isCouponDetailsOpen, setIsCouponDetailsOpen] = useState(false);
     const [couponRefreshKey, setCouponRefreshKey] = useState(0);
     const [openSection, setOpenSection] = useState('coupon');
     const [popupForm, setPopupForm] = useState(getDefaultPopupForm());
@@ -189,7 +216,8 @@ export default function LoyaltySettings({ onBack }) {
         message: '',
         confirmText: 'Delete',
         type: 'delete',
-        coupon: null
+        coupon: null,
+        coupons: []
     });
     const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
     const couponStartDateInputRef = useRef(null);
@@ -292,6 +320,11 @@ export default function LoyaltySettings({ onBack }) {
             });
         return () => { cancelled = true; };
     }, [couponPage, couponSearch, couponRefreshKey]);
+
+    useEffect(() => {
+        const visible = new Set((couponList || []).map((cp) => String(cp.id ?? cp.code ?? '')));
+        setSelectedCouponIds((prev) => prev.filter((id) => visible.has(String(id))));
+    }, [couponList]);
 
     useAdminCrudSync({
         'coupon:changed': () => {
@@ -421,16 +454,56 @@ export default function LoyaltySettings({ onBack }) {
             title: 'Delete Coupon',
             message: `Delete coupon ${coupon.code || coupon.id}? This cannot be undone.`,
             confirmText: 'Delete',
-            coupon
+            coupon,
+            coupons: []
+        });
+    };
+
+    const openBulkDeleteCouponConfirm = () => {
+        if (selectedCouponIds.length === 0) return;
+        setConfirmModal({
+            isOpen: true,
+            type: 'delete',
+            title: 'Delete Coupons',
+            message: `Delete ${selectedCouponIds.length} selected coupon(s)? This cannot be undone.`,
+            confirmText: 'Delete All',
+            coupon: null,
+            coupons: [...selectedCouponIds]
         });
     };
 
     const closeConfirmModal = () => {
         if (isConfirmProcessing) return;
-        setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null }));
+        setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null, coupons: [] }));
     };
 
     const handleDeleteCoupon = async () => {
+        const bulkCoupons = Array.isArray(confirmModal?.coupons) ? confirmModal.coupons : [];
+        if (bulkCoupons.length > 0) {
+            setIsConfirmProcessing(true);
+            setBulkCouponDeleting(true);
+            try {
+                const results = await Promise.allSettled(
+                    bulkCoupons.map((couponId) => adminService.deleteLoyaltyCoupon(couponId))
+                );
+                const successCount = results.filter((entry) => entry.status === 'fulfilled').length;
+                const failedCount = results.length - successCount;
+                if (successCount > 0) {
+                    toast.success(`Deleted ${successCount} coupon(s)`);
+                    setCouponRefreshKey((v) => v + 1);
+                }
+                if (failedCount > 0) {
+                    toast.error(`${failedCount} coupon(s) could not be deleted`);
+                }
+                setSelectedCouponIds([]);
+                setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null, coupons: [] }));
+            } finally {
+                setBulkCouponDeleting(false);
+                setIsConfirmProcessing(false);
+            }
+            return;
+        }
+
         const coupon = confirmModal?.coupon || null;
         const couponId = coupon?.id ?? coupon?.code ?? null;
         if (!couponId) return;
@@ -441,13 +514,37 @@ export default function LoyaltySettings({ onBack }) {
             await adminService.deleteLoyaltyCoupon(couponId);
             toast.success('Coupon deleted');
             setCouponRefreshKey((v) => v + 1);
-            setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null }));
+            setSelectedCouponIds((prev) => prev.filter((id) => String(id) !== String(couponId)));
+            setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null, coupons: [] }));
         } catch (error) {
             toast.error(error?.message || 'Failed to delete coupon');
         } finally {
             setCouponDeletingId(null);
             setIsConfirmProcessing(false);
         }
+    };
+
+    const openCouponDetails = (coupon) => {
+        if (!coupon) return;
+        setSelectedCoupon(coupon);
+        setIsCouponDetailsOpen(true);
+    };
+
+    const closeCouponDetails = () => {
+        setIsCouponDetailsOpen(false);
+        setSelectedCoupon(null);
+    };
+
+    const toggleCouponSelection = (coupon, checked) => {
+        const key = String(coupon?.id ?? coupon?.code ?? '');
+        if (!key) return;
+        setSelectedCouponIds((prev) => {
+            if (checked) {
+                if (prev.includes(key)) return prev;
+                return [...prev, key];
+            }
+            return prev.filter((entry) => entry !== key);
+        });
     };
 
     const handlePopupImageUpload = async (file) => {
@@ -511,6 +608,9 @@ export default function LoyaltySettings({ onBack }) {
 
     if (loading) return <div className="py-16 text-center text-gray-400">Loading loyalty settings...</div>;
 
+    const visibleCouponIds = couponList.map((cp) => String(cp.id ?? cp.code ?? '')).filter(Boolean);
+    const allVisibleCouponsSelected = visibleCouponIds.length > 0 && visibleCouponIds.every((id) => selectedCouponIds.includes(id));
+    const selectedCouponsCount = selectedCouponIds.length;
     const style = TIER_STYLE[activeRow?.tier || 'regular'] || TIER_STYLE.regular;
     const TierIcon = style.icon || Sparkles;
 
@@ -613,7 +713,18 @@ export default function LoyaltySettings({ onBack }) {
                 </button>
                 <div className={`${openSection === 'coupon' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
                     <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 w-full justify-end">
+                        <div className="flex flex-wrap items-center gap-2 w-full justify-end">
+                            {selectedCouponsCount > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={openBulkDeleteCouponConfirm}
+                                    disabled={bulkCouponDeleting}
+                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-60"
+                                >
+                                    <Trash2 size={14} />
+                                    {bulkCouponDeleting ? 'Deleting...' : `Delete Selected (${selectedCouponsCount})`}
+                                </button>
+                            )}
                             <div className="relative w-full max-w-xs">
                                 <Search size={14} className="absolute left-3 top-3 text-gray-400" />
                                 <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field pl-8 py-2.5" />
@@ -634,6 +745,21 @@ export default function LoyaltySettings({ onBack }) {
                         <table className="w-full text-left text-sm">
                             <thead className="bg-gray-50">
                                 <tr>
+                                    <th className="px-3 py-2 w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={allVisibleCouponsSelected}
+                                            onChange={(e) => {
+                                                const checked = e.target.checked;
+                                                if (!checked) {
+                                                    setSelectedCouponIds((prev) => prev.filter((id) => !visibleCouponIds.includes(id)));
+                                                    return;
+                                                }
+                                                setSelectedCouponIds((prev) => Array.from(new Set([...prev, ...visibleCouponIds])));
+                                            }}
+                                            className="rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                    </th>
                                     <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Code</th>
                                     <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Name</th>
                                     <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Scope</th>
@@ -644,10 +770,19 @@ export default function LoyaltySettings({ onBack }) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={7}>Loading coupons...</td></tr>}
-                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={7}>No coupons found.</td></tr>}
+                                {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={8}>Loading coupons...</td></tr>}
+                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={8}>No coupons found.</td></tr>}
                                 {!couponLoading && couponList.map((cp) => (
-                                    <tr key={cp.id || cp.code}>
+                                    <tr key={cp.id || cp.code} onClick={() => openCouponDetails(cp)} className="cursor-pointer hover:bg-gray-50">
+                                        <td className="px-3 py-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedCouponIds.includes(String(cp.id ?? cp.code ?? ''))}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={(e) => toggleCouponSelection(cp, e.target.checked)}
+                                                className="rounded border-gray-300 text-primary focus:ring-primary"
+                                            />
+                                        </td>
                                         <td className="px-3 py-2 font-semibold text-gray-800">{cp.code}</td>
                                         <td className="px-3 py-2 text-gray-600">{cp.name || 'Coupon'}</td>
                                         <td className="px-3 py-2 text-gray-600">{String(cp.scope_type || 'generic')}</td>
@@ -657,7 +792,10 @@ export default function LoyaltySettings({ onBack }) {
                                         <td className="px-3 py-2 text-right">
                                             <button
                                                 type="button"
-                                                onClick={() => openDeleteCouponConfirm(cp)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openDeleteCouponConfirm(cp);
+                                                }}
                                                 disabled={couponDeletingId === (cp.id || cp.code)}
                                                 className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
                                                 title="Delete Coupon"
@@ -674,15 +812,39 @@ export default function LoyaltySettings({ onBack }) {
                         <table className="w-full text-left text-sm">
                             <thead className="bg-gray-50">
                                 <tr>
+                                    <th className="px-3 py-2 w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={allVisibleCouponsSelected}
+                                            onChange={(e) => {
+                                                const checked = e.target.checked;
+                                                if (!checked) {
+                                                    setSelectedCouponIds((prev) => prev.filter((id) => !visibleCouponIds.includes(id)));
+                                                    return;
+                                                }
+                                                setSelectedCouponIds((prev) => Array.from(new Set([...prev, ...visibleCouponIds])));
+                                            }}
+                                            className="rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                    </th>
                                     <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500">Coupon</th>
                                     <th className="px-3 py-2 text-xs uppercase tracking-wider text-gray-500 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
-                                {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={2}>Loading coupons...</td></tr>}
-                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={2}>No coupons found.</td></tr>}
+                                {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={3}>Loading coupons...</td></tr>}
+                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={3}>No coupons found.</td></tr>}
                                 {!couponLoading && couponList.map((cp) => (
-                                    <tr key={cp.id || cp.code}>
+                                    <tr key={cp.id || cp.code} onClick={() => openCouponDetails(cp)} className="cursor-pointer hover:bg-gray-50">
+                                        <td className="px-3 py-2 align-top">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedCouponIds.includes(String(cp.id ?? cp.code ?? ''))}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={(e) => toggleCouponSelection(cp, e.target.checked)}
+                                                className="mt-1 rounded border-gray-300 text-primary focus:ring-primary"
+                                            />
+                                        </td>
                                         <td className="px-3 py-2">
                                             <p className="font-semibold text-gray-800">{cp.code}</p>
                                             <p className="text-xs text-gray-500 mt-0.5">{cp.name || 'Coupon'}</p>
@@ -694,7 +856,10 @@ export default function LoyaltySettings({ onBack }) {
                                         <td className="px-3 py-2 text-right">
                                             <button
                                                 type="button"
-                                                onClick={() => openDeleteCouponConfirm(cp)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openDeleteCouponConfirm(cp);
+                                                }}
                                                 disabled={couponDeletingId === (cp.id || cp.code)}
                                                 className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
                                                 title="Delete Coupon"
@@ -956,6 +1121,61 @@ export default function LoyaltySettings({ onBack }) {
                             <button type="button" onClick={handleSaveTier} disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
                                 <Save size={16} /> {saving ? 'Saving...' : 'Save Tier'}
                             </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+            {isCouponDetailsOpen && selectedCoupon && createPortal(
+                <div className="fixed inset-0 z-[220] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-xl font-semibold text-gray-900">Voucher Details</h3>
+                            <button
+                                type="button"
+                                onClick={closeCouponDetails}
+                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2 text-sm text-gray-700">
+                            <p><span className="text-gray-500">Code:</span> <span className="font-semibold text-gray-900">{selectedCoupon.code || '—'}</span></p>
+                            <p><span className="text-gray-500">Name:</span> {selectedCoupon.name || 'Coupon'}</p>
+                            <p><span className="text-gray-500">Source:</span> {String(selectedCoupon.source_type || 'admin')}</p>
+                            <p><span className="text-gray-500">Scope:</span> {String(selectedCoupon.scope_type || 'generic')}</p>
+                            <p><span className="text-gray-500">Scope Details:</span> {formatScopeSummary(selectedCoupon, categories)}</p>
+                            <p><span className="text-gray-500">Tier Scope:</span> {selectedCoupon.tier_scope || '—'}</p>
+                            <p><span className="text-gray-500">Discount:</span> {formatDiscountOffer(selectedCoupon.discount_type, selectedCoupon.discount_value)}</p>
+                            <p><span className="text-gray-500">Discount Applies To:</span> {formatShippingApplicability(selectedCoupon.discount_type)}</p>
+                            <p><span className="text-gray-500">Min Cart Value:</span> ₹{Number(selectedCoupon.min_cart_value || 0).toLocaleString('en-IN')}</p>
+                            <p><span className="text-gray-500">Usage Limit / User:</span> {Number(selectedCoupon.usage_limit_per_user || 0)}</p>
+                            <p><span className="text-gray-500">Used Count:</span> {Number(selectedCoupon.used_count || 0)}</p>
+                            <p><span className="text-gray-500">Starts:</span> {selectedCoupon.starts_at ? formatAdminDate(selectedCoupon.starts_at) : '—'}</p>
+                            <p><span className="text-gray-500">Expires:</span> {formatCouponExpiry(selectedCoupon.expires_at || selectedCoupon.expiresAt)}</p>
+                            <p><span className="text-gray-500">Created:</span> {selectedCoupon.created_at ? formatAdminDate(selectedCoupon.created_at) : '—'}</p>
+                            {!!selectedCoupon.created_by_name && (
+                                <p><span className="text-gray-500">Created By:</span> {selectedCoupon.created_by_name}</p>
+                            )}
+                            {String(selectedCoupon.scope_type || '').toLowerCase() === 'customer' && (
+                                <div>
+                                    <p className="text-gray-500 mb-1">Assigned Customers:</p>
+                                    {Array.isArray(selectedCoupon.customer_targets) && selectedCoupon.customer_targets.length > 0 ? (
+                                        <div className="space-y-1">
+                                            {selectedCoupon.customer_targets.map((target) => (
+                                                <p key={`${target.user_id}-${target.mobile || ''}`} className="text-xs">
+                                                    <span className="font-semibold text-gray-800">{target.name || 'Customer'}</span>
+                                                    {target.mobile ? ` | ${target.mobile}` : ''}
+                                                    {target.email ? ` | ${target.email}` : ''}
+                                                    {target.user_id ? ` | ID: ${target.user_id}` : ''}
+                                                </p>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-gray-500">No explicit customer mapping found.</p>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>,

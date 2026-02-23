@@ -7,8 +7,13 @@ const jwt = require('jsonwebtoken');
 const { getUserLoyaltyStatus, reassessUserTier, issueBirthdayCouponForUser } = require('../services/loyaltyService');
 const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
 
+const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
+if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is required for authController');
+}
+
 const generateToken = (user) => {
-    return jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+    return jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 };
 
 // --- SECURITY HELPER FUNCTIONS ---
