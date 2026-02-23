@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle } from 'lucide-react';
 import { orderService } from '../../services/orderService';
+import orderWaitIllustration from '../../assets/order_wait.svg';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
@@ -17,6 +18,24 @@ const QUICK_RANGES = [
 ];
 
 const MAX_RANGE_DAYS = 90;
+const COURIER_PARTNERS = [
+    'Blue Dart',
+    'DTDC',
+    'Delhivery',
+    'India Post',
+    'Ecom Express',
+    'Xpressbees',
+    'Shadowfax',
+    'Ekart',
+    'Amazon Shipping',
+    'Trackon',
+    'Professional Couriers',
+    'Gati',
+    'DHL',
+    'FedEx',
+    'Aramex',
+    'Others'
+];
 
 const toDateOnly = (value) => {
     if (!value) return null;
@@ -57,7 +76,12 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 
-export default function Orders({ focusOrderId = null, onFocusHandled = () => {} }) {
+export default function Orders({
+    focusOrderId = null,
+    onFocusHandled = () => {},
+    initialStatusFilter = '',
+    onInitialStatusApplied = () => {}
+}) {
     const toast = useToast();
     const [orders, setOrders] = useState([]);
     const [metrics, setMetrics] = useState(null);
@@ -74,11 +98,15 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     const [draftEndDate, setDraftEndDate] = useState('');
     const startDateInputRef = useRef(null);
     const endDateInputRef = useRef(null);
+    const fetchSeqRef = useRef(0);
     const [sortBy, setSortBy] = useState('newest');
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [pendingStatus, setPendingStatus] = useState('');
+    const [courierPartner, setCourierPartner] = useState('');
+    const [courierPartnerOther, setCourierPartnerOther] = useState('');
+    const [awbNumber, setAwbNumber] = useState('');
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
     const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
@@ -93,6 +121,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
+    const [selectedStatusCount, setSelectedStatusCount] = useState(0);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
@@ -247,6 +276,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     }, []);
 
     const fetchOrders = useCallback(async () => {
+        const requestSeq = ++fetchSeqRef.current;
         setIsLoading(true);
         try {
             const listParams = {
@@ -276,8 +306,10 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                     ? Promise.resolve(null)
                     : orderService.getAdminOrders(metricsParams)
             ]);
+            if (requestSeq !== fetchSeqRef.current) return;
 
             setOrders(listData.orders || []);
+            setSelectedStatusCount(Number(listData?.pagination?.totalOrders || 0));
             const resolvedMetrics = (statusFilter === 'all' ? listData.metrics : metricsData?.metrics) || null;
             setMetrics(resolvedMetrics);
             if (resolvedMetrics) {
@@ -287,6 +319,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         } catch (error) {
             toast.error(error.message || 'Failed to load orders');
         } finally {
+            if (requestSeq !== fetchSeqRef.current) return;
             setIsLoading(false);
         }
     }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, startDate, statusFilter, toast]);
@@ -304,6 +337,18 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         if (!selectedOrder) return;
         setPendingStatus(selectedOrder.status || 'confirmed');
         setProcessRefundOnCancel(false);
+        const existingCourier = String(selectedOrder.courier_partner || '').trim();
+        if (existingCourier && COURIER_PARTNERS.includes(existingCourier)) {
+            setCourierPartner(existingCourier);
+            setCourierPartnerOther('');
+        } else if (existingCourier) {
+            setCourierPartner('Others');
+            setCourierPartnerOther(existingCourier);
+        } else {
+            setCourierPartner('');
+            setCourierPartnerOther('');
+        }
+        setAwbNumber(String(selectedOrder.awb_number || '').trim());
     }, [selectedOrder?.id, selectedOrder?.status]);
 
     useEffect(() => {
@@ -345,15 +390,24 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         return () => clearTimeout(timer);
     }, [search, searchInput]);
 
+    useEffect(() => {
+        const next = String(initialStatusFilter || '').trim().toLowerCase();
+        if (!next || next === 'all') return;
+        setDraftStatusFilter(next);
+        if (statusFilter !== next) {
+            setStatusFilter(next);
+        }
+        if (page !== 1) {
+            setPage(1);
+        }
+        onInitialStatusApplied(next);
+    }, [initialStatusFilter]);
+
     const handleStatusFilterChange = (nextStatus) => {
         setDraftStatusFilter(nextStatus);
         if (statusFilter !== nextStatus) {
             setStatusFilter(nextStatus);
-            if (page !== 1) {
-                setPage(1);
-                return;
-            }
-            fetchOrders();
+            setPage(1);
         }
     };
 
@@ -541,7 +595,9 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                     if (sync?.settlementContext) {
                         setSettlementContext(sync.settlementContext);
                     }
-                } catch {}
+                } catch (error) {
+                    void error;
+                }
             }
         } catch (error) {
             toast.error(error.message || 'Failed to load order details');
@@ -552,6 +608,23 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
 
     const handleStatusUpdate = useCallback(async () => {
         if (!selectedOrder || !pendingStatus) return;
+        if (pendingStatus === 'shipped') {
+            const normalizedCourier = String(courierPartner || '').trim();
+            const normalizedOther = String(courierPartnerOther || '').trim();
+            const normalizedAwb = String(awbNumber || '').trim();
+            if (!normalizedCourier) {
+                toast.error('Select courier partner before marking as shipped');
+                return;
+            }
+            if (normalizedCourier === 'Others' && !normalizedOther) {
+                toast.error('Enter courier partner name');
+                return;
+            }
+            if (!normalizedAwb) {
+                toast.error('Enter AWB number before marking as shipped');
+                return;
+            }
+        }
         setIsUpdatingStatus(true);
         try {
             const shouldProcessRefund = (
@@ -563,7 +636,12 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
             const data = await orderService.updateAdminOrderStatus(
                 selectedOrder.order_id || selectedOrder.id,
                 pendingStatus,
-                { processRefund: shouldProcessRefund }
+                {
+                    processRefund: shouldProcessRefund,
+                    courierPartner,
+                    courierPartnerOther,
+                    awbNumber
+                }
             );
             if (data?.order) {
                 setSelectedOrder(data.order);
@@ -581,7 +659,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
         } finally {
             setIsUpdatingStatus(false);
         }
-    }, [fetchOrderMetrics, isRazorpayPaidOrder, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, processRefundOnCancel, selectedOrder, toast]);
+    }, [awbNumber, courierPartner, courierPartnerOther, fetchOrderMetrics, isRazorpayPaidOrder, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, processRefundOnCancel, selectedOrder, toast]);
 
     const handleFetchPaymentStatus = async ({ reason = 'payment' } = {}) => {
         if (!selectedOrder) return;
@@ -865,12 +943,24 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
     };
 
     const effectiveMetrics = sharedMetrics || metrics;
+    const dynamicStatusLabel = useMemo(() => {
+        const value = String(statusFilter || '').trim().toLowerCase();
+        if (!value || value === 'all' || value === 'pending' || value === 'confirmed') return 'Confirmed';
+        return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+    }, [statusFilter]);
+    const dynamicStatusValue = useMemo(() => {
+        const value = String(statusFilter || '').trim().toLowerCase();
+        if (!value || value === 'all' || value === 'pending' || value === 'confirmed') {
+            return effectiveMetrics?.confirmedOrders || 0;
+        }
+        return selectedStatusCount;
+    }, [effectiveMetrics?.confirmedOrders, selectedStatusCount, statusFilter]);
     const cards = useMemo(() => ([
         { label: 'Total Orders', value: effectiveMetrics?.totalOrders || 0, icon: Package, color: 'text-blue-600 bg-blue-50 border-blue-100' },
         { label: 'Total Revenue', value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`, icon: IndianRupee, color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
         { label: 'Pending', value: effectiveMetrics?.pendingOrders || 0, icon: Clock3, color: 'text-amber-600 bg-amber-50 border-amber-100' },
-        { label: 'Confirmed', value: effectiveMetrics?.confirmedOrders || 0, icon: CheckCircle2, color: 'text-purple-600 bg-purple-50 border-purple-100' }
-    ]), [effectiveMetrics]);
+        { label: dynamicStatusLabel, value: dynamicStatusValue, icon: CheckCircle2, color: 'text-purple-600 bg-purple-50 border-purple-100' }
+    ]), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
 
     return (
         <div className="animate-fade-in">
@@ -959,14 +1049,14 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-                {cards.map(({ label, value, icon: Icon, color }) => (
-                    <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${color}`}>
-                            <Icon size={20} />
+                {cards.map((card) => (
+                    <div key={card.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${card.color}`}>
+                            <card.icon size={20} />
                         </div>
                         <div>
-                            <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{label}</p>
-                            <p className="text-lg font-bold text-gray-800">{value}</p>
+                            <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{card.label}</p>
+                            <p className="text-lg font-bold text-gray-800">{card.value}</p>
                         </div>
                     </div>
                 ))}
@@ -984,8 +1074,6 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                     className="px-2 py-1.5 rounded-md border border-gray-200 text-xs bg-white min-w-[120px]"
                                 >
                                     <option value="pending">Pending</option>
-                                    <option value="confirmed">Confirmed</option>
-                                    <option value="shipped">Shipped</option>
                                     <option value="completed">Completed</option>
                                     <option value="cancelled">Cancelled</option>
                                 </select>
@@ -1063,7 +1151,13 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                 {isLoading ? (
                     <div className="py-16 text-center text-gray-400">Loading orders...</div>
                 ) : orders.length === 0 ? (
-                    <div className="py-16 text-center text-gray-400">No orders found.</div>
+                    <div className="py-12 text-center text-gray-400 flex flex-col items-center gap-4">
+                        <img src={orderWaitIllustration} alt="No orders" className="w-36 h-36 object-contain opacity-90" />
+                        <div>
+                            <p className="text-gray-600 font-semibold">No orders found for these filters.</p>
+                            <p className="text-sm text-gray-400 mt-1">Try changing status or date range.</p>
+                        </div>
+                    </div>
                 ) : (
                     <>
                         <div className="hidden md:block">
@@ -1154,6 +1248,18 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="inline-flex items-center gap-2">
+                                                    {getWhatsappLink(order.customer_mobile) && (
+                                                        <a
+                                                            href={getWhatsappLink(order.customer_mobile)}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                            title="Contact customer on WhatsApp"
+                                                        >
+                                                            <MessageCircle size={14} />
+                                                        </a>
+                                                    )}
                                                     {canDownloadInvoice(order) && (
                                                         <button
                                                             type="button"
@@ -1189,7 +1295,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                 <div
                                     key={order.id}
                                     onClick={() => openDetails(order)}
-                                    className={`w-full text-left p-4 transition-colors relative ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
+                                    className={`w-full text-left p-4 transition-colors ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
                                 >
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-1">
@@ -1238,28 +1344,42 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                             </span>
                                         </div>
                                     </div>
-                                    {canDeleteRow(order) && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleDeleteOrder(e, order)}
-                                            disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
-                                            className="absolute right-4 bottom-4 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
-                                            title="Delete order"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    )}
-                                    {canDownloadInvoice(order) && (
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleDownloadInvoice(order, e)}
-                                            disabled={downloadingInvoiceId === (order.order_id || order.id)}
-                                            className="absolute right-14 bottom-4 inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
-                                            title="Download invoice"
-                                        >
-                                            <Download size={14} />
-                                        </button>
-                                    )}
+                                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+                                        {getWhatsappLink(order.customer_mobile) && (
+                                            <a
+                                                href={getWhatsappLink(order.customer_mobile)}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                title="Contact customer on WhatsApp"
+                                            >
+                                                <MessageCircle size={14} />
+                                            </a>
+                                        )}
+                                        {canDownloadInvoice(order) && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleDownloadInvoice(order, e)}
+                                                disabled={downloadingInvoiceId === (order.order_id || order.id)}
+                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                                                title="Download invoice"
+                                            >
+                                                <Download size={14} />
+                                            </button>
+                                        )}
+                                        {canDeleteRow(order) && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleDeleteOrder(e, order)}
+                                                disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
+                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                title="Delete order"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -1348,9 +1468,9 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                     <p className="text-sm font-semibold text-gray-800 truncate">{selectedOrder.customer_name || 'Guest'}</p>
                                     <p className="text-xs text-gray-500">{selectedOrder.customer_mobile || 'No mobile number'}</p>
                                 </div>
-                                {canDownloadInvoice(selectedOrder) && (
+                                {!isAttemptEntry(selectedOrder) && (
                                     <div className="mt-3 flex justify-end">
-                                        <div className="inline-flex items-center gap-2">
+                                        <div className="inline-flex items-center gap-2 flex-wrap justify-end">
                                             {getWhatsappLink(selectedOrder.customer_mobile) && (
                                                 <a
                                                     href={getWhatsappLink(selectedOrder.customer_mobile)}
@@ -1362,6 +1482,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                                     <MessageCircle size={16} />
                                                 </a>
                                             )}
+                                            {canDownloadInvoice(selectedOrder) && (
                                             <button
                                                 type="button"
                                                 onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
@@ -1371,6 +1492,7 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                                 <Download size={14} />
                                                 {downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating...' : 'Download Invoice'}
                                             </button>
+                                            )}
                                         </div>
                                     </div>
                                 )}
@@ -1385,11 +1507,52 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                         className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
                                     >
                                         <option value="pending">Pending</option>
-                                        <option value="confirmed">Confirmed</option>
                                         <option value="shipped">Shipped</option>
                                         <option value="completed">Completed</option>
                                         <option value="cancelled">Cancelled</option>
                                     </select>
+                                    {pendingStatus === 'shipped' && (
+                                        <div className="mt-3 grid grid-cols-1 gap-3">
+                                            <div>
+                                                <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Courier Partner</label>
+                                                <select
+                                                    value={courierPartner}
+                                                    onChange={(e) => setCourierPartner(e.target.value)}
+                                                    disabled={isUpdatingStatus}
+                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                >
+                                                    <option value="">Select courier partner</option>
+                                                    {COURIER_PARTNERS.map((partner) => (
+                                                        <option key={partner} value={partner}>{partner}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            {courierPartner === 'Others' && (
+                                                <div>
+                                                    <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Courier Partner Name</label>
+                                                    <input
+                                                        type="text"
+                                                        value={courierPartnerOther}
+                                                        onChange={(e) => setCourierPartnerOther(e.target.value)}
+                                                        disabled={isUpdatingStatus}
+                                                        placeholder="Enter courier partner name"
+                                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                    />
+                                                </div>
+                                            )}
+                                            <div>
+                                                <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">AWB Number</label>
+                                                <input
+                                                    type="text"
+                                                    value={awbNumber}
+                                                    onChange={(e) => setAwbNumber(e.target.value)}
+                                                    disabled={isUpdatingStatus}
+                                                    placeholder="Enter AWB number"
+                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                     {pendingStatus === 'cancelled' &&
                                         isRazorpayPaidOrder(selectedOrder) &&
                                         Boolean(selectedOrder?.razorpay_payment_id || selectedOrder?.razorpay_order_id) && (
@@ -1442,6 +1605,12 @@ export default function Orders({ focusOrderId = null, onFocusHandled = () => {} 
                                             <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
                                             <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
                                             <p><span className="text-gray-500">Invoice No:</span> <span className="font-mono text-xs">{getInvoiceNumber(selectedOrder)}</span></p>
+                                            {selectedOrder?.courier_partner && (
+                                                <p><span className="text-gray-500">Courier:</span> {selectedOrder.courier_partner}</p>
+                                            )}
+                                            {selectedOrder?.awb_number && (
+                                                <p><span className="text-gray-500">AWB:</span> <span className="font-mono text-xs">{selectedOrder.awb_number}</span></p>
+                                            )}
                                             {selectedOrder?.failure_reason && (
                                                 <p><span className="text-gray-500">Failure:</span> {selectedOrder.failure_reason}</p>
                                             )}

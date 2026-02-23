@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useProducts } from '../../context/ProductContext';
@@ -17,20 +17,29 @@ import LoyaltySettings from './LoyaltySettings';
 import { AdminKPIProvider } from '../../context/AdminKPIContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
 import orderIllustration from '../../assets/order.svg';
+import courierIllustration from '../../assets/courier.svg';
 import receivedOrderAudio from '../../assets/received_order.mp3';
+import shippingPopupAudio from '../../assets/pop.mp3';
 import { burstConfetti } from '../../utils/celebration';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
+const SHIPPING_POPUP_COOLDOWN_MS = 90 * 1000;
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('customers');
     const [expandedMenu, setExpandedMenu] = useState('');
     const [focusOrderId, setFocusOrderId] = useState(null);
+    const [ordersInitialStatusFilter, setOrdersInitialStatusFilter] = useState('');
     const [incomingOrders, setIncomingOrders] = useState([]);
-    const [incomingModalOpen, setIncomingModalOpen] = useState(false);
+    const [activePopupType, setActivePopupType] = useState(null);
+    const [activeShippingSummary, setActiveShippingSummary] = useState(null);
+    const [shippingPopupQueue, setShippingPopupQueue] = useState([]);
+    const [shippingCooldownUntilTs, setShippingCooldownUntilTs] = useState(0);
     const playedOrderSoundRef = useRef(false);
+    const playedShippingSoundRef = useRef('');
+    const shippingCooldownTimerRef = useRef(null);
     const navigate = useNavigate();
     const toast = useToast();
     const { logout, user } = useAuth();
@@ -88,6 +97,60 @@ export default function AdminDashboard() {
         localStorage.setItem(ADMIN_LAST_SEEN_ORDER_TS_KEY, String(maxTs));
     };
 
+    const shippingSummaryKey = (summary = {}) => {
+        const total = Number(summary?.total || 0);
+        const ids = Array.isArray(summary?.cases)
+            ? summary.cases.map((entry) => String(entry?.id || '')).filter(Boolean).join(',')
+            : '';
+        return `${total}:${ids}`;
+    };
+
+    const flushShippingQueueIfPossible = useCallback(() => {
+        const now = Date.now();
+        if (activePopupType === 'order') return;
+        if (now < shippingCooldownUntilTs) return;
+        setShippingPopupQueue((prev) => {
+            if (!prev.length) return prev;
+            const [next, ...rest] = prev;
+            setActiveShippingSummary(next);
+            setActivePopupType('shipping');
+            return rest;
+        });
+    }, [activePopupType, shippingCooldownUntilTs]);
+
+    const queueShippingSummary = useCallback((summary = {}) => {
+        const total = Number(summary?.total || 0);
+        if (total <= 0) return;
+        const key = shippingSummaryKey(summary);
+        const now = Date.now();
+
+        if (activePopupType === 'shipping') {
+            setActiveShippingSummary(summary);
+            setShippingPopupQueue((prev) => prev.filter((entry) => shippingSummaryKey(entry) !== key));
+            return;
+        }
+
+        setShippingPopupQueue((prev) => {
+            const deduped = prev.filter((entry) => shippingSummaryKey(entry) !== key);
+            return [...deduped, summary];
+        });
+
+        if (activePopupType === 'order') return;
+        if (now < shippingCooldownUntilTs) return;
+        setShippingPopupQueue((prev) => {
+            const deduped = prev.filter((entry) => shippingSummaryKey(entry) !== key);
+            const [next, ...rest] = [...deduped, summary];
+            setActiveShippingSummary(next);
+            setActivePopupType('shipping');
+            return rest;
+        });
+    }, [activePopupType, shippingCooldownUntilTs]);
+
+    const showOrderPopup = useCallback(() => {
+        setActivePopupType('order');
+        setActiveShippingSummary(null);
+    }, []);
+
     useEffect(() => {
         if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
         let cancelled = false;
@@ -110,7 +173,7 @@ export default function AdminDashboard() {
                 });
                 if (missed.length > 0) {
                     setIncomingOrders(missed);
-                    setIncomingModalOpen(true);
+                    showOrderPopup();
                     toast.info(
                         missed.length === 1
                             ? `You have 1 new order while you were away`
@@ -126,22 +189,47 @@ export default function AdminDashboard() {
         return () => {
             cancelled = true;
         };
-    }, [toast, user]);
+    }, [showOrderPopup, toast, user]);
+
+    useEffect(() => {
+        if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
+        let cancelled = false;
+        const loadOverdueShipped = async () => {
+            try {
+                const data = await orderService.getAdminOverdueShippedSummary({ days: 30, limit: 5 });
+                if (cancelled) return;
+                const total = Number(data?.total || 0);
+                const cases = Array.isArray(data?.cases) ? data.cases : [];
+                queueShippingSummary({ total, cases });
+            } catch {
+                // ignore
+            }
+        };
+        loadOverdueShipped();
+        const interval = setInterval(loadOverdueShipped, 2 * 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [queueShippingSummary, user]);
 
     useEffect(() => {
         if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
         const handleNewOrder = (event) => {
             const order = event?.detail;
             if (!order?.id) return;
+            if (activePopupType === 'shipping' && activeShippingSummary) {
+                setShippingPopupQueue((prev) => [activeShippingSummary, ...prev]);
+            }
             setIncomingOrders((prev) => {
                 if (prev.some((entry) => String(entry.id) === String(order.id))) return prev;
                 return [order, ...prev];
             });
-            setIncomingModalOpen(true);
+            showOrderPopup();
         };
         window.addEventListener('admin:new-order', handleNewOrder);
         return () => window.removeEventListener('admin:new-order', handleNewOrder);
-    }, [user]);
+    }, [activePopupType, activeShippingSummary, showOrderPopup, user]);
 
     const incomingSummary = useMemo(() => {
         const count = incomingOrders.length;
@@ -150,7 +238,8 @@ export default function AdminDashboard() {
     }, [incomingOrders]);
 
     useEffect(() => {
-        if (!incomingModalOpen || incomingSummary.count <= 0) {
+        const visible = activePopupType === 'order' && incomingSummary.count > 0;
+        if (!visible) {
             playedOrderSoundRef.current = false;
             return;
         }
@@ -164,10 +253,40 @@ export default function AdminDashboard() {
         } catch {
             // ignore autoplay/audio errors
         }
-    }, [incomingModalOpen, incomingSummary.count]);
+    }, [activePopupType, incomingSummary.count]);
+
+    useEffect(() => {
+        const visible = activePopupType === 'shipping' && Number(activeShippingSummary?.total || 0) > 0;
+        if (!visible) {
+            playedShippingSoundRef.current = '';
+            return;
+        }
+        const key = shippingSummaryKey(activeShippingSummary || {});
+        if (playedShippingSoundRef.current === key) return;
+        playedShippingSoundRef.current = key;
+        try {
+            const audio = new Audio(shippingPopupAudio);
+            audio.volume = 0.9;
+            void audio.play().catch(() => {});
+        } catch {}
+    }, [activePopupType, activeShippingSummary]);
+
+    useEffect(() => {
+        if (activePopupType === 'order') return;
+        if (!shippingPopupQueue.length) return;
+        const waitMs = Math.max(0, shippingCooldownUntilTs - Date.now());
+        clearTimeout(shippingCooldownTimerRef.current);
+        shippingCooldownTimerRef.current = setTimeout(() => {
+            flushShippingQueueIfPossible();
+        }, waitMs || 10);
+        return () => {
+            clearTimeout(shippingCooldownTimerRef.current);
+        };
+    }, [activePopupType, flushShippingQueueIfPossible, shippingCooldownUntilTs, shippingPopupQueue]);
 
     const openOrdersFromModal = (orderId = null) => {
         setActiveTab('orders');
+        setOrdersInitialStatusFilter('');
         if (orderId) {
             setFocusOrderId(orderId);
         } else {
@@ -175,13 +294,25 @@ export default function AdminDashboard() {
         }
         markOrdersSeen(incomingOrders);
         setIncomingOrders([]);
-        setIncomingModalOpen(false);
+        setActivePopupType(null);
+        flushShippingQueueIfPossible();
     };
 
     const dismissIncomingModal = () => {
         markOrdersSeen(incomingOrders);
         setIncomingOrders([]);
-        setIncomingModalOpen(false);
+        setActivePopupType(null);
+        flushShippingQueueIfPossible();
+    };
+
+    const dismissOverdueModal = () => {
+        setActivePopupType(null);
+        setActiveShippingSummary(null);
+        const nextTs = Date.now() + SHIPPING_POPUP_COOLDOWN_MS;
+        setShippingCooldownUntilTs(nextTs);
+        setTimeout(() => {
+            flushShippingQueueIfPossible();
+        }, SHIPPING_POPUP_COOLDOWN_MS);
     };
 
     return (
@@ -279,7 +410,14 @@ export default function AdminDashboard() {
                             message="We’re preparing analytics for sales, customers, and inventory trends."
                         />
                     )}
-                    {activeTab === 'orders' && <Orders focusOrderId={focusOrderId} onFocusHandled={() => setFocusOrderId(null)} />}
+                    {activeTab === 'orders' && (
+                        <Orders
+                            focusOrderId={focusOrderId}
+                            onFocusHandled={() => setFocusOrderId(null)}
+                            initialStatusFilter={ordersInitialStatusFilter}
+                            onInitialStatusApplied={() => setOrdersInitialStatusFilter('')}
+                        />
+                    )}
                     {activeTab === 'abandoned' && <AbandonedCarts />}
                     {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('customers')} />}
                     {activeTab === 'companyInfo' && <CompanyInfo />}
@@ -305,7 +443,7 @@ export default function AdminDashboard() {
                 <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} onClick={() => setActiveTab('abandoned')} />
             </div>
 
-            {incomingModalOpen && incomingSummary.count > 0 && createPortal(
+            {activePopupType === 'order' && incomingSummary.count > 0 && createPortal(
                 <div className="fixed inset-0 z-[95] bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
                     <div className="w-full max-w-lg rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col my-auto">
                         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
@@ -359,6 +497,77 @@ export default function AdminDashboard() {
                                     className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
                                 >
                                     {incomingSummary.count === 1 ? 'Open Order Details' : 'Go to Orders'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {activePopupType === 'shipping' && Number(activeShippingSummary?.total || 0) > 0 && createPortal(
+                <div className="fixed inset-0 z-[94] bg-black/50 flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+                    <div className="w-full max-w-lg rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden max-h-[calc(100vh-2rem)] flex flex-col my-auto">
+                        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-900">Shipment Completion Pending</h3>
+                            <button onClick={dismissOverdueModal} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="p-5 overflow-y-auto">
+                            <div className="flex items-start gap-4">
+                                <img src={courierIllustration} alt="Pending shipped orders" className="w-24 h-24 object-contain" />
+                                <div className="flex-1">
+                                    {Number(activeShippingSummary?.total || 0) === 1 && activeShippingSummary?.cases?.[0] ? (
+                                        <>
+                                            <p className="text-sm text-gray-500">This order is shipped but pending completion for more than 30 days.</p>
+                                            <p className="mt-1 text-base font-semibold text-gray-900">
+                                                {activeShippingSummary.cases[0]?.order_ref || `Order #${activeShippingSummary.cases[0]?.id || ''}`}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Customer: {activeShippingSummary.cases[0]?.customer_name || 'Guest'} {activeShippingSummary.cases[0]?.customer_mobile ? `(${activeShippingSummary.cases[0].customer_mobile})` : ''}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Courier: {activeShippingSummary.cases[0]?.courier_partner || '—'} {activeShippingSummary.cases[0]?.awb_number ? `| AWB ${activeShippingSummary.cases[0].awb_number}` : ''}
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className="text-sm text-gray-500">Completion status is pending for shipped orders older than 30 days.</p>
+                                            <p className="mt-1 text-2xl font-bold text-gray-900">{Number(activeShippingSummary?.total || 0)} cases</p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Review and close these cases from the Orders panel.
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="mt-5 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={dismissOverdueModal}
+                                    className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                >
+                                    Later
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const total = Number(activeShippingSummary?.total || 0);
+                                        const firstId = total === 1 ? activeShippingSummary?.cases?.[0]?.id : null;
+                                        if (total > 1) {
+                                            setOrdersInitialStatusFilter('shipped');
+                                        } else {
+                                            setOrdersInitialStatusFilter('');
+                                        }
+                                        setActivePopupType(null);
+                                        setActiveShippingSummary(null);
+                                        setActiveTab('orders');
+                                        setFocusOrderId(firstId || null);
+                                    }}
+                                    className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
+                                >
+                                    {Number(activeShippingSummary?.total || 0) === 1 ? 'Open Order Details' : 'Go to Orders (Shipped)'}
                                 </button>
                             </div>
                         </div>

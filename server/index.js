@@ -46,6 +46,7 @@ const Order = require('./models/Order');
 const User = require('./models/User');
 const { PaymentAttempt } = require('./models/PaymentAttempt');
 const { sendOrderLifecycleCommunication } = require('./services/communications/communicationService');
+const { buildDeliveryConfirmationUrl } = require('./services/deliveryConfirmationService');
 const {
     startAbandonedCartRecoveryScheduler,
     startAbandonedCartMaintenanceScheduler,
@@ -151,6 +152,30 @@ const scheduleMidnightJob = () => {
                     } catch (error) {
                         console.error(`Pending-delay email failed for order ${orderId}:`, error?.message || error);
                     }
+                }
+            }
+            const reminderCandidates = await Order.getShippedOrdersForCustomerConfirmation({ afterDays: 7, limit: 300 });
+            for (const order of reminderCandidates) {
+                try {
+                    if (!order?.user_id) continue;
+                    const customer = await User.findById(order.user_id);
+                    if (!customer?.email) continue;
+                    const deliveryConfirmUrl = buildDeliveryConfirmationUrl({
+                        orderId: order.id,
+                        userId: order.user_id
+                    });
+                    if (!deliveryConfirmUrl) continue;
+                    await sendOrderLifecycleCommunication({
+                        stage: 'shipped_followup',
+                        customer,
+                        order: {
+                            ...order,
+                            delivery_confirmation_url: deliveryConfirmUrl
+                        }
+                    });
+                    await Order.markDeliveryConfirmationReminderSent(order.id);
+                } catch (error) {
+                    console.error(`Shipped follow-up email failed for order ${order?.id || 'unknown'}:`, error?.message || error);
                 }
             }
         } catch (error) {

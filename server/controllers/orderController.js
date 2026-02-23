@@ -11,9 +11,28 @@ const User = require('../models/User');
 const CompanyProfile = require('../models/CompanyProfile');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication } = require('../services/communications/communicationService');
+const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
+const SHIPPED_COURIER_OPTIONS = [
+    'Blue Dart',
+    'DTDC',
+    'Delhivery',
+    'India Post',
+    'Ecom Express',
+    'Xpressbees',
+    'Shadowfax',
+    'Ekart',
+    'Amazon Shipping',
+    'Trackon',
+    'Professional Couriers',
+    'Gati',
+    'DHL',
+    'FedEx',
+    'Aramex',
+    'Others'
+];
 
 const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
@@ -1172,14 +1191,26 @@ const getMyOrderByPaymentRef = async (req, res) => {
 
 const updateOrderStatus = async (req, res) => {
     try {
-        const { status, processRefund = false, refundAmount = null } = req.body || {};
+        const {
+            status,
+            processRefund = false,
+            refundAmount = null,
+            courierPartner = '',
+            courierPartnerOther = '',
+            awbNumber = ''
+        } = req.body || {};
         const orderId = Number(req.params.id);
         if (!Number.isFinite(orderId) || orderId <= 0) {
             return res.status(400).json({ message: 'Invalid order id' });
         }
+        const nextStatus = String(status || '').trim().toLowerCase();
         const existingOrder = await Order.getById(orderId);
         if (!existingOrder) {
             return res.status(404).json({ message: 'Order not found' });
+        }
+        const existingStatus = String(existingOrder?.status || '').toLowerCase();
+        if (existingStatus === 'pending' && nextStatus === 'confirmed') {
+            return res.status(400).json({ message: 'Pending orders cannot be moved back to confirmed' });
         }
         const refundAlreadyInitiated = Boolean(
             existingOrder?.refund_reference
@@ -1190,14 +1221,37 @@ const updateOrderStatus = async (req, res) => {
         if (
             String(existingOrder?.status || '').toLowerCase() === 'cancelled' &&
             refundAlreadyInitiated &&
-            String(status || '').toLowerCase() !== 'cancelled'
+            nextStatus !== 'cancelled'
         ) {
             return res.status(400).json({ message: 'Cancelled orders with initiated refunds cannot be moved to other statuses' });
         }
 
+        let resolvedCourierPartner = '';
+        let resolvedAwb = '';
+        if (nextStatus === 'shipped') {
+            const normalizedPartner = String(courierPartner || '').trim();
+            const normalizedPartnerOther = String(courierPartnerOther || '').trim();
+            const normalizedAwb = String(awbNumber || '').trim();
+            if (!normalizedPartner) {
+                return res.status(400).json({ message: 'Courier partner is required for shipped status' });
+            }
+            if (!normalizedAwb) {
+                return res.status(400).json({ message: 'AWB number is required for shipped status' });
+            }
+            const isOther = normalizedPartner.toLowerCase() === 'others';
+            if (!isOther && !SHIPPED_COURIER_OPTIONS.includes(normalizedPartner)) {
+                return res.status(400).json({ message: 'Invalid courier partner selected' });
+            }
+            if (isOther && !normalizedPartnerOther) {
+                return res.status(400).json({ message: 'Please enter courier partner name' });
+            }
+            resolvedCourierPartner = isOther ? normalizedPartnerOther : normalizedPartner;
+            resolvedAwb = normalizedAwb;
+        }
+
         let refund = null;
         if (
-            status === 'cancelled' &&
+            nextStatus === 'cancelled' &&
             Boolean(processRefund) &&
             String(existingOrder?.payment_gateway || '').toLowerCase() === 'razorpay' &&
             String(existingOrder?.payment_status || '').toLowerCase() === PAYMENT_STATUS.PAID &&
@@ -1231,23 +1285,74 @@ const updateOrderStatus = async (req, res) => {
             });
         }
 
-        await Order.updateStatus(req.params.id, status);
+        await Order.updateStatus(req.params.id, nextStatus, {
+            courierPartner: resolvedCourierPartner || null,
+            awbNumber: resolvedAwb || null
+        });
         const order = await Order.getById(req.params.id);
         const io = req.app.get('io');
         if (io) {
-            io.emit('order:update', { orderId: req.params.id, status, order });
+            io.emit('order:update', { orderId: req.params.id, status: nextStatus, order });
             if (order?.user_id) {
-                io.to(`user:${order.user_id}`).emit('order:update', { orderId: req.params.id, status, order });
+                io.to(`user:${order.user_id}`).emit('order:update', { orderId: req.params.id, status: nextStatus, order });
             }
         }
         void triggerOrderLifecycleEmail({
             order,
-            stage: status === 'pending' ? 'pending_delay' : status,
+            stage: nextStatus === 'pending' ? 'pending_delay' : nextStatus,
             includeInvoice: false
         });
         res.json({ order, refund });
     } catch (error) {
         res.status(400).json({ message: error.message || 'Failed to update order' });
+    }
+};
+
+const getOverdueShippedSummary = async (req, res) => {
+    try {
+        const days = Math.max(1, Number(req.query.days || 30) || 30);
+        const limit = Math.max(1, Math.min(10, Number(req.query.limit || 5) || 5));
+        const summary = await Order.getOverdueShippedSummary({ afterDays: days, limit });
+        return res.json(summary);
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load overdue shipped summary' });
+    }
+};
+
+const confirmDeliveryBySignedLink = async (req, res) => {
+    try {
+        const { oid, uid, exp, sig } = req.query || {};
+        const verified = verifyDeliveryToken({ orderId: oid, userId: uid, exp, sig });
+        if (!verified.ok) {
+            return res.status(400).send('<h3>Delivery confirmation link is invalid or expired.</h3>');
+        }
+
+        const order = await Order.getById(verified.orderId);
+        if (!order || String(order.user_id) !== String(verified.userId)) {
+            return res.status(404).send('<h3>Order not found.</h3>');
+        }
+        if (String(order.status || '').toLowerCase() !== 'shipped') {
+            return res.send('<h3>Delivery status already updated. Thank you.</h3>');
+        }
+
+        await Order.updateStatus(order.id, 'completed');
+        const updated = await Order.getById(order.id);
+        const io = req.app.get('io');
+        if (io && updated) {
+            io.emit('order:update', { orderId: updated.id, status: 'completed', order: updated });
+            if (updated.user_id) {
+                io.to(`user:${updated.user_id}`).emit('order:update', { orderId: updated.id, status: 'completed', order: updated });
+            }
+        }
+        void triggerOrderLifecycleEmail({
+            order: updated,
+            stage: 'completed',
+            includeInvoice: false
+        });
+
+        return res.send('<h3>Thank you. Your delivery confirmation has been recorded successfully.</h3>');
+    } catch (error) {
+        return res.status(400).send(`<h3>${error?.message || 'Unable to confirm delivery.'}</h3>`);
     }
 };
 
@@ -1672,5 +1777,7 @@ module.exports = {
     fetchAdminPaymentStatus,
     fetchMyPaymentStatus,
     deleteAdminOrder,
-    deleteAdminPaymentAttempt
+    deleteAdminPaymentAttempt,
+    getOverdueShippedSummary,
+    confirmDeliveryBySignedLink
 };

@@ -127,6 +127,8 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         pending: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is pending (${i + 1}/10)`),
         processing: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is processing (${i + 1}/10)`),
         shipped: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} has shipped (${i + 1}/10)`),
+        shipped_followup: Array.from({ length: 10 }, (_, i) => `A quick delivery check for order ${orderRef} (${i + 1}/10)`),
+        completed: Array.from({ length: 10 }, (_, i) => `Thank you for choosing SSC Jewellery (${orderRef}) (${i + 1}/10)`),
         delivered: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} delivered (${i + 1}/10)`),
         cancelled: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} cancelled (${i + 1}/10)`),
         failed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} needs attention (${i + 1}/10)`)
@@ -144,6 +146,8 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         pending: `Your order <strong>${orderRef}</strong> is currently pending and queued for processing.`,
         processing: `Your order <strong>${orderRef}</strong> is now under active processing by our fulfillment team.`,
         shipped: `Your order <strong>${orderRef}</strong> has been dispatched and is in transit.`,
+        shipped_followup: `Your order <strong>${orderRef}</strong> is marked as shipped. We hope it has reached you safely.`,
+        completed: `Thank you for shopping with us. We are grateful for your trust in SSC Jewellery.`,
         delivered: `Your order <strong>${orderRef}</strong> has been delivered successfully.`,
         cancelled: `Your order <strong>${orderRef}</strong> has been cancelled in our system.`,
         failed: `Your order <strong>${orderRef}</strong> requires your attention before we can proceed.`
@@ -156,6 +160,8 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         pending: ['No action is needed from your side.', 'Keep your contact details reachable.', 'Reply if you need to update shipping details.'],
         processing: ['No action is required at this stage.', 'We will notify you at dispatch.', 'Contact us if you need urgent delivery advice.'],
         shipped: ['Track your order from your account page.', 'Keep delivery phone accessible.', 'Reply for support if tracking appears delayed.'],
+        shipped_followup: ['Please confirm receipt using the link shared below.', 'Reply if you need any assistance from our support team.', 'We will update the order status as soon as you confirm receipt.'],
+        completed: ['Enjoy your purchase and keep this email for your records.', 'Reply if you need support with product or service.', 'We would love to serve you again soon.'],
         delivered: ['Please verify package contents after delivery.', 'Reach us immediately if there is any issue.', 'Share your experience with our team.'],
         cancelled: ['Review cancellation details in your account.', 'Reply if cancellation was not expected.', 'Place a new order anytime if needed.'],
         failed: ['Reply to this email for immediate support.', 'Recheck payment/order details in your account.', 'Our team will guide you through quick resolution.']
@@ -179,10 +185,27 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const closing = pickVariant(COMMON_CLOSINGS, `${seed}|closing`);
     const assurance = pickVariant(assuranceByStage, `${seed}|assurance`);
 
+    const courierPartner = String(order?.courier_partner || '').trim();
+    const awbNumber = String(order?.awb_number || '').trim();
+    const deliveryConfirmationUrl = String(order?.delivery_confirmation_url || '').trim();
+    const shipmentInfoLine = (stageKey === 'shipped' || stageKey === 'shipped_followup')
+        ? [
+            courierPartner ? `Courier partner: <strong>${courierPartner}</strong>` : null,
+            awbNumber ? `AWB number: <strong>${awbNumber}</strong>` : null
+        ].filter(Boolean).join(' | ')
+        : '';
+    const deliveryConfirmLine = stageKey === 'shipped_followup' && deliveryConfirmationUrl
+        ? `Please confirm once you receive your parcel: <a href="${deliveryConfirmationUrl}" target="_blank" rel="noreferrer">${deliveryConfirmationUrl}</a>`
+        : '';
+
+    const orderRefLine = `Order reference: <strong>${orderRef}</strong>${createdDate && stageKey !== 'completed' ? ` | Date: <strong>${createdDate}</strong>` : ''}`;
+
     const bodyBlocks = [
         stageSummary[stageKey] || `Your order <strong>${orderRef}</strong> status is <strong>${stageKey}</strong>.`,
-        `Order reference: <strong>${orderRef}</strong>${createdDate ? ` | Date: <strong>${createdDate}</strong>` : ''}`,
+        orderRefLine,
         `Order value: <strong>${total}</strong>`,
+        shipmentInfoLine || null,
+        deliveryConfirmLine || null,
         invoiceLine || null
     ].filter(Boolean);
 

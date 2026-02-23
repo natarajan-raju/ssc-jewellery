@@ -43,8 +43,8 @@ const applyDefaultPending = (order) => {
     const createdAt = order.created_at ? new Date(order.created_at) : null;
     if (!createdAt || Number.isNaN(createdAt.getTime())) return order;
     const now = new Date();
-    const isNextDay = createdAt.toDateString() !== now.toDateString();
-    if (!isNextDay) return order;
+    const diffHours = (now.getTime() - createdAt.getTime()) / (60 * 60 * 1000);
+    if (!Number.isFinite(diffHours) || diffHours < 24) return order;
     return { ...order, status: 'pending' };
 };
 
@@ -102,8 +102,15 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
     let latestLimit = null;
 
     if (status && status !== 'all') {
-        where += ' AND o.status = ?';
-        params.push(status);
+        const normalizedStatus = String(status || '').trim().toLowerCase();
+        if (normalizedStatus === 'pending') {
+            where += " AND (o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) >= 24))";
+        } else if (normalizedStatus === 'confirmed') {
+            where += " AND (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24)";
+        } else {
+            where += ' AND o.status = ?';
+            params.push(normalizedStatus);
+        }
     }
 
     if (search) {
@@ -955,8 +962,15 @@ class Order {
         const orderParams = [];
         let orderWhere = 'WHERE 1=1';
         if (status && status !== 'all' && status !== 'failed') {
-            orderWhere += ' AND o.status = ?';
-            orderParams.push(status);
+            const normalizedStatus = String(status || '').trim().toLowerCase();
+            if (normalizedStatus === 'pending') {
+                orderWhere += " AND (o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) >= 24))";
+            } else if (normalizedStatus === 'confirmed') {
+                orderWhere += " AND (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24)";
+            } else {
+                orderWhere += ' AND o.status = ?';
+                orderParams.push(normalizedStatus);
+            }
         } else if (status === 'failed') {
             orderWhere += " AND (o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed')";
         }
@@ -1346,8 +1360,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(CASE WHEN scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND DATE(scoped.created_at) < CURDATE()) THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN scoped.status = 'confirmed' AND DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, UTC_TIMESTAMP()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, UTC_TIMESTAMP()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
@@ -1365,8 +1379,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(CASE WHEN o.status <> 'cancelled' THEN o.total ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND DATE(o.created_at) < CURDATE()) THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN o.status = 'confirmed' AND DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() AND o.status <> 'cancelled' THEN o.total ELSE 0 END) as today_revenue
                  FROM orders o
@@ -1386,14 +1400,116 @@ class Order {
         };
     }
 
-    static async updateStatus(orderId, status) {
+    static async updateStatus(orderId, status, options = {}) {
         const allowed = ['pending', 'confirmed', 'shipped', 'completed', 'cancelled'];
         if (!allowed.includes(status)) {
             throw new Error('Invalid status');
         }
-        await db.execute('UPDATE orders SET status = ? WHERE id = ?', [status, orderId]);
+        const {
+            courierPartner = null,
+            awbNumber = null
+        } = options || {};
+        const normalizedCourier = String(courierPartner || '').trim();
+        const normalizedAwb = String(awbNumber || '').trim();
+        const setShippedAt = status === 'shipped';
+        const setCompletedAt = status === 'completed';
+
+        await db.execute(
+            `UPDATE orders
+             SET status = ?,
+                 courier_partner = COALESCE(?, courier_partner),
+                 awb_number = COALESCE(?, awb_number),
+                 shipped_at = CASE
+                    WHEN ? THEN COALESCE(shipped_at, NOW())
+                    ELSE shipped_at
+                 END,
+                 completed_at = CASE
+                    WHEN ? THEN COALESCE(completed_at, NOW())
+                    ELSE completed_at
+                 END
+             WHERE id = ?`,
+            [
+                status,
+                normalizedCourier || null,
+                normalizedAwb || null,
+                setShippedAt ? 1 : 0,
+                setCompletedAt ? 1 : 0,
+                orderId
+            ]
+        );
         await db.execute('INSERT INTO order_status_events (order_id, status) VALUES (?, ?)', [orderId, status]);
         return true;
+    }
+
+    static async markDeliveryConfirmationReminderSent(orderId) {
+        const id = Number(orderId);
+        if (!Number.isFinite(id) || id <= 0) return false;
+        await db.execute(
+            `UPDATE orders
+             SET delivery_confirmation_requested_at = NOW(),
+                 delivery_confirmation_request_count = COALESCE(delivery_confirmation_request_count, 0) + 1
+             WHERE id = ?`,
+            [id]
+        );
+        return true;
+    }
+
+    static async getShippedOrdersForCustomerConfirmation({ afterDays = 7, limit = 200 } = {}) {
+        const safeDays = Math.max(1, Number(afterDays) || 7);
+        const safeLimit = Math.max(1, Math.min(500, Number(limit) || 200));
+        const [rows] = await db.execute(
+            `SELECT o.*, u.name as customer_name, u.mobile as customer_mobile, u.email as customer_email
+             FROM orders o
+             LEFT JOIN users u ON u.id = o.user_id
+             WHERE o.status = 'shipped'
+               AND o.user_id IS NOT NULL
+               AND u.email IS NOT NULL
+               AND (o.delivery_confirmation_requested_at IS NULL)
+               AND COALESCE(o.shipped_at, o.updated_at, o.created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY)
+             ORDER BY COALESCE(o.shipped_at, o.updated_at, o.created_at) ASC
+             LIMIT ?`,
+            [safeDays, safeLimit]
+        );
+        return (rows || []).map((row) => applyDefaultPending({
+            ...row,
+            billing_address: normalizeAddress(row.billing_address),
+            shipping_address: normalizeAddress(row.shipping_address),
+            company_snapshot: parseJsonSafe(row.company_snapshot),
+            settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
+            loyalty_meta: parseJsonSafe(row.loyalty_meta),
+            coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
+                ? (() => {
+                    try { return JSON.parse(row.coupon_meta); } catch { return null; }
+                })()
+                : row.coupon_meta || null
+        }));
+    }
+
+    static async getOverdueShippedSummary({ afterDays = 30, limit = 5 } = {}) {
+        const safeDays = Math.max(1, Number(afterDays) || 30);
+        const safeLimit = Math.max(1, Math.min(20, Number(limit) || 5));
+        const [countRows] = await db.execute(
+            `SELECT COUNT(*) AS total
+             FROM orders o
+             WHERE o.status = 'shipped'
+               AND COALESCE(o.shipped_at, o.updated_at, o.created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY)`,
+            [safeDays]
+        );
+        const total = Number(countRows?.[0]?.total || 0);
+        if (total <= 0) return { total: 0, cases: [] };
+
+        const [rows] = await db.execute(
+            `SELECT o.id, o.order_ref, o.total, o.courier_partner, o.awb_number, o.shipped_at, o.created_at,
+                    u.name AS customer_name, u.mobile AS customer_mobile
+             FROM orders o
+             LEFT JOIN users u ON u.id = o.user_id
+             WHERE o.status = 'shipped'
+               AND COALESCE(o.shipped_at, o.updated_at, o.created_at) <= DATE_SUB(NOW(), INTERVAL ? DAY)
+             ORDER BY COALESCE(o.shipped_at, o.updated_at, o.created_at) ASC
+             LIMIT ?`,
+            [safeDays, safeLimit]
+        );
+        return { total, cases: rows || [] };
     }
 
     static async deleteById(orderId) {

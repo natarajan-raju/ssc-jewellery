@@ -463,7 +463,10 @@ export const orderService = {
             body: JSON.stringify({
                 status,
                 processRefund: Boolean(options?.processRefund),
-                refundAmount: options?.refundAmount ?? null
+                refundAmount: options?.refundAmount ?? null,
+                courierPartner: options?.courierPartner ?? '',
+                courierPartnerOther: options?.courierPartnerOther ?? '',
+                awbNumber: options?.awbNumber ?? ''
             })
         });
         const data = await handleResponse(res);
@@ -505,6 +508,14 @@ export const orderService = {
         }
         if (data?.attempt) patchAdminAttemptCaches(data.attempt);
         return data;
+    },
+    getAdminOverdueShippedSummary: async ({ days = 30, limit = 5 } = {}) => {
+        const safeDays = Math.max(1, Number(days) || 30);
+        const safeLimit = Math.max(1, Math.min(10, Number(limit) || 5));
+        const res = await fetch(`${API_URL}/admin/shipped/overdue-summary?days=${encodeURIComponent(safeDays)}&limit=${encodeURIComponent(safeLimit)}`, {
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
     },
     fetchMyPaymentStatus: async ({ orderId } = {}) => {
         const id = Number(orderId);

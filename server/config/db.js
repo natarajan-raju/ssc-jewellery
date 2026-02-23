@@ -278,10 +278,31 @@ const initDB = async () => {
             await connection.query('ALTER TABLE orders ADD COLUMN settlement_snapshot JSON');
         } catch {}
         try {
+            await connection.query('ALTER TABLE orders ADD COLUMN courier_partner VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN awb_number VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN shipped_at DATETIME NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN completed_at DATETIME NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN delivery_confirmation_requested_at DATETIME NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN delivery_confirmation_request_count INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE orders ADD INDEX idx_orders_settlement_id (settlement_id)');
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD INDEX idx_orders_user_created_payment (user_id, created_at, payment_status)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD INDEX idx_orders_status_shipped_at (status, shipped_at)');
         } catch {}
 
         await connection.query(`
