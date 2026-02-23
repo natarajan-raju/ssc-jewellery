@@ -36,6 +36,11 @@ const COURIER_PARTNERS = [
     'Aramex',
     'Others'
 ];
+const CANCELLATION_MODES = [
+    { value: 'razorpay', label: 'Razorpay Refund' },
+    { value: 'manual', label: 'Manual Refund' }
+];
+const MANUAL_REFUND_METHODS = ['Cash', 'NEFT/RTGS', 'UPI', 'Bank A/c Transfer', 'Voucher code'];
 
 const toDateOnly = (value) => {
     if (!value) return null;
@@ -111,7 +116,11 @@ export default function Orders({
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
     const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-    const [processRefundOnCancel, setProcessRefundOnCancel] = useState(false);
+    const [cancellationMode, setCancellationMode] = useState('');
+    const [manualRefundAmount, setManualRefundAmount] = useState('');
+    const [manualRefundMethod, setManualRefundMethod] = useState('');
+    const [manualRefundRef, setManualRefundRef] = useState('');
+    const [manualRefundUtr, setManualRefundUtr] = useState('');
     const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
     const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
     const [deletingOrderId, setDeletingOrderId] = useState(null);
@@ -189,12 +198,6 @@ export default function Orders({
         return `order:${order?.order_id || order?.id}`;
     };
     const isPaidPayment = (order) => String(order?.payment_status || '').toLowerCase() === 'paid';
-    const isRazorpayPaidOrder = (order) => {
-        const gateway = String(order?.payment_gateway || order?.paymentGateway || '').toLowerCase();
-        const paid = isPaidPayment(order);
-        const hasRazorpayRef = Boolean(order?.razorpay_payment_id || order?.razorpay_order_id);
-        return paid && (gateway === 'razorpay' || hasRazorpayRef);
-    };
     const canDeleteRow = (order) => !isPaidPayment(order);
     const canDownloadInvoice = (order) => {
         if (isAttemptEntry(order)) return false;
@@ -336,7 +339,11 @@ export default function Orders({
     useEffect(() => {
         if (!selectedOrder) return;
         setPendingStatus(selectedOrder.status || 'confirmed');
-        setProcessRefundOnCancel(false);
+        setCancellationMode('');
+        setManualRefundAmount('');
+        setManualRefundMethod('');
+        setManualRefundRef('');
+        setManualRefundUtr('');
         const existingCourier = String(selectedOrder.courier_partner || '').trim();
         if (existingCourier && COURIER_PARTNERS.includes(existingCourier)) {
             setCourierPartner(existingCourier);
@@ -625,19 +632,48 @@ export default function Orders({
                 return;
             }
         }
+        const isPaid = isPaidPayment(selectedOrder);
+        const refundableBase = Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0));
+        if (pendingStatus === 'cancelled' && isPaid) {
+            if (!cancellationMode) {
+                toast.error('Select cancellation mode before cancelling this paid order');
+                return;
+            }
+            if (cancellationMode === 'manual') {
+                const amount = Number(manualRefundAmount);
+                if (!manualRefundMethod) {
+                    toast.error('Select manual refund method');
+                    return;
+                }
+                if (!Number.isFinite(amount) || amount <= 0) {
+                    toast.error('Enter manual refunded amount');
+                    return;
+                }
+                if (amount > refundableBase) {
+                    toast.error(`Refund cannot exceed ₹${refundableBase.toLocaleString('en-IN')} (shipping excluded).`);
+                    return;
+                }
+                if (manualRefundMethod === 'NEFT/RTGS' && !String(manualRefundUtr || '').trim()) {
+                    toast.error('Enter UTR number for NEFT/RTGS');
+                    return;
+                }
+                if ((manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && !String(manualRefundRef || '').trim()) {
+                    toast.error(`Enter reference number for ${manualRefundMethod}`);
+                    return;
+                }
+            }
+        }
         setIsUpdatingStatus(true);
         try {
-            const shouldProcessRefund = (
-                pendingStatus === 'cancelled'
-                && processRefundOnCancel
-                && isRazorpayPaidOrder(selectedOrder)
-                && Boolean(selectedOrder?.razorpay_payment_id || selectedOrder?.razorpay_order_id)
-            );
             const data = await orderService.updateAdminOrderStatus(
                 selectedOrder.order_id || selectedOrder.id,
                 pendingStatus,
                 {
-                    processRefund: shouldProcessRefund,
+                    cancellationMode: pendingStatus === 'cancelled' ? cancellationMode : '',
+                    manualRefundAmount: pendingStatus === 'cancelled' ? manualRefundAmount : '',
+                    manualRefundMethod: pendingStatus === 'cancelled' ? manualRefundMethod : '',
+                    manualRefundRef: pendingStatus === 'cancelled' ? manualRefundRef : '',
+                    manualRefundUtr: pendingStatus === 'cancelled' ? manualRefundUtr : '',
                     courierPartner,
                     courierPartnerOther,
                     awbNumber
@@ -648,8 +684,10 @@ export default function Orders({
                 patchOrderRow(data.order);
                 markOrderMetricsDirty(metricsQuery);
                 fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                if (shouldProcessRefund && data?.refund?.id) {
+                if (pendingStatus === 'cancelled' && cancellationMode === 'razorpay' && data?.refund?.id) {
                     toast.success(`Order cancelled and refund initiated (${data.refund.id})`);
+                } else if (pendingStatus === 'cancelled' && cancellationMode === 'manual') {
+                    toast.success('Order cancelled and manual refund details recorded');
                 } else {
                     toast.success('Order status updated');
                 }
@@ -659,7 +697,7 @@ export default function Orders({
         } finally {
             setIsUpdatingStatus(false);
         }
-    }, [awbNumber, courierPartner, courierPartnerOther, fetchOrderMetrics, isRazorpayPaidOrder, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, processRefundOnCancel, selectedOrder, toast]);
+    }, [awbNumber, cancellationMode, courierPartner, courierPartnerOther, fetchOrderMetrics, manualRefundAmount, manualRefundMethod, manualRefundRef, manualRefundUtr, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, selectedOrder, toast]);
 
     const handleFetchPaymentStatus = async ({ reason = 'payment' } = {}) => {
         if (!selectedOrder) return;
@@ -1553,20 +1591,89 @@ export default function Orders({
                                             </div>
                                         </div>
                                     )}
-                                    {pendingStatus === 'cancelled' &&
-                                        isRazorpayPaidOrder(selectedOrder) &&
-                                        Boolean(selectedOrder?.razorpay_payment_id || selectedOrder?.razorpay_order_id) && (
-                                        <label className="mt-3 inline-flex items-start gap-2 text-xs text-gray-700">
-                                            <input
-                                                type="checkbox"
-                                                checked={processRefundOnCancel}
-                                                onChange={(e) => setProcessRefundOnCancel(e.target.checked)}
-                                                className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary"
-                                            />
-                                            <span>
-                                                Process instant Razorpay refund (speed: optimum) while cancelling order.
-                                            </span>
-                                        </label>
+                                    {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
+                                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+                                            <p className="text-xs text-amber-800 font-semibold">
+                                                Shipping charge is non-refundable. Maximum refundable amount: ₹{Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0)).toLocaleString('en-IN')}
+                                            </p>
+                                            <div>
+                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
+                                                <select
+                                                    value={cancellationMode}
+                                                    onChange={(e) => setCancellationMode(e.target.value)}
+                                                    disabled={isUpdatingStatus}
+                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                >
+                                                    <option value="">Select cancellation mode</option>
+                                                    {CANCELLATION_MODES.map((mode) => (
+                                                        <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            {cancellationMode === 'manual' && (
+                                                <div className="grid grid-cols-1 gap-3">
+                                                    <div>
+                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refunded Amount</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={manualRefundAmount}
+                                                            onChange={(e) => setManualRefundAmount(e.target.value)}
+                                                            disabled={isUpdatingStatus}
+                                                            placeholder="Enter refunded amount"
+                                                            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refund Method</label>
+                                                        <select
+                                                            value={manualRefundMethod}
+                                                            onChange={(e) => setManualRefundMethod(e.target.value)}
+                                                            disabled={isUpdatingStatus}
+                                                            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                        >
+                                                            <option value="">Select refund method</option>
+                                                            {MANUAL_REFUND_METHODS.map((method) => (
+                                                                <option key={method} value={method}>{method}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    {(manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && (
+                                                        <div>
+                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Reference Number</label>
+                                                            <input
+                                                                type="text"
+                                                                value={manualRefundRef}
+                                                                onChange={(e) => setManualRefundRef(e.target.value)}
+                                                                disabled={isUpdatingStatus}
+                                                                placeholder="Enter reference number"
+                                                                className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {manualRefundMethod === 'NEFT/RTGS' && (
+                                                        <div>
+                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">UTR Number</label>
+                                                            <input
+                                                                type="text"
+                                                                value={manualRefundUtr}
+                                                                onChange={(e) => setManualRefundUtr(e.target.value)}
+                                                                disabled={isUpdatingStatus}
+                                                                placeholder="Enter UTR number"
+                                                                className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {manualRefundMethod === 'Voucher code' && (
+                                                        <p className="text-xs text-amber-700">
+                                                            A customer-specific coupon will be auto-generated with 180 days validity after cancellation.
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     )}
                                     <button
                                         type="button"
@@ -1619,7 +1726,18 @@ export default function Orders({
                                                     <p><span className="text-gray-500">Refund Amount:</span> {getRefundAmount(selectedOrder) > 0 ? `₹${getRefundAmount(selectedOrder).toLocaleString()}` : '—'}</p>
                                                     <p><span className="text-gray-500">Refund Ref:</span> <span className="font-mono text-xs">{getRefundReference(selectedOrder) || '—'}</span></p>
                                                     <p><span className="text-gray-500">Refund Status:</span> {String(selectedOrder?.refund_status || '').trim() || '—'}</p>
+                                                    <p><span className="text-gray-500">Refund Mode:</span> {selectedOrder?.refund_mode || '—'}</p>
+                                                    <p><span className="text-gray-500">Refund Method:</span> {selectedOrder?.refund_method || '—'}</p>
+                                                    <p><span className="text-gray-500">Manual Ref:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_ref || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Manual UTR:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_utr || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{selectedOrder?.refund_coupon_code || '—'}</span></p>
+                                                    <p><span className="text-gray-500">Non-refundable Shipping:</span> ₹{Number(selectedOrder?.refund_notes?.nonRefundableShippingFee ?? selectedOrder?.shipping_fee ?? 0).toLocaleString('en-IN')}</p>
                                                 </>
+                                            )}
+                                            {String(selectedOrder?.payment_gateway || '').toLowerCase() === 'razorpay' && (
+                                                <p className="text-xs text-amber-700 mt-2">
+                                                    EMI refund reversals are controlled by the customer&apos;s issuing bank timeline. Shipping charge is non-refundable.
+                                                </p>
                                             )}
                                             {selectedOrder.status === 'pending' && (
                                                 <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>

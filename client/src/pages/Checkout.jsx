@@ -14,6 +14,7 @@ import amexLogo from '../assets/amex.png';
 import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
+import RazorpayAffordability from '../components/RazorpayAffordability';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -110,6 +111,7 @@ export default function Checkout() {
     const orderCelebratedRef = useRef(false);
     const autoCouponAttemptsRef = useRef(new Set());
     const lastTierSeenRef = useRef(String(user?.loyaltyTier || 'regular').toLowerCase());
+    const loyaltyHydratedRef = useRef(false);
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -153,6 +155,7 @@ export default function Checkout() {
     useEffect(() => {
         if (!user) return;
         lastTierSeenRef.current = String(user?.loyaltyTier || 'regular').toLowerCase();
+        loyaltyHydratedRef.current = false;
         setForm({
             name: user.name || '',
             email: user.email || '',
@@ -221,7 +224,11 @@ export default function Checkout() {
 
                 const prevTier = String(lastTierSeenRef.current || 'regular').toLowerCase();
                 const nextTier = String(status?.tier || prevTier).toLowerCase();
-                if (prevTier !== nextTier) {
+                if (!loyaltyHydratedRef.current) {
+                    // First hydration after page load/profile change: sync baseline without celebratory toast.
+                    loyaltyHydratedRef.current = true;
+                    lastTierSeenRef.current = nextTier;
+                } else if (prevTier !== nextTier) {
                     lastTierSeenRef.current = nextTier;
                     if (['bronze', 'silver', 'gold', 'platinum'].includes(nextTier)) {
                         burstConfetti();
@@ -611,27 +618,33 @@ export default function Checkout() {
                         </div>
                     </div>
                     <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
-                                <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{loyaltyStatus?.profile?.label || tier} Tier</p>
-                                <p className={`text-sm mt-2 ${tierTheme.body}`}>
-                                    {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
-                                </p>
-                            </div>
-                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
-                                <Sparkles size={14} /> Extra member pricing
-                            </span>
-                        </div>
-                        <div className="mt-4">
-                            <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
-                                <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
-                            </div>
-                            <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
-                                <span>{progressPct}% to next tier</span>
-                                <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
-                            </div>
-                        </div>
+                        {!loyaltyStatus && isSummaryLoading ? (
+                            <div className="text-white/90 text-sm">Loading membership benefits...</div>
+                        ) : (
+                            <>
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
+                                        <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{loyaltyStatus?.profile?.label || tier} Tier</p>
+                                        <p className={`text-sm mt-2 ${tierTheme.body}`}>
+                                            {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
+                                        </p>
+                                    </div>
+                                    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
+                                        <Sparkles size={14} /> Extra member pricing
+                                    </span>
+                                </div>
+                                <div className="mt-4">
+                                    <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
+                                        <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                                    </div>
+                                    <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
+                                        <span>{progressPct}% to next tier</span>
+                                        <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6">
@@ -975,6 +988,7 @@ export default function Checkout() {
                                         <span>₹{grandTotal.toLocaleString()}</span>
                                     </div>
                                 </div>
+                                <RazorpayAffordability amountRupees={grandTotal} className="mt-4" />
 
                                 <button
                                     type="button"

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
-    Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, 
+    Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, Minus, Plus,
     AlertTriangle, Check, ArrowRight, Home, ShieldCheck, Truck,
     MessageCircle, Facebook, Twitter, Send, Copy
 } from 'lucide-react';
@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import ProductCard from '../components/ProductCard';
+import RazorpayAffordability from '../components/RazorpayAffordability';
 import placeholderImg from '../assets/placeholder.jpg'
 import { vibrateTap } from '../utils/haptics';
 
@@ -40,7 +41,7 @@ export default function ProductPage() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { socket } = useSocket();
-    const { addItem } = useCart();
+    const { items, addItem, updateQuantity } = useCart();
     const { toggleWishlist, isWishlisted } = useWishlist();
     const toast = useToast();
 
@@ -62,6 +63,21 @@ export default function ProductPage() {
     const relatedReloadTimerRef = useRef(null);
     const cartPressTimerRef = useRef(null);
     const heartPressTimerRef = useRef(null);
+    const selectedCartEntries = useMemo(() => {
+        if (!product?.id) return [];
+        return (items || []).filter((entry) => {
+            if (String(entry?.productId || '') !== String(product.id)) return false;
+            const activeVariantKey = String(activeVariantId || '');
+            const entryVariantKey = String(entry?.variantId || '');
+            if (activeVariantKey) return entryVariantKey === activeVariantKey;
+            return !entryVariantKey;
+        });
+    }, [items, product?.id, activeVariantId]);
+    const selectedCartQty = useMemo(
+        () => selectedCartEntries.reduce((sum, entry) => sum + Number(entry?.quantity || 0), 0),
+        [selectedCartEntries]
+    );
+    const selectedCartItem = selectedCartEntries[0] || null;
 
     // [FIX] Helper to normalize socket data (Strings -> Arrays)
     const normalizeSocketData = (data) => {
@@ -280,6 +296,28 @@ export default function ProductPage() {
         } catch (error) {
             toast.error(error?.message || 'Failed to add item to cart');
         }
+    };
+
+    const handleIncrementSelectedQty = async () => {
+        if (!product || isOutOfStock) return;
+        if (!selectedCartItem) {
+            await handleAddToCart();
+            return;
+        }
+        await updateQuantity({
+            productId: selectedCartItem.productId,
+            variantId: selectedCartItem.variantId || '',
+            quantity: Number(selectedCartItem.quantity || 0) + 1
+        });
+    };
+
+    const handleDecrementSelectedQty = async () => {
+        if (!selectedCartItem) return;
+        await updateQuantity({
+            productId: selectedCartItem.productId,
+            variantId: selectedCartItem.variantId || '',
+            quantity: Number(selectedCartItem.quantity || 0) - 1
+        });
     };
 
     // --- 1. Initial Fetch ---
@@ -744,6 +782,10 @@ export default function ProductPage() {
                                 </span>
                             )}
                         </div>
+                        <RazorpayAffordability
+                            amountRupees={(currentDiscount > 0 && currentDiscount < currentPrice) ? currentDiscount : currentPrice}
+                            className="mb-6"
+                        />
 
                         {/* Stock Status */}
                         <div className="flex items-center gap-4 mb-6 text-sm">
@@ -801,16 +843,38 @@ export default function ProductPage() {
                         )}
                         {/* Action Buttons */}
                         <div className="flex gap-4 mb-10">
-                            <button 
-                                disabled={isOutOfStock}
-                                className={`flex-1 btn-primary py-4 text-lg flex items-center justify-center transition-all
-                                ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : justAddedToCart ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:shadow-lg'}
-                                ${cartPressed ? 'scale-[0.99]' : 'scale-100'}`}
-                                onClick={() => !isOutOfStock && handleAddToCart()} 
-                            >
-                                {justAddedToCart && !isOutOfStock ? <Check size={20} className="mr-2" /> : <ShoppingCart size={20} className="mr-2" />}
-                                {isOutOfStock ? 'Sold out' : justAddedToCart ? 'Added' : 'Add to Cart'}
-                            </button>
+                            {selectedCartQty > 0 && !isOutOfStock ? (
+                                <div className="flex-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 flex items-center justify-between px-2 py-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleDecrementSelectedQty}
+                                        className="w-10 h-10 rounded-md border border-emerald-200 bg-white hover:bg-emerald-100 flex items-center justify-center"
+                                        aria-label="Decrease quantity"
+                                    >
+                                        <Minus size={18} />
+                                    </button>
+                                    <span className="text-base font-bold min-w-20 text-center">{selectedCartQty} in cart</span>
+                                    <button
+                                        type="button"
+                                        onClick={handleIncrementSelectedQty}
+                                        className="w-10 h-10 rounded-md border border-emerald-200 bg-white hover:bg-emerald-100 flex items-center justify-center"
+                                        aria-label="Increase quantity"
+                                    >
+                                        <Plus size={18} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button 
+                                    disabled={isOutOfStock}
+                                    className={`flex-1 btn-primary py-4 text-lg flex items-center justify-center transition-all
+                                    ${isOutOfStock ? 'bg-gray-400 border-gray-400 cursor-not-allowed opacity-100 hover:bg-gray-400' : justAddedToCart ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:shadow-lg'}
+                                    ${cartPressed ? 'scale-[0.99]' : 'scale-100'}`}
+                                    onClick={() => !isOutOfStock && handleAddToCart()} 
+                                >
+                                    {justAddedToCart && !isOutOfStock ? <Check size={20} className="mr-2" /> : <ShoppingCart size={20} className="mr-2" />}
+                                    {isOutOfStock ? 'Sold out' : justAddedToCart ? 'Added' : 'Add to Cart'}
+                                </button>
+                            )}
                             <button 
                                 className={`px-4 py-4 rounded-lg border border-gray-300 hover:border-red-500 hover:text-red-500 transition-all duration-150 ${heartPressed ? 'scale-110' : 'scale-100'}`}
                                 onClick={async () => {

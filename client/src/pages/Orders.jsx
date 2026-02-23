@@ -534,6 +534,11 @@ export default function Orders() {
                                         Refund was not initiated for this cancelled order. Please contact admin for refund via WhatsApp support.
                                     </div>
                                 )}
+                                {String(selectedOrder?.payment_gateway || '').toLowerCase() === 'razorpay' && (
+                                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                                        For EMI transactions, refund reversal timelines are decided by your card issuing bank. Shipping charges are non-refundable.
+                                    </div>
+                                )}
                                 {canDownloadInvoice(selectedOrder) && (
                                     <div className="flex justify-center">
                                         <button
@@ -617,6 +622,14 @@ export default function Orders() {
                                         <div className="flex items-center justify-between text-gray-600">
                                             <span>Refund Status</span>
                                             <span>{getRefundStatus(selectedOrder) || '—'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-gray-600">
+                                            <span>Refund Method</span>
+                                            <span>{selectedOrder?.refund_method || '—'}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-gray-600">
+                                            <span>Refund Voucher</span>
+                                            <span className="font-mono text-xs text-gray-700">{selectedOrder?.refund_coupon_code || '—'}</span>
                                         </div>
                                     </>
                                 )}

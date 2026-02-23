@@ -1033,6 +1033,12 @@ class Order {
                 o.refund_reference,
                 o.refund_amount,
                 o.refund_status,
+                o.refund_mode,
+                o.refund_method,
+                o.manual_refund_ref,
+                o.manual_refund_utr,
+                o.refund_coupon_code,
+                o.refund_notes,
                 o.subtotal,
                 o.shipping_fee,
                 o.discount_total,
@@ -1076,6 +1082,12 @@ class Order {
                 NULL as refund_reference,
                 0 as refund_amount,
                 NULL as refund_status,
+                NULL as refund_mode,
+                NULL as refund_method,
+                NULL as manual_refund_ref,
+                NULL as manual_refund_utr,
+                NULL as refund_coupon_code,
+                NULL as refund_notes,
                 ROUND(pa.amount_subunits / 100, 2) as subtotal,
                 0 as shipping_fee,
                 0 as discount_total,
@@ -1154,6 +1166,7 @@ class Order {
                 shipping_address: normalizeAddress(row.shipping_address),
                 company_snapshot: parseJsonSafe(row.company_snapshot),
                 settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
+                refund_notes: parseJsonSafe(row.refund_notes),
                 loyalty_meta: parseJsonSafe(row.loyalty_meta),
                 coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
                     ? (() => {
@@ -1209,6 +1222,7 @@ class Order {
             shipping_address: normalizeAddress(order.shipping_address),
             company_snapshot: parseJsonSafe(order.company_snapshot),
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
+            refund_notes: parseJsonSafe(order.refund_notes),
             loyalty_meta: parseJsonSafe(order.loyalty_meta),
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
@@ -1335,6 +1349,7 @@ class Order {
             shipping_address: normalizeAddress(order.shipping_address),
             company_snapshot: parseJsonSafe(order.company_snapshot),
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
+            refund_notes: parseJsonSafe(order.refund_notes),
             loyalty_meta: parseJsonSafe(order.loyalty_meta),
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
@@ -1407,18 +1422,45 @@ class Order {
         }
         const {
             courierPartner = null,
-            awbNumber = null
+            awbNumber = null,
+            paymentStatus = null,
+            refundReference = null,
+            refundAmount = null,
+            refundStatus = null,
+            refundMode = null,
+            refundMethod = null,
+            manualRefundRef = null,
+            manualRefundUtr = null,
+            refundCouponCode = null,
+            refundNotes = null
         } = options || {};
         const normalizedCourier = String(courierPartner || '').trim();
         const normalizedAwb = String(awbNumber || '').trim();
+        const normalizedPaymentStatus = String(paymentStatus || '').trim().toLowerCase();
+        const normalizedRefundMode = String(refundMode || '').trim().toLowerCase();
+        const normalizedRefundMethod = String(refundMethod || '').trim();
+        const normalizedManualRefundRef = String(manualRefundRef || '').trim();
+        const normalizedManualRefundUtr = String(manualRefundUtr || '').trim();
+        const normalizedRefundCouponCode = String(refundCouponCode || '').trim().toUpperCase();
+        const normalizedRefundReference = String(refundReference || '').trim();
         const setShippedAt = status === 'shipped';
         const setCompletedAt = status === 'completed';
 
         await db.execute(
             `UPDATE orders
              SET status = ?,
+                 payment_status = COALESCE(NULLIF(?, ''), payment_status),
+                 refund_reference = COALESCE(?, refund_reference),
+                 refund_amount = COALESCE(?, refund_amount),
+                 refund_status = COALESCE(?, refund_status),
                  courier_partner = COALESCE(?, courier_partner),
                  awb_number = COALESCE(?, awb_number),
+                 refund_mode = COALESCE(?, refund_mode),
+                 refund_method = COALESCE(?, refund_method),
+                 manual_refund_ref = COALESCE(?, manual_refund_ref),
+                 manual_refund_utr = COALESCE(?, manual_refund_utr),
+                 refund_coupon_code = COALESCE(?, refund_coupon_code),
+                 refund_notes = COALESCE(?, refund_notes),
                  shipped_at = CASE
                     WHEN ? THEN COALESCE(shipped_at, NOW())
                     ELSE shipped_at
@@ -1430,8 +1472,18 @@ class Order {
              WHERE id = ?`,
             [
                 status,
+                normalizedPaymentStatus,
+                normalizedRefundReference || null,
+                refundAmount != null ? Number(refundAmount) : null,
+                String(refundStatus || '').trim() || null,
                 normalizedCourier || null,
                 normalizedAwb || null,
+                normalizedRefundMode || null,
+                normalizedRefundMethod || null,
+                normalizedManualRefundRef || null,
+                normalizedManualRefundUtr || null,
+                normalizedRefundCouponCode || null,
+                refundNotes ? JSON.stringify(refundNotes) : null,
                 setShippedAt ? 1 : 0,
                 setCompletedAt ? 1 : 0,
                 orderId
@@ -1476,6 +1528,7 @@ class Order {
             shipping_address: normalizeAddress(row.shipping_address),
             company_snapshot: parseJsonSafe(row.company_snapshot),
             settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
+            refund_notes: parseJsonSafe(row.refund_notes),
             loyalty_meta: parseJsonSafe(row.loyalty_meta),
             coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
                 ? (() => {

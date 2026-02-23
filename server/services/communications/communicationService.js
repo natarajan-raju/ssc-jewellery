@@ -163,7 +163,7 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         shipped_followup: ['Please confirm receipt using the link shared below.', 'Reply if you need any assistance from our support team.', 'We will update the order status as soon as you confirm receipt.'],
         completed: ['Enjoy your purchase and keep this email for your records.', 'Reply if you need support with product or service.', 'We would love to serve you again soon.'],
         delivered: ['Please verify package contents after delivery.', 'Reach us immediately if there is any issue.', 'Share your experience with our team.'],
-        cancelled: ['Review cancellation details in your account.', 'Reply if cancellation was not expected.', 'Place a new order anytime if needed.'],
+        cancelled: ['Review cancellation and refund details in your account.', 'For EMI refunds, contact your issuing bank for statement timeline updates if needed.', 'Reply to this email if any refund detail looks incorrect.'],
         failed: ['Reply to this email for immediate support.', 'Recheck payment/order details in your account.', 'Our team will guide you through quick resolution.']
     };
 
@@ -199,12 +199,42 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         : '';
 
     const orderRefLine = `Order reference: <strong>${orderRef}</strong>${createdDate && stageKey !== 'completed' ? ` | Date: <strong>${createdDate}</strong>` : ''}`;
+    const refundMode = String(order?.refund_mode || '').trim().toLowerCase();
+    const refundMethod = String(order?.refund_method || '').trim();
+    const refundAmount = Number(order?.refund_amount || 0);
+    const refundReference = String(order?.refund_reference || '').trim();
+    const manualRefundRef = String(order?.manual_refund_ref || '').trim();
+    const manualRefundUtr = String(order?.manual_refund_utr || '').trim();
+    const refundCouponCode = String(order?.refund_coupon_code || '').trim();
+    const nonRefundableShippingFee = Number(
+        order?.refund_notes?.nonRefundableShippingFee
+        ?? order?.shipping_fee
+        ?? 0
+    );
+    const emiCancellationWarning = (
+        stageKey === 'cancelled'
+        && String(order?.payment_gateway || '').toLowerCase() === 'razorpay'
+    ) ? 'For EMI transactions, statement reversal timelines are governed by your card issuing bank. Please contact your issuing bank if reversal is not reflected in time.' : '';
+    const refundDetailLine = stageKey === 'cancelled'
+        ? [
+            refundAmount > 0 ? `Refund amount (excluding shipping): <strong>${formatCurrency(refundAmount)}</strong>` : null,
+            nonRefundableShippingFee > 0 ? `Non-refundable shipping charge: <strong>${formatCurrency(nonRefundableShippingFee)}</strong>` : null,
+            refundMode ? `Refund mode: <strong>${refundMode === 'razorpay' ? 'Razorpay' : 'Manual'}</strong>` : null,
+            refundMethod ? `Refund method: <strong>${refundMethod}</strong>` : null,
+            refundReference ? `Gateway refund reference: <strong>${refundReference}</strong>` : null,
+            manualRefundRef ? `Manual refund reference: <strong>${manualRefundRef}</strong>` : null,
+            manualRefundUtr ? `UTR number: <strong>${manualRefundUtr}</strong>` : null,
+            refundCouponCode ? `Refund voucher code: <strong>${refundCouponCode}</strong>` : null
+        ].filter(Boolean).join(' | ')
+        : '';
 
     const bodyBlocks = [
         stageSummary[stageKey] || `Your order <strong>${orderRef}</strong> status is <strong>${stageKey}</strong>.`,
         orderRefLine,
         `Order value: <strong>${total}</strong>`,
         shipmentInfoLine || null,
+        refundDetailLine || null,
+        emiCancellationWarning || null,
         deliveryConfirmLine || null,
         invoiceLine || null
     ].filter(Boolean);

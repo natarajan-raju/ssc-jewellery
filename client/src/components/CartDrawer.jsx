@@ -4,17 +4,19 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useShipping } from '../context/ShippingContext';
 import { Heart, X, Minus, Plus, ShoppingCart } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { useWishlist } from '../context/WishlistContext';
 import { vibrateTap } from '../utils/haptics';
+import RazorpayAffordability from './RazorpayAffordability';
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
     const { user } = useAuth();
     const { zones } = useShipping();
     const { addToWishlist, wishlist } = useWishlist();
+    const location = useLocation();
     const [render, setRender] = useState(false);
     const [active, setActive] = useState(false);
     const [showFreeShippingFx, setShowFreeShippingFx] = useState(false);
@@ -66,6 +68,11 @@ export default function CartDrawer() {
     }, [shippingPreview?.freeThreshold, subtotal]);
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
+    const cartTotal = useMemo(
+        () => Number(subtotal || 0) + Number(shippingPreview?.fee || 0),
+        [subtotal, shippingPreview?.fee]
+    );
+    const canRenderDrawerWidget = !['/cart', '/checkout'].includes(String(location.pathname || '').toLowerCase());
 
     useEffect(() => {
         const layer = confettiLayerRef.current;
@@ -380,6 +387,7 @@ export default function CartDrawer() {
                     >
                         Proceed to Checkout
                     </Link>
+                    <RazorpayAffordability amountRupees={cartTotal} className="mt-3" showWidget={canRenderDrawerWidget} />
                     <p className="text-[10px] text-gray-400 text-center mt-2">
                         Checkout requires login. We will prompt you later.
                     </p>

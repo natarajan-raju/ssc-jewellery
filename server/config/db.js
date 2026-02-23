@@ -185,6 +185,12 @@ const initDB = async () => {
                 refund_reference VARCHAR(64),
                 refund_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 refund_status VARCHAR(20),
+                refund_mode VARCHAR(20),
+                refund_method VARCHAR(30),
+                manual_refund_ref VARCHAR(120),
+                manual_refund_utr VARCHAR(120),
+                refund_coupon_code VARCHAR(40),
+                refund_notes JSON,
                 coupon_code VARCHAR(40),
                 coupon_type VARCHAR(30),
                 coupon_discount_value DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -234,6 +240,24 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN refund_status VARCHAR(20)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_mode VARCHAR(20)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_method VARCHAR(30)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN manual_refund_ref VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN manual_refund_utr VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_coupon_code VARCHAR(40)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN refund_notes JSON');
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN coupon_code VARCHAR(40)');

@@ -33,6 +33,13 @@ const SHIPPED_COURIER_OPTIONS = [
     'Aramex',
     'Others'
 ];
+const MANUAL_REFUND_METHODS = [
+    'Cash',
+    'NEFT/RTGS',
+    'UPI',
+    'Bank A/c Transfer',
+    'Voucher code'
+];
 
 const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
@@ -1193,8 +1200,11 @@ const updateOrderStatus = async (req, res) => {
     try {
         const {
             status,
-            processRefund = false,
-            refundAmount = null,
+            cancellationMode = '',
+            manualRefundAmount = null,
+            manualRefundMethod = '',
+            manualRefundRef = '',
+            manualRefundUtr = '',
             courierPartner = '',
             courierPartnerOther = '',
             awbNumber = ''
@@ -1249,45 +1259,194 @@ const updateOrderStatus = async (req, res) => {
             resolvedAwb = normalizedAwb;
         }
 
+        const refundableBaseAmount = Math.max(
+            0,
+            Number(existingOrder?.total || 0) - Number(existingOrder?.shipping_fee || 0)
+        );
+        const paymentGateway = String(existingOrder?.payment_gateway || '').toLowerCase();
+        const paymentStatus = String(existingOrder?.payment_status || '').toLowerCase();
+        const canRazorpayRefund = (
+            paymentGateway === 'razorpay'
+            && paymentStatus === PAYMENT_STATUS.PAID
+            && String(existingOrder?.razorpay_payment_id || '').trim()
+        );
+
         let refund = null;
+        let resolvedPaymentStatus = String(existingOrder?.payment_status || '').toLowerCase();
+        let resolvedRefundMode = '';
+        let resolvedRefundMethod = '';
+        let resolvedManualRef = '';
+        let resolvedManualUtr = '';
+        let resolvedRefundCouponCode = '';
+        let resolvedRefundAmount = null;
+        let resolvedRefundReference = null;
+        let resolvedRefundStatus = null;
+
+        if (nextStatus === 'cancelled' && paymentStatus === PAYMENT_STATUS.PAID) {
+            const mode = String(cancellationMode || '').trim().toLowerCase();
+            if (!['razorpay', 'manual'].includes(mode)) {
+                return res.status(400).json({ message: 'Select cancellation mode (Razorpay or Manual Refund)' });
+            }
+            resolvedRefundMode = mode;
+
+            if (mode === 'razorpay') {
+                resolvedRefundMethod = 'Razorpay Gateway';
+                if (!canRazorpayRefund) {
+                    return res.status(400).json({ message: 'Razorpay refund is not available for this order' });
+                }
+                const amountSubunits = Math.round(Math.max(0, refundableBaseAmount) * 100);
+                if (!Number.isFinite(amountSubunits) || amountSubunits <= 0) {
+                    return res.status(400).json({ message: 'Refundable amount is zero after excluding shipping charges' });
+                }
+                const razorpay = createRazorpayClient();
+                const paymentId = String(existingOrder.razorpay_payment_id).trim();
+                const payload = {
+                    speed: 'optimum',
+                    amount: amountSubunits,
+                    notes: {
+                        order_ref: existingOrder.order_ref || '',
+                        order_id: String(existingOrder.id),
+                        non_refundable_shipping_fee: String(Number(existingOrder?.shipping_fee || 0))
+                    },
+                    receipt: `rfnd-${existingOrder.order_ref || existingOrder.id}-${Date.now()}`
+                };
+
+                refund = await razorpay.payments.refund(paymentId, payload);
+                resolvedRefundReference = refund?.id || null;
+                resolvedRefundAmount = refund?.amount != null ? Number(refund.amount) / 100 : refundableBaseAmount;
+                resolvedRefundStatus = refund?.status || null;
+                resolvedPaymentStatus = PAYMENT_STATUS.REFUNDED;
+
+                await Order.updatePaymentByRazorpayOrderId({
+                    razorpayOrderId: existingOrder.razorpay_order_id,
+                    paymentStatus: PAYMENT_STATUS.REFUNDED,
+                    razorpayPaymentId: paymentId,
+                    refundReference: resolvedRefundReference,
+                    refundAmount: resolvedRefundAmount,
+                    refundStatus: resolvedRefundStatus
+                });
+            } else {
+                const method = String(manualRefundMethod || '').trim();
+                const amount = Number(manualRefundAmount);
+                if (!MANUAL_REFUND_METHODS.includes(method)) {
+                    return res.status(400).json({ message: 'Select a valid manual refund method' });
+                }
+                if (!Number.isFinite(amount) || amount <= 0) {
+                    return res.status(400).json({ message: 'Enter refunded amount for manual refund' });
+                }
+                if (amount > refundableBaseAmount) {
+                    return res.status(400).json({ message: `Refund amount cannot exceed ₹${refundableBaseAmount.toLocaleString('en-IN')}. Shipping charge is non-refundable.` });
+                }
+                const ref = String(manualRefundRef || '').trim();
+                const utr = String(manualRefundUtr || '').trim();
+                if (method === 'NEFT/RTGS' && !utr) {
+                    return res.status(400).json({ message: 'UTR number is required for NEFT/RTGS refunds' });
+                }
+                if ((method === 'UPI' || method === 'Bank A/c Transfer') && !ref) {
+                    return res.status(400).json({ message: `Reference number is required for ${method}` });
+                }
+                resolvedRefundMethod = method;
+                resolvedManualRef = ref;
+                resolvedManualUtr = utr;
+                resolvedRefundAmount = amount;
+                resolvedRefundStatus = 'manual_recorded';
+                resolvedPaymentStatus = PAYMENT_STATUS.REFUNDED;
+
+                if (method === 'Voucher code') {
+                    if (!existingOrder?.user_id) {
+                        return res.status(400).json({ message: 'Cannot issue voucher for guest order' });
+                    }
+                    const expiresAt = new Date(Date.now() + (180 * 24 * 60 * 60 * 1000));
+                    const voucherCoupon = await Coupon.createCoupon({
+                        prefix: 'RFND',
+                        name: `Refund voucher for ${existingOrder.order_ref || existingOrder.id}`,
+                        description: `Manual voucher refund generated for cancelled order ${existingOrder.order_ref || existingOrder.id}`,
+                        sourceType: 'admin',
+                        scopeType: 'customer',
+                        discountType: 'fixed',
+                        discountValue: amount,
+                        minCartValue: 0,
+                        usageLimitPerUser: 1,
+                        usageLimitTotal: 1,
+                        customerTargets: [String(existingOrder.user_id)],
+                        expiresAt,
+                        metadata: {
+                            reason: 'order_cancellation_manual_refund_voucher',
+                            orderId: existingOrder.id,
+                            orderRef: existingOrder.order_ref || null
+                        }
+                    }, { createdBy: req.user?.id || null });
+                    resolvedRefundCouponCode = String(voucherCoupon?.code || '').trim().toUpperCase();
+                    resolvedManualRef = resolvedRefundCouponCode ? `VOUCHER-${resolvedRefundCouponCode}` : resolvedManualRef;
+                }
+            }
+        }
+
+        // Keep older automation path for backward compatibility when an existing API client still sends processRefund=true.
         if (
             nextStatus === 'cancelled' &&
-            Boolean(processRefund) &&
+            !resolvedRefundMode &&
+            Boolean(req.body?.processRefund) &&
             String(existingOrder?.payment_gateway || '').toLowerCase() === 'razorpay' &&
             String(existingOrder?.payment_status || '').toLowerCase() === PAYMENT_STATUS.PAID &&
             String(existingOrder?.razorpay_payment_id || '').trim()
         ) {
             const razorpay = createRazorpayClient();
             const paymentId = String(existingOrder.razorpay_payment_id).trim();
-            const amountSubunits = refundAmount != null
-                ? Math.max(1, Math.round(Number(refundAmount) * 100))
-                : null;
+            const amountSubunits = Math.round(Math.max(0, refundableBaseAmount) * 100);
             const payload = {
                 speed: 'optimum',
                 notes: {
                     order_ref: existingOrder.order_ref || '',
-                    order_id: String(existingOrder.id)
+                    order_id: String(existingOrder.id),
+                    non_refundable_shipping_fee: String(Number(existingOrder?.shipping_fee || 0))
                 },
                 receipt: `rfnd-${existingOrder.order_ref || existingOrder.id}-${Date.now()}`
             };
-            if (amountSubunits && Number.isFinite(amountSubunits)) {
+            if (amountSubunits && Number.isFinite(amountSubunits) && amountSubunits > 0) {
                 payload.amount = amountSubunits;
             }
 
             refund = await razorpay.payments.refund(paymentId, payload);
+            resolvedRefundMode = 'razorpay';
+            resolvedRefundAmount = refund?.amount != null ? Number(refund.amount) / 100 : refundableBaseAmount;
+            resolvedRefundReference = refund?.id || null;
+            resolvedRefundStatus = refund?.status || null;
+            resolvedPaymentStatus = PAYMENT_STATUS.REFUNDED;
             await Order.updatePaymentByRazorpayOrderId({
                 razorpayOrderId: existingOrder.razorpay_order_id,
                 paymentStatus: PAYMENT_STATUS.REFUNDED,
                 razorpayPaymentId: paymentId,
-                refundReference: refund?.id || null,
-                refundAmount: refund?.amount != null ? Number(refund.amount) / 100 : null,
-                refundStatus: refund?.status || null
+                refundReference: resolvedRefundReference,
+                refundAmount: resolvedRefundAmount,
+                refundStatus: resolvedRefundStatus
             });
         }
 
         await Order.updateStatus(req.params.id, nextStatus, {
             courierPartner: resolvedCourierPartner || null,
-            awbNumber: resolvedAwb || null
+            awbNumber: resolvedAwb || null,
+            paymentStatus: resolvedPaymentStatus || null,
+            refundReference: resolvedRefundReference || resolvedManualRef || null,
+            refundAmount: resolvedRefundAmount != null ? Number(resolvedRefundAmount) : null,
+            refundStatus: resolvedRefundStatus || null,
+            refundMode: resolvedRefundMode || null,
+            refundMethod: resolvedRefundMethod || null,
+            manualRefundRef: resolvedManualRef || null,
+            manualRefundUtr: resolvedManualUtr || null,
+            refundCouponCode: resolvedRefundCouponCode || null,
+            refundNotes: nextStatus === 'cancelled' ? {
+                cancellationMode: resolvedRefundMode || null,
+                manualRefundMethod: resolvedRefundMethod || null,
+                manualRefundRef: resolvedManualRef || null,
+                manualRefundUtr: resolvedManualUtr || null,
+                refundableBaseAmount,
+                nonRefundableShippingFee: Number(existingOrder?.shipping_fee || 0),
+                refundAmount: resolvedRefundAmount,
+                refundReference: resolvedRefundReference,
+                refundStatus: resolvedRefundStatus,
+                refundCouponCode: resolvedRefundCouponCode || null
+            } : null
         });
         const order = await Order.getById(req.params.id);
         const io = req.app.get('io');

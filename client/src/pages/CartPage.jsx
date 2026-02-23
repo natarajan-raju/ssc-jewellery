@@ -8,6 +8,7 @@ import { useWishlist } from '../context/WishlistContext';
 import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { vibrateTap } from '../utils/haptics';
+import RazorpayAffordability from '../components/RazorpayAffordability';
 
 export default function CartPage() {
     const { items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
@@ -388,6 +389,7 @@ export default function CartPage() {
                                     <span>₹{cartTotal.toLocaleString()}</span>
                                 </div>
                             </div>
+                            <RazorpayAffordability amountRupees={cartTotal} className="mt-4" />
                             <Link
                                 to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
                                 className="mt-6 w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
