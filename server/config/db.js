@@ -68,6 +68,12 @@ const initDB = async () => {
         try {
             await connection.query('ALTER TABLE users ADD COLUMN birthday_offer_claimed_year INT DEFAULT NULL');
         } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD INDEX idx_users_created_at (created_at)');
+        } catch {}
 
         // 3. PRODUCTS TABLE (Added 'options' column)
         await connection.query(`

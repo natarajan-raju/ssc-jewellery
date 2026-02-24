@@ -29,6 +29,7 @@ let abandonedCache = {
     timelines: {}
 };
 let loyaltyCouponCache = {};
+let dashboardCache = {};
 const ABANDONED_CACHE_TTL = 60 * 1000;
 
 // 2. ERROR HANDLER (The Fix for "Fake Success")
@@ -301,6 +302,61 @@ export const adminService = {
     invalidateLoyaltyCouponCache: () => {
         loyaltyCouponCache = {};
     },
+    getDashboardInsights: async ({
+        quickRange = 'last_30_days',
+        startDate = '',
+        endDate = '',
+        comparisonMode = 'previous_period',
+        status = 'all',
+        paymentMode = 'all',
+        sourceChannel = 'all'
+    } = {}) => {
+        const cacheKey = `${quickRange}::${startDate}::${endDate}::${comparisonMode}::${status}::${paymentMode}::${sourceChannel}`;
+        const cached = dashboardCache[cacheKey];
+        if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
+            return cached.data;
+        }
+        const query = `?quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&comparisonMode=${encodeURIComponent(comparisonMode)}&status=${encodeURIComponent(status)}&paymentMode=${encodeURIComponent(paymentMode)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
+        const res = await fetch(`${API_URL}/dashboard/insights${query}`, { headers: getAuthHeader() });
+        const data = await handleResponse(res);
+        dashboardCache[cacheKey] = { ts: Date.now(), data };
+        return data;
+    },
+    getDashboardOverview: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
+        filter: data?.filter || {},
+        overview: data?.overview || {},
+        growth: data?.growth || {},
+        risk: data?.risk || {},
+        lastUpdatedAt: data?.lastUpdatedAt || null
+    })),
+    getDashboardTrends: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
+        filter: data?.filter || {},
+        trends: data?.trends || [],
+        lastUpdatedAt: data?.lastUpdatedAt || null
+    })),
+    getDashboardFunnel: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
+        filter: data?.filter || {},
+        funnel: data?.funnel || {},
+        lastUpdatedAt: data?.lastUpdatedAt || null
+    })),
+    getDashboardProducts: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
+        filter: data?.filter || {},
+        products: data?.products || {},
+        lastUpdatedAt: data?.lastUpdatedAt || null
+    })),
+    getDashboardCustomers: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
+        filter: data?.filter || {},
+        customers: data?.customers || {},
+        lastUpdatedAt: data?.lastUpdatedAt || null
+    })),
+    getDashboardActions: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
+        filter: data?.filter || {},
+        actions: data?.actions || [],
+        lastUpdatedAt: data?.lastUpdatedAt || null
+    })),
+    invalidateDashboardCache: () => {
+        dashboardCache = {};
+    },
 
     patchAbandonedJourneyCache: (journey) => {
         if (!journey?.id) return;
@@ -354,5 +410,6 @@ export const adminService = {
             timelines: {}
         };
         loyaltyCouponCache = {};
+        dashboardCache = {};
     }
 };

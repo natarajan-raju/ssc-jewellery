@@ -109,8 +109,8 @@ export default function Orders({
     const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [quickRange, setQuickRange] = useState('last_90_days');
-    const [draftQuickRange, setDraftQuickRange] = useState('last_90_days');
+    const [quickRange, setQuickRange] = useState('latest_10');
+    const [draftQuickRange, setDraftQuickRange] = useState('latest_10');
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
     const startDateInputRef = useRef(null);
@@ -1216,10 +1216,10 @@ export default function Orders({
                     <div className="py-16 text-center text-gray-400">Loading orders...</div>
                 ) : orders.length === 0 ? (
                     <div className="py-12 text-center text-gray-400 flex flex-col items-center gap-4">
-                        <img src={orderWaitIllustration} alt="No orders" className="w-36 h-36 object-contain opacity-90" />
+                        <img src={orderWaitIllustration} alt="No orders" className="w-40 h-40 object-contain opacity-85" />
                         <div>
-                            <p className="text-gray-600 font-semibold">No orders found for these filters.</p>
-                            <p className="text-sm text-gray-400 mt-1">Try changing status or date range.</p>
+                            <p className="text-gray-700 font-semibold">No orders available for the selected filters</p>
+                            <p className="text-sm text-gray-500 mt-1">Try adjusting status, search, or date range.</p>
                         </div>
                     </div>
                 ) : (

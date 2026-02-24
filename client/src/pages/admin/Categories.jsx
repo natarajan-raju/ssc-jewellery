@@ -6,6 +6,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal'; 
 import CategoryDetail from './CategoryDetail'; // We will create this next
 import CategoryModal from '../../components/CategoryModal';
+import emptyIllustration from '../../assets/closed.svg';
 
 export default function Categories() {
     const [view, setView] = useState('list'); // 'list' or 'detail'
@@ -37,7 +38,7 @@ export default function Categories() {
         try {
             const data = await productService.getCategoryStats(true);
             setCategories(data);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load categories");
         } finally {
             setIsLoading(false);
@@ -90,7 +91,7 @@ export default function Categories() {
                 loadCategories();
             }
             setModalConfig({ ...modalConfig, isOpen: false });
-        } catch (error) {
+        } catch {
             toast.error("Action failed");
         } finally {
             setIsActionLoading(false);
@@ -156,6 +157,28 @@ export default function Categories() {
             {/* [UPDATED] UI GRID */}
             {isLoading ? (
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
+            ) : filtered.length === 0 ? (
+                <div className="py-12 flex flex-col items-center text-center">
+                    <img src={emptyIllustration} alt="No categories" className="w-40 h-40 object-contain opacity-85" />
+                    {categories.length === 0 ? (
+                        <>
+                            <h3 className="mt-3 text-lg font-semibold text-gray-700">No categories available yet</h3>
+                            <p className="text-sm text-gray-500 mt-1">Create your first category to organize products.</p>
+                        </>
+                    ) : (
+                        <>
+                            <h3 className="mt-3 text-lg font-semibold text-gray-700">No matching categories</h3>
+                            <p className="text-sm text-gray-500 mt-1">Try a different search keyword.</p>
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                className="mt-4 px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                                Clear Search
+                            </button>
+                        </>
+                    )}
+                </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filtered.map(cat => (

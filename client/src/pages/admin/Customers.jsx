@@ -728,9 +728,9 @@ export default function Customers({ onOpenLoyalty }) {
                                     <tr>
                                         <td colSpan={4} className="px-6 py-10">
                                             <div className="flex flex-col items-center justify-center text-center">
-                                                <img src={customerIllustration} alt="No customers" className="w-40 h-40 object-contain opacity-80" />
-                                                <p className="mt-3 text-sm font-semibold text-gray-700">No customers found</p>
-                                                <p className="text-xs text-gray-500 mt-1">Try changing filters or search to view matching customers.</p>
+                                                <img src={customerIllustration} alt="No customers" className="w-40 h-40 object-contain opacity-85" />
+                                                <p className="mt-3 text-sm font-semibold text-gray-700">No customers available</p>
+                                                <p className="text-xs text-gray-500 mt-1">Try adjusting filters or search to view matching customers.</p>
                                             </div>
                                         </td>
                                     </tr>
@@ -742,9 +742,9 @@ export default function Customers({ onOpenLoyalty }) {
                             {paginatedCustomersOnly.length === 0 && (
                                 <div className="py-10">
                                     <div className="flex flex-col items-center justify-center text-center">
-                                        <img src={customerIllustration} alt="No customers" className="w-32 h-32 object-contain opacity-80" />
-                                        <p className="mt-3 text-sm font-semibold text-gray-700">No customers found</p>
-                                        <p className="text-xs text-gray-500 mt-1">Try changing filters or search to view matching customers.</p>
+                                        <img src={customerIllustration} alt="No customers" className="w-36 h-36 object-contain opacity-85" />
+                                        <p className="mt-3 text-sm font-semibold text-gray-700">No customers available</p>
+                                        <p className="text-xs text-gray-500 mt-1">Try adjusting filters or search to view matching customers.</p>
                                     </div>
                                 </div>
                             )}

@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
+import cartIllustration from '../../assets/cart.svg';
 
 const journeyStatusOptions = [
     { value: 'all', label: 'All' },
@@ -719,7 +720,11 @@ export default function AbandonedCarts() {
                 {isLoading ? (
                     <div className="py-14 text-center text-gray-400">Loading abandoned cart journeys...</div>
                 ) : journeys.length === 0 ? (
-                    <div className="py-14 text-center text-gray-400">No journeys found.</div>
+                    <div className="py-14 text-center text-gray-400 flex flex-col items-center">
+                        <img src={cartIllustration} alt="No journeys" className="w-36 h-36 object-contain opacity-85" />
+                        <p className="mt-3 text-sm font-semibold text-gray-700">No abandoned journeys available</p>
+                        <p className="text-xs text-gray-500 mt-1">Try adjusting status, search, or sorting filters.</p>
+                    </div>
                 ) : (
                     <>
                     <div className="hidden md:block overflow-x-auto">

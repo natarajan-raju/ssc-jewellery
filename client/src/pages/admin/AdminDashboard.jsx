@@ -14,8 +14,8 @@ import Orders from './Orders';
 import AbandonedCarts from './AbandonedCarts';
 import CompanyInfo from './CompanyInfo';
 import LoyaltySettings from './LoyaltySettings';
+import DashboardInsights from './DashboardInsights';
 import { AdminKPIProvider } from '../../context/AdminKPIContext';
-import dashboardIllustration from '../../assets/dashboard.svg';
 import orderIllustration from '../../assets/order.svg';
 import courierIllustration from '../../assets/courier.svg';
 import receivedOrderAudio from '../../assets/received_order.mp3';
@@ -28,7 +28,7 @@ const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const SHIPPING_POPUP_COOLDOWN_MS = 90 * 1000;
 
 export default function AdminDashboard() {
-    const [activeTab, setActiveTab] = useState('customers');
+    const [activeTab, setActiveTab] = useState('dashboard');
     const [expandedMenu, setExpandedMenu] = useState('');
     const [focusOrderId, setFocusOrderId] = useState(null);
     const [ordersInitialStatusFilter, setOrdersInitialStatusFilter] = useState('');
@@ -78,15 +78,22 @@ export default function AdminDashboard() {
         </button>
     );
 
-    const EmptyState = ({ illustration, title, message }) => (
-        <div className="p-10 text-center text-gray-400 flex flex-col items-center gap-4">
-            <img src={illustration} alt={title} className="w-56 md:w-72" />
-            <div>
-                <h3 className="text-lg font-semibold text-gray-700">{title}</h3>
-                <p className="text-sm text-gray-500 mt-2">{message}</p>
-            </div>
-        </div>
-    );
+    const handleDashboardAction = (action = {}) => {
+        const target = action?.target || {};
+        if (target.tab === 'orders') {
+            setActiveTab('orders');
+            setOrdersInitialStatusFilter(target.status || '');
+            setFocusOrderId(target.orderId || null);
+            return;
+        }
+        if (target.tab === 'products') {
+            setActiveTab('products');
+            return;
+        }
+        if (target.tab) {
+            setActiveTab(target.tab);
+        }
+    };
 
     const markOrdersSeen = (orders = []) => {
         const maxTs = orders.reduce((max, order) => {
@@ -403,13 +410,7 @@ export default function AdminDashboard() {
                     {activeTab === 'customers' && <Customers onOpenLoyalty={() => setActiveTab('loyalty')} />}
                     {activeTab === 'shipping' && <ShippingSettings />}
                     {activeTab === 'cms' && <HeroCMS />}
-                    {activeTab === 'dashboard' && (
-                        <EmptyState
-                            illustration={dashboardIllustration}
-                            title="Dashboard insights coming soon"
-                            message="We’re preparing analytics for sales, customers, and inventory trends."
-                        />
-                    )}
+                    {activeTab === 'dashboard' && <DashboardInsights onRunAction={handleDashboardAction} />}
                     {activeTab === 'orders' && (
                         <Orders
                             focusOrderId={focusOrderId}

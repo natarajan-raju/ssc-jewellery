@@ -56,6 +56,653 @@ const resolveCategoryCouponContext = async (categoryIds = []) => {
     };
 };
 
+const DASHBOARD_MAX_RANGE_DAYS = 90;
+
+const toDateOnlyInput = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const parsed = new Date(`${raw}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
+};
+
+const formatDateOnlyUTC = (value) => {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toISOString().slice(0, 10);
+};
+
+const addDaysUTC = (date, days) => {
+    const next = new Date(date);
+    next.setUTCDate(next.getUTCDate() + Number(days || 0));
+    return next;
+};
+
+const diffDaysUTC = (start, end) => {
+    const ms = end.getTime() - start.getTime();
+    return Math.floor(ms / (24 * 60 * 60 * 1000));
+};
+
+const addMonthsUTC = (date, months) => {
+    const next = new Date(date);
+    next.setUTCMonth(next.getUTCMonth() + Number(months || 0));
+    return next;
+};
+
+const computeChange = (currentValue, previousValue) => {
+    const current = Number(currentValue || 0);
+    const previous = Number(previousValue || 0);
+    if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
+    if (previous === 0) return current === 0 ? 0 : 100;
+    return Number((((current - previous) / Math.abs(previous)) * 100).toFixed(1));
+};
+
+const toSafeEnum = (value, allowed = [], fallback = '') => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return allowed.includes(normalized) ? normalized : fallback;
+};
+
+const buildOrderFilterFragments = (query = {}, alias = 'o') => {
+    const parts = [];
+    const params = [];
+
+    const status = toSafeEnum(
+        query.status,
+        ['all', 'pending', 'confirmed', 'shipped', 'completed', 'cancelled', 'failed'],
+        'all'
+    );
+    const paymentMode = toSafeEnum(query.paymentMode, ['all', 'razorpay', 'cod'], 'all');
+    const sourceChannel = toSafeEnum(query.sourceChannel, ['all', 'abandoned_recovery', 'direct'], 'all');
+
+    if (status !== 'all') {
+        if (status === 'pending') {
+            parts.push(`(${alias}.status = 'pending' OR (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, UTC_TIMESTAMP()) >= 24))`);
+        } else if (status === 'failed') {
+            parts.push(`(LOWER(COALESCE(${alias}.status, '')) = 'failed' OR LOWER(COALESCE(${alias}.payment_status, '')) = 'failed')`);
+        } else {
+            parts.push(`LOWER(COALESCE(${alias}.status, '')) = ?`);
+            params.push(status);
+        }
+    }
+
+    if (paymentMode !== 'all') {
+        parts.push(`LOWER(COALESCE(${alias}.payment_gateway, '')) = ?`);
+        params.push(paymentMode);
+    }
+
+    if (sourceChannel !== 'all') {
+        if (sourceChannel === 'abandoned_recovery') {
+            parts.push(`(${alias}.is_abandoned_recovery = 1 OR LOWER(COALESCE(${alias}.source_channel, '')) = 'abandoned_recovery')`);
+        } else if (sourceChannel === 'direct') {
+            parts.push(`(${alias}.is_abandoned_recovery = 0 AND (COALESCE(${alias}.source_channel, '') = '' OR LOWER(${alias}.source_channel) <> 'abandoned_recovery'))`);
+        } else {
+            parts.push(`LOWER(COALESCE(${alias}.source_channel, '')) = ?`);
+            params.push(sourceChannel);
+        }
+    }
+
+    return {
+        clause: parts.length ? ` AND ${parts.join(' AND ')}` : '',
+        params,
+        status,
+        paymentMode,
+        sourceChannel
+    };
+};
+
+const buildDashboardScope = (query = {}) => {
+    const requestedQuickRange = String(query.quickRange || 'last_30_days').trim().toLowerCase();
+    const allowedQuickRanges = new Set(['latest_10', 'last_7_days', 'last_30_days', 'last_90_days', 'custom']);
+    const quickRange = allowedQuickRanges.has(requestedQuickRange) ? requestedQuickRange : 'last_30_days';
+    const comparisonMode = toSafeEnum(query.comparisonMode, ['previous_period', 'same_period_last_month'], 'previous_period');
+    const now = new Date();
+    const orderFilters = buildOrderFilterFragments(query, 'o');
+
+    let periodDays = 30;
+    let startDate = null;
+    let endDate = null;
+
+    if (quickRange === 'latest_10') periodDays = 10;
+    if (quickRange === 'last_7_days') periodDays = 7;
+    if (quickRange === 'last_90_days') periodDays = 90;
+
+    if (quickRange === 'custom') {
+        const start = toDateOnlyInput(query.startDate);
+        const end = toDateOnlyInput(query.endDate);
+        if (start && end && end.getTime() >= start.getTime()) {
+            const span = diffDaysUTC(start, end) + 1;
+            periodDays = Math.max(1, Math.min(DASHBOARD_MAX_RANGE_DAYS, span));
+            startDate = start;
+            endDate = addDaysUTC(start, periodDays - 1);
+        }
+    }
+
+    if (!startDate || !endDate) {
+        endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        startDate = addDaysUTC(endDate, -(periodDays - 1));
+    }
+
+    const startDateText = formatDateOnlyUTC(startDate);
+    const endDateText = formatDateOnlyUTC(endDate);
+
+    let comparisonStart = addDaysUTC(startDate, -periodDays);
+    let comparisonEnd = addDaysUTC(startDate, -1);
+    if (comparisonMode === 'same_period_last_month') {
+        comparisonStart = addMonthsUTC(startDate, -1);
+        comparisonEnd = addMonthsUTC(endDate, -1);
+    }
+
+    const comparison = {
+        startDate: formatDateOnlyUTC(comparisonStart),
+        endDate: formatDateOnlyUTC(comparisonEnd),
+        mode: comparisonMode
+    };
+
+    const ordersScopeSql = quickRange === 'latest_10'
+        ? `(SELECT * FROM orders o WHERE o.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${DASHBOARD_MAX_RANGE_DAYS} DAY)${orderFilters.clause} ORDER BY o.created_at DESC LIMIT 10)`
+        : `(SELECT * FROM orders o WHERE DATE(o.created_at) BETWEEN ? AND ?${orderFilters.clause})`;
+    const ordersScopeParams = quickRange === 'latest_10'
+        ? [...orderFilters.params]
+        : [startDateText, endDateText, ...orderFilters.params];
+
+    const attemptsWhereBase = quickRange === 'latest_10'
+        ? 'pa.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)'
+        : 'DATE(pa.created_at) BETWEEN ? AND ?';
+    const attemptsParams = quickRange === 'latest_10' ? [] : [startDateText, endDateText];
+    const attemptsWhereSql = orderFilters.status === 'failed'
+        ? `${attemptsWhereBase} AND LOWER(COALESCE(pa.status, '')) = 'failed'`
+        : attemptsWhereBase;
+
+    const usersWhereSql = quickRange === 'latest_10'
+        ? 'u.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)'
+        : 'DATE(u.created_at) BETWEEN ? AND ?';
+    const usersParams = quickRange === 'latest_10' ? [] : [startDateText, endDateText];
+
+    return {
+        quickRange,
+        periodDays,
+        comparison,
+        filters: {
+            status: orderFilters.status,
+            paymentMode: orderFilters.paymentMode,
+            sourceChannel: orderFilters.sourceChannel
+        },
+        orderFilterClause: orderFilters.clause,
+        orderFilterParams: orderFilters.params,
+        ordersScopeSql,
+        ordersScopeParams,
+        attemptsWhereSql,
+        attemptsParams,
+        usersWhereSql,
+        usersParams,
+        seriesStartDate: startDateText,
+        seriesEndDate: endDateText
+    };
+};
+
+const getDashboardInsightsPayload = async (query = {}) => {
+    const scope = buildDashboardScope(query || {});
+    const ordersScopeSql = scope.ordersScopeSql;
+    const ordersScopeParams = scope.ordersScopeParams || [];
+    const [userCreatedAtColumnRows] = await db.execute(
+        `SELECT COUNT(*) AS has_column
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'users'
+           AND COLUMN_NAME = 'created_at'`
+    );
+    const hasUserCreatedAt = Number(userCreatedAtColumnRows?.[0]?.has_column || 0) > 0;
+
+    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows]] = await Promise.all([
+        db.execute(
+            `SELECT
+                COUNT(*) AS total_orders,
+                SUM(COALESCE(scoped.subtotal, 0) + COALESCE(scoped.shipping_fee, 0)) AS gross_sales,
+                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS net_sales,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid_orders,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN COALESCE(scoped.refund_amount, 0) ELSE 0 END) AS refunded_amount
+             FROM ${ordersScopeSql} scoped`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT COUNT(*) AS attempted_payments
+             FROM payment_attempts pa
+             WHERE ${scope.attemptsWhereSql}`,
+            scope.attemptsParams
+        ),
+        db.execute(
+            `SELECT
+                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'shipped' THEN 1 ELSE 0 END) AS shipped,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'completed' THEN 1 ELSE 0 END) AS completed,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN 1 ELSE 0 END) AS refunded
+             FROM ${ordersScopeSql} scoped`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                DATE(scoped.created_at) AS bucket_date,
+                COUNT(*) AS orders_count,
+                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
+             FROM ${ordersScopeSql} scoped
+             GROUP BY DATE(scoped.created_at)
+             ORDER BY DATE(scoped.created_at) ASC`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                oi.product_id,
+                COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product') AS title,
+                SUM(COALESCE(oi.quantity, 0)) AS units_sold,
+                SUM(COALESCE(oi.line_total, 0)) AS revenue
+             FROM ${ordersScopeSql} scoped
+             JOIN order_items oi ON oi.order_id = scoped.id
+             LEFT JOIN products p ON p.id = oi.product_id
+             WHERE scoped.status <> 'cancelled'
+             GROUP BY oi.product_id, COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product')
+             ORDER BY units_sold DESC, revenue DESC
+             LIMIT 8`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT p.id, p.title
+             FROM products p
+             WHERE p.status = 'active'
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM ${ordersScopeSql} scoped
+                    JOIN order_items oi ON oi.order_id = scoped.id
+                    WHERE oi.product_id = p.id
+               )
+             ORDER BY p.updated_at DESC
+             LIMIT 5`,
+            [...ordersScopeParams]
+        ),
+        db.execute(
+            `SELECT
+                scoped.user_id,
+                COALESCE(u.name, 'Guest') AS customer_name,
+                COALESCE(u.mobile, '') AS customer_mobile,
+                COUNT(*) AS orders_count,
+                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
+             FROM ${ordersScopeSql} scoped
+             LEFT JOIN users u ON u.id = scoped.user_id
+             WHERE scoped.user_id IS NOT NULL
+             GROUP BY scoped.user_id, COALESCE(u.name, 'Guest'), COALESCE(u.mobile, '')
+             ORDER BY revenue DESC, orders_count DESC
+             LIMIT 6`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT COUNT(DISTINCT scoped.user_id) AS active_customers
+             FROM ${ordersScopeSql} scoped
+             WHERE scoped.user_id IS NOT NULL`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT COUNT(*) AS repeat_customers
+             FROM (
+                SELECT scoped.user_id
+                FROM ${ordersScopeSql} scoped
+                WHERE scoped.user_id IS NOT NULL
+                GROUP BY scoped.user_id
+                HAVING COUNT(*) > 1
+             ) repeats`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                SUM(CASE WHEN COALESCE(scoped.coupon_code, '') <> '' THEN 1 ELSE 0 END) AS coupon_orders,
+                SUM(COALESCE(scoped.coupon_discount_value, 0)) AS coupon_discount_total
+             FROM ${ordersScopeSql} scoped`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                CASE
+                    WHEN scoped.is_abandoned_recovery = 1 OR LOWER(COALESCE(scoped.source_channel, '')) = 'abandoned_recovery'
+                        THEN 'abandoned_recovery'
+                    WHEN COALESCE(scoped.source_channel, '') = '' THEN 'direct'
+                    ELSE LOWER(scoped.source_channel)
+                END AS channel,
+                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue,
+                COUNT(*) AS orders
+             FROM ${ordersScopeSql} scoped
+             GROUP BY channel
+             ORDER BY revenue DESC`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                SUM(CASE WHEN DATE(fo.first_order_date) BETWEEN ? AND ? AND scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS new_customer_revenue,
+                SUM(CASE WHEN fo.first_order_date < ? AND scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS returning_customer_revenue
+             FROM ${ordersScopeSql} scoped
+             LEFT JOIN (
+                SELECT user_id, MIN(created_at) AS first_order_date
+                FROM orders
+                WHERE user_id IS NOT NULL
+                GROUP BY user_id
+             ) fo ON fo.user_id = scoped.user_id`,
+            [scope.seriesStartDate, scope.seriesEndDate, scope.seriesStartDate, ...ordersScopeParams]
+        )
+    ]);
+
+    const [newCustomerRows] = hasUserCreatedAt
+        ? await db.execute(
+            `SELECT COUNT(*) AS new_customers
+             FROM users u
+             WHERE ${scope.usersWhereSql}`,
+            scope.usersParams
+        )
+        : [[{ new_customers: 0 }]];
+
+    const [pendingAgingRows] = await db.execute(
+        `SELECT
+            SUM(CASE WHEN TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24 THEN 1 ELSE 0 END) AS under_24h,
+            SUM(CASE WHEN TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) BETWEEN 24 AND 72 THEN 1 ELSE 0 END) AS from_24h_to_72h,
+            SUM(CASE WHEN TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) > 72 THEN 1 ELSE 0 END) AS over_72h
+         FROM orders o
+         WHERE (o.status = 'pending' OR o.status = 'confirmed')${scope.orderFilterClause}`,
+        scope.orderFilterParams
+    );
+
+    const [failedSpikeRows] = await db.execute(
+        `SELECT
+            SUM(CASE WHEN pa.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR) AND LOWER(COALESCE(pa.status, '')) = 'failed' THEN 1 ELSE 0 END) AS current_6h,
+            SUM(CASE WHEN pa.created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR) AND pa.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 12 HOUR) AND LOWER(COALESCE(pa.status, '')) = 'failed' THEN 1 ELSE 0 END) AS previous_6h
+         FROM payment_attempts pa`
+    );
+
+    const [codCancellationRows] = await db.execute(
+        `SELECT
+            SUM(CASE WHEN LOWER(COALESCE(scoped.payment_gateway, '')) = 'cod' THEN 1 ELSE 0 END) AS cod_orders,
+            SUM(CASE WHEN LOWER(COALESCE(scoped.payment_gateway, '')) = 'cod' AND LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cod_cancelled
+         FROM ${ordersScopeSql} scoped`,
+        ordersScopeParams
+    );
+
+    let comparison = null;
+    if (scope.comparison?.startDate && scope.comparison?.endDate) {
+        const [previousRows] = await db.execute(
+            `SELECT
+                COUNT(*) AS total_orders,
+                SUM(CASE WHEN o.status <> 'cancelled' THEN COALESCE(o.total, 0) ELSE 0 END) AS net_sales,
+                SUM(CASE WHEN LOWER(COALESCE(o.payment_gateway, '')) = 'cod' THEN 1 ELSE 0 END) AS cod_orders,
+                SUM(CASE WHEN LOWER(COALESCE(o.payment_gateway, '')) = 'cod' AND LOWER(COALESCE(o.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cod_cancelled
+             FROM orders o
+             WHERE DATE(o.created_at) BETWEEN ? AND ?${scope.orderFilterClause}`,
+            [scope.comparison.startDate, scope.comparison.endDate, ...scope.orderFilterParams]
+        );
+        const previous = previousRows?.[0] || {};
+        const currentCodOrders = Number(codCancellationRows?.[0]?.cod_orders || 0);
+        const currentCodCancelled = Number(codCancellationRows?.[0]?.cod_cancelled || 0);
+        const previousCodOrders = Number(previous.cod_orders || 0);
+        const previousCodCancelled = Number(previous.cod_cancelled || 0);
+        const currentCodRate = currentCodOrders > 0 ? (currentCodCancelled / currentCodOrders) * 100 : 0;
+        const previousCodRate = previousCodOrders > 0 ? (previousCodCancelled / previousCodOrders) * 100 : 0;
+        comparison = {
+            mode: scope.comparison.mode,
+            totalOrders: computeChange(Number(overviewRows?.[0]?.total_orders || 0), Number(previous.total_orders || 0)),
+            netSales: computeChange(Number(overviewRows?.[0]?.net_sales || 0), Number(previous.net_sales || 0)),
+            codCancellationRate: computeChange(currentCodRate, previousCodRate)
+        };
+    }
+
+    const base = overviewRows?.[0] || {};
+    const attemptedPayments = Number(attemptRows?.[0]?.attempted_payments || 0);
+    const paidOrders = Number(base.paid_orders || 0);
+    const netSales = Number(base.net_sales || 0);
+    const totalOrders = Number(base.total_orders || 0);
+    const averageOrderValue = totalOrders > 0 ? netSales / totalOrders : 0;
+    const conversionRate = attemptedPayments > 0 ? (paidOrders / attemptedPayments) * 100 : 0;
+    const repeatCustomers = Number(repeatCustomerRows?.[0]?.repeat_customers || 0);
+    const activeCustomers = Number(activeCustomerRows?.[0]?.active_customers || 0);
+    const repeatRate = activeCustomers > 0 ? (repeatCustomers / activeCustomers) * 100 : 0;
+    const failedPaymentsCurrent6h = Number(failedSpikeRows?.[0]?.current_6h || 0);
+    const failedPaymentsPrevious6h = Number(failedSpikeRows?.[0]?.previous_6h || 0);
+    const failedPaymentsSpikePct = computeChange(failedPaymentsCurrent6h, failedPaymentsPrevious6h);
+
+    const trendMap = new Map((trendRows || []).map((row) => [
+        formatDateOnlyUTC(row.bucket_date),
+        {
+            date: formatDateOnlyUTC(row.bucket_date),
+            orders: Number(row.orders_count || 0),
+            revenue: Number(row.revenue || 0),
+            averageOrderValue: Number(row.orders_count || 0) > 0
+                ? Number((Number(row.revenue || 0) / Number(row.orders_count || 0)).toFixed(2))
+                : 0
+        }
+    ]));
+
+    const trendSeries = [];
+    const start = toDateOnlyInput(scope.seriesStartDate);
+    const end = toDateOnlyInput(scope.seriesEndDate);
+    if (start && end && end.getTime() >= start.getTime()) {
+        let cursor = new Date(start);
+        while (cursor.getTime() <= end.getTime()) {
+            const key = formatDateOnlyUTC(cursor);
+            trendSeries.push(trendMap.get(key) || { date: key, orders: 0, revenue: 0, averageOrderValue: 0 });
+            cursor = addDaysUTC(cursor, 1);
+        }
+    } else {
+        trendSeries.push(...trendMap.values());
+    }
+
+    const growth = {
+        newCustomerRevenue: Number(newReturningRevenueRows?.[0]?.new_customer_revenue || 0),
+        returningCustomerRevenue: Number(newReturningRevenueRows?.[0]?.returning_customer_revenue || 0),
+        couponOrders: Number(couponRows?.[0]?.coupon_orders || 0),
+        couponDiscountTotal: Number(couponRows?.[0]?.coupon_discount_total || 0),
+        channelRevenue: (channelRows || []).map((row) => ({
+            channel: row.channel || 'unknown',
+            revenue: Number(row.revenue || 0),
+            orders: Number(row.orders || 0)
+        }))
+    };
+
+    const codOrders = Number(codCancellationRows?.[0]?.cod_orders || 0);
+    const codCancelled = Number(codCancellationRows?.[0]?.cod_cancelled || 0);
+    const codCancellationRate = codOrders > 0 ? Number(((codCancelled / codOrders) * 100).toFixed(1)) : 0;
+
+    const risk = {
+        failedPaymentsCurrent6h,
+        failedPaymentsPrevious6h,
+        failedPaymentsSpikePct,
+        pendingAging: {
+            under24h: Number(pendingAgingRows?.[0]?.under_24h || 0),
+            from24hTo72h: Number(pendingAgingRows?.[0]?.from_24h_to_72h || 0),
+            over72h: Number(pendingAgingRows?.[0]?.over_72h || 0)
+        },
+        codCancellationRate
+    };
+
+    const topSellerIds = (productRows || []).map((row) => String(row.product_id || '')).filter(Boolean).slice(0, 3);
+    const lowStockTopSellerIds = new Set();
+    if (topSellerIds.length) {
+        const placeholders = topSellerIds.map(() => '?').join(',');
+        const [lowStockMatches] = await db.execute(
+            `SELECT id
+             FROM products
+             WHERE id IN (${placeholders})
+               AND COALESCE(track_quantity, 0) = 1
+               AND COALESCE(quantity, 0) <= 5`,
+            topSellerIds
+        );
+        (lowStockMatches || []).forEach((row) => lowStockTopSellerIds.add(String(row.id)));
+    }
+
+    const actions = [];
+    if (risk.pendingAging.over72h > 0) {
+        actions.push({
+            id: 'pending_aging_over_72h',
+            priority: risk.pendingAging.over72h > 10 ? 'high' : 'medium',
+            title: `${risk.pendingAging.over72h} pending orders are older than 72h`,
+            description: 'Prioritize these orders to reduce SLA risk.',
+            target: { tab: 'orders', status: 'pending' }
+        });
+    }
+    if (failedPaymentsCurrent6h > 0) {
+        actions.push({
+            id: 'failed_payments_spike',
+            priority: failedPaymentsCurrent6h > 8 || Number(failedPaymentsSpikePct || 0) > 20 ? 'high' : 'medium',
+            title: `${failedPaymentsCurrent6h} failed payments in last 6 hours`,
+            description: failedPaymentsSpikePct != null
+                ? `Change vs previous 6h: ${failedPaymentsSpikePct > 0 ? '+' : ''}${failedPaymentsSpikePct}%`
+                : 'Review failed payment attempts to recover orders.',
+            target: { tab: 'orders', status: 'failed' }
+        });
+    }
+    if (codOrders >= 10 && codCancellationRate >= 15) {
+        actions.push({
+            id: 'cod_cancellation_risk',
+            priority: codCancellationRate >= 25 ? 'high' : 'medium',
+            title: `COD cancellation rate is ${codCancellationRate}%`,
+            description: 'Review COD fulfillment and confirmation flow.',
+            target: { tab: 'orders', status: 'cancelled' }
+        });
+    }
+    ((productRows || []).slice(0, 2)).forEach((row) => {
+        if (lowStockTopSellerIds.has(String(row.product_id || ''))) {
+            actions.push({
+                id: `low_stock_fast_seller_${row.product_id}`,
+                priority: 'high',
+                title: `${row.title} is low stock with active demand`,
+                description: `${Number(row.units_sold || 0)} units sold in selected period.`,
+                target: { tab: 'products' }
+            });
+        }
+    });
+
+    return {
+        filter: {
+            quickRange: scope.quickRange,
+            startDate: scope.seriesStartDate,
+            endDate: scope.seriesEndDate,
+            comparisonMode: scope.comparison.mode,
+            status: scope.filters.status,
+            paymentMode: scope.filters.paymentMode,
+            sourceChannel: scope.filters.sourceChannel
+        },
+        overview: {
+            grossSales: Number(base.gross_sales || 0),
+            netSales,
+            totalOrders,
+            paidOrders,
+            attemptedPayments,
+            conversionRate: Number(conversionRate.toFixed(1)),
+            averageOrderValue: Number(averageOrderValue.toFixed(2)),
+            cancelledOrders: Number(base.cancelled_orders || 0),
+            refundedAmount: Number(base.refunded_amount || 0),
+            activeCustomers,
+            repeatCustomers,
+            repeatRate: Number(repeatRate.toFixed(1)),
+            comparison
+        },
+        growth,
+        risk,
+        funnel: {
+            attempted: attemptedPayments,
+            paid: Number(funnelRows?.[0]?.paid || 0),
+            shipped: Number(funnelRows?.[0]?.shipped || 0),
+            completed: Number(funnelRows?.[0]?.completed || 0),
+            cancelled: Number(funnelRows?.[0]?.cancelled || 0),
+            refunded: Number(funnelRows?.[0]?.refunded || 0)
+        },
+        trends: trendSeries,
+        products: {
+            topSellers: (productRows || []).map((row) => ({
+                productId: row.product_id,
+                title: row.title,
+                unitsSold: Number(row.units_sold || 0),
+                revenue: Number(row.revenue || 0)
+            })),
+            noSales: (noSalesRows || []).map((row) => ({
+                productId: row.id,
+                title: row.title
+            }))
+        },
+        customers: {
+            newCustomers: Number(newCustomerRows?.[0]?.new_customers || 0),
+            activeCustomers,
+            repeatCustomers,
+            topCustomers: (topCustomerRows || []).map((row) => ({
+                userId: row.user_id,
+                name: row.customer_name,
+                mobile: row.customer_mobile,
+                orders: Number(row.orders_count || 0),
+                revenue: Number(row.revenue || 0)
+            }))
+        },
+        actions: actions.slice(0, 8),
+        lastUpdatedAt: new Date().toISOString()
+    };
+};
+
+const getDashboardInsights = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json(payload);
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard insights' });
+    }
+};
+
+const getDashboardOverview = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json({ filter: payload.filter, overview: payload.overview, growth: payload.growth, risk: payload.risk, lastUpdatedAt: payload.lastUpdatedAt });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard overview' });
+    }
+};
+
+const getDashboardTrends = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json({ filter: payload.filter, trends: payload.trends, lastUpdatedAt: payload.lastUpdatedAt });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard trends' });
+    }
+};
+
+const getDashboardFunnel = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json({ filter: payload.filter, funnel: payload.funnel, lastUpdatedAt: payload.lastUpdatedAt });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard funnel' });
+    }
+};
+
+const getDashboardProducts = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json({ filter: payload.filter, products: payload.products, lastUpdatedAt: payload.lastUpdatedAt });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard products' });
+    }
+};
+
+const getDashboardCustomers = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json({ filter: payload.filter, customers: payload.customers, lastUpdatedAt: payload.lastUpdatedAt });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard customers' });
+    }
+};
+
+const getDashboardActions = async (req, res) => {
+    try {
+        const payload = await getDashboardInsightsPayload(req.query || {});
+        return res.json({ filter: payload.filter, actions: payload.actions, lastUpdatedAt: payload.lastUpdatedAt });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard actions' });
+    }
+};
+
 // --- 1. GET ALL USERS (PAGINATED) ---
 const getUsers = async (req, res) => {
     try {
@@ -619,5 +1266,12 @@ module.exports = {
     deleteCoupon,
     deleteUserCoupon,
     issueCouponToUser,
-    getUserActiveCoupons
+    getUserActiveCoupons,
+    getDashboardInsights,
+    getDashboardOverview,
+    getDashboardTrends,
+    getDashboardFunnel,
+    getDashboardProducts,
+    getDashboardCustomers,
+    getDashboardActions
 };

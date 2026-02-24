@@ -221,10 +221,10 @@ export default function ShippingSettings() {
                         )}
                         {!isLoading && zones.length === 0 && (
                             <div className="px-6 py-12 text-center text-gray-400 flex flex-col items-center gap-4">
-                                <img src={shippingIllustration} alt="Shipping" className="w-56 md:w-72" />
+                                <img src={shippingIllustration} alt="Shipping" className="w-40 h-40 object-contain opacity-85" />
                                 <div>
-                                    <h3 className="text-lg font-semibold text-gray-700">No shipping zones yet</h3>
-                                    <p className="text-sm text-gray-500 mt-2">Create your first zone to define rates by state.</p>
+                                    <h3 className="text-lg font-semibold text-gray-700">No shipping zones available</h3>
+                                    <p className="text-sm text-gray-500 mt-2">Create your first zone to define shipping rates by state.</p>
                                 </div>
                             </div>
                         )}

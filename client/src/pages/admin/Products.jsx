@@ -10,6 +10,7 @@ import {
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
 import { useProducts } from '../../context/ProductContext';
+import emptyIllustration from '../../assets/closed.svg';
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -462,15 +463,20 @@ export default function Products({ onNavigate }) {
                 </div>
             ) : allProducts.length > 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
+                    <img
+                        src={emptyIllustration}
+                        alt="No matching products"
+                        className="w-36 h-36 object-contain opacity-85 mb-4"
+                    />
                     <h3 className="text-xl font-bold text-gray-800 mb-2">No matching products</h3>
                     <p className="text-gray-500 text-center max-w-md mb-6">
-                        Try adjusting filters or search terms.
+                        Try adjusting filters or search terms to see results.
                     </p>
                     <button
                         onClick={() => { setFilterCategory('all'); setFilterStatus('all'); setSearchTerm(''); setPage(1); }}
                         className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
-                        Clear Filters
+                        Reset Filters
                     </button>
                 </div>
             ) : (// --- EMPTY STATE ILLUSTRATION ---
@@ -480,7 +486,7 @@ export default function Products({ onNavigate }) {
                         alt="No products" 
                         className="w-48 h-48 md:w-64 md:h-64 mb-6 opacity-90"
                     />
-                    <h3 className="text-xl font-bold text-gray-800 mb-2">No products yet</h3>
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">No products available yet</h3>
                     <p className="text-gray-500 text-center max-w-md mb-6">
                         Get started by adding your first product to the inventory.
                     </p>
