@@ -15,12 +15,112 @@ class Product {
         return String(value || '').trim().toLowerCase();
     }
 
+    static getDefaultSystemCategories() {
+        return [
+            { key: 'best_sellers', name: 'Best Sellers', image: '/assets/category.jpg', immutable: true },
+            { key: 'new_arrivals', name: 'New Arrivals', image: '/assets/category.jpg', immutable: true },
+            { key: 'offers', name: 'Offers', image: '/assets/category.jpg', immutable: true }
+        ];
+    }
+
+    static isImmutableSystemKey(systemKey = '') {
+        return ['best_sellers', 'new_arrivals', 'offers'].includes(String(systemKey || '').trim().toLowerCase());
+    }
+
+    static async getCategoryMetaById(id, { connection = db } = {}) {
+        const [rows] = await connection.execute(
+            'SELECT id, name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
+            [id]
+        );
+        return rows[0] || null;
+    }
+
+    static async getOrCreateSystemCategory(connection, { key, name, image = '/assets/category.jpg', immutable = true }) {
+        const [keyRows] = await connection.execute('SELECT id FROM categories WHERE system_key = ? LIMIT 1', [key]);
+        if (keyRows.length > 0) return Number(keyRows[0].id);
+
+        const [nameRows] = await connection.execute('SELECT id FROM categories WHERE name = ? LIMIT 1', [name]);
+        if (nameRows.length > 0) {
+            await connection.execute(
+                'UPDATE categories SET system_key = ?, is_immutable = ? WHERE id = ?',
+                [key, immutable ? 1 : 0, nameRows[0].id]
+            );
+            return Number(nameRows[0].id);
+        }
+
+        const [result] = await connection.execute(
+            'INSERT INTO categories (name, image_url, system_key, is_immutable) VALUES (?, ?, ?, ?)',
+            [name, image, key, immutable ? 1 : 0]
+        );
+        return Number(result.insertId);
+    }
+
+    static async isProductDiscounted(connection, productId) {
+        const [rows] = await connection.execute(
+            `SELECT p.id,
+                    p.mrp,
+                    p.discount_price,
+                    EXISTS (
+                        SELECT 1
+                        FROM product_variants pv
+                        WHERE pv.product_id = p.id
+                          AND pv.discount_price IS NOT NULL
+                          AND pv.discount_price > 0
+                          AND (pv.price IS NULL OR pv.discount_price < pv.price)
+                    ) AS has_variant_discount
+             FROM products p
+             WHERE p.id = ?
+             LIMIT 1`,
+            [productId]
+        );
+        const row = rows[0];
+        if (!row) return false;
+        const productDiscount = row.discount_price != null
+            && Number(row.discount_price) > 0
+            && (row.mrp == null || Number(row.discount_price) < Number(row.mrp));
+        return productDiscount || Number(row.has_variant_discount) === 1;
+    }
+
+    static async ensureOffersCategoryMembership(connection, productId) {
+        const offersId = await Product.getOrCreateSystemCategory(connection, {
+            key: 'offers',
+            name: 'Offers',
+            image: '/assets/category.jpg',
+            immutable: true
+        });
+        const discounted = await Product.isProductDiscounted(connection, productId);
+        const [rows] = await connection.execute(
+            'SELECT 1 FROM product_categories WHERE product_id = ? AND category_id = ? LIMIT 1',
+            [productId, offersId]
+        );
+        const exists = rows.length > 0;
+
+        if (discounted && !exists) {
+            const [orderRows] = await connection.execute(
+                'SELECT COALESCE(MAX(display_order), -1) AS max_order FROM product_categories WHERE category_id = ?',
+                [offersId]
+            );
+            const nextOrder = Number(orderRows?.[0]?.max_order ?? -1) + 1;
+            await connection.execute(
+                'INSERT INTO product_categories (product_id, category_id, display_order) VALUES (?, ?, ?)',
+                [productId, offersId, nextOrder]
+            );
+        } else if (!discounted && exists) {
+            await connection.execute(
+                'DELETE FROM product_categories WHERE product_id = ? AND category_id = ?',
+                [productId, offersId]
+            );
+        }
+    }
+
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
-    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest') {
+    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest', categoryId = null) {
         const offset = (page - 1) * limit;
         const params = [];
         const conditions = [];
+        const numericCategoryId = Number(categoryId);
+        const hasCategoryId = Number.isFinite(numericCategoryId) && numericCategoryId > 0;
 
         // 1. Define Select Clauses
         const selectClause = `
@@ -58,15 +158,23 @@ class Product {
         
         // [FIX] If Sorting Manually, we MUST use JOIN to access 'display_order'
         // This also handles the category filtering more efficiently for this case.
-        if (sort === 'manual' && category && category !== 'all') {
+        if (sort === 'manual' && (hasCategoryId || (category && category !== 'all'))) {
             fromClause += ' JOIN product_categories pc_sort ON p.id = pc_sort.product_id JOIN categories c_sort ON pc_sort.category_id = c_sort.id';
             
             // Filter by the joined category
-            conditions.push('c_sort.name = ?');
-            params.push(category);
+            if (hasCategoryId) {
+                conditions.push('c_sort.id = ?');
+                params.push(numericCategoryId);
+            } else {
+                conditions.push('c_sort.name = ?');
+                params.push(category);
+            }
         } else {
             // Standard Category Filter (Using Subquery to avoid duplicate rows)
-            if (category && category !== 'all') {
+            if (hasCategoryId) {
+                conditions.push('EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = p.id AND pc.category_id = ?)');
+                params.push(numericCategoryId);
+            } else if (category && category !== 'all') {
                 conditions.push('EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)');
                 params.push(category);
             }
@@ -87,7 +195,7 @@ class Product {
         // 5. Determine ORDER BY
         let orderByClause = 'ORDER BY p.created_at DESC'; // Default
         
-        if (sort === 'manual' && category && category !== 'all') {
+        if (sort === 'manual' && (hasCategoryId || (category && category !== 'all'))) {
             orderByClause = 'ORDER BY pc_sort.display_order ASC';
         } 
         else if (sort === 'low' || sort === 'high') {
@@ -386,6 +494,9 @@ class Product {
                 await connection.query(variantQuery, [variantValues]);
             }
 
+            await Product.ensureOffersCategoryMembership(connection, uniqueId);
+            await Product.rebuildCategoriesJsonForProducts([uniqueId], { connection });
+
             await connection.commit();
             return { id: uniqueId, ...data };
         } catch (error) {
@@ -489,6 +600,9 @@ class Product {
                 }
             }
 
+            await Product.ensureOffersCategoryMembership(connection, id);
+            await Product.rebuildCategoriesJsonForProducts([id], { connection });
+
             await connection.commit();
             return true;
         } catch (error) {
@@ -504,6 +618,7 @@ class Product {
         const normalized = [...new Set(
             (Array.isArray(categoryNames) ? categoryNames : [])
                 .map((name) => String(name || '').trim())
+                .filter((name) => Product.normalizeCategoryName(name) !== 'offers')
                 .filter(Boolean)
         )];
 
@@ -593,7 +708,7 @@ class Product {
     static async getCategoriesWithStats() {
         // [FIX] Added c.image_url to the SELECT list
         const query = `
-            SELECT c.id, c.name, c.image_url, COUNT(pc.product_id) as product_count 
+            SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(pc.product_id) as product_count 
             FROM categories c 
             LEFT JOIN product_categories pc ON c.id = pc.category_id 
             GROUP BY c.id 
@@ -605,7 +720,7 @@ class Product {
 
     static async getCategoryStatsById(categoryId) {
         const query = `
-            SELECT c.id, c.name, c.image_url, COUNT(pc.product_id) as product_count 
+            SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(pc.product_id) as product_count 
             FROM categories c 
             LEFT JOIN product_categories pc ON c.id = pc.category_id 
             WHERE c.id = ?
@@ -647,10 +762,17 @@ class Product {
         try {
             await connection.beginTransaction();
             const [catRows] = await connection.execute(
-                'SELECT name FROM categories WHERE id = ? LIMIT 1',
+                'SELECT name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
                 [id]
             );
+            if (!catRows[0]) {
+                throw new Error('Category not found');
+            }
             const oldName = String(catRows?.[0]?.name || '').trim();
+            const isImmutable = Number(catRows?.[0]?.is_immutable || 0) === 1 || Product.isImmutableSystemKey(catRows?.[0]?.system_key);
+            if (isImmutable && String(name || '').trim() !== oldName) {
+                throw new Error('This category name is immutable');
+            }
 
             const [affectedRows] = await connection.execute(
                 'SELECT DISTINCT product_id FROM product_categories WHERE category_id = ?',
@@ -660,13 +782,15 @@ class Product {
                 affectedRows.map((row) => String(row.product_id || '').trim()).filter(Boolean)
             );
 
+            const requestedName = String(name || '').trim();
+            const finalName = isImmutable ? oldName : (requestedName || oldName);
             if (imageUrl) {
-                await connection.execute('UPDATE categories SET name = ?, image_url = ? WHERE id = ?', [name, imageUrl, id]);
+                await connection.execute('UPDATE categories SET name = ?, image_url = ? WHERE id = ?', [finalName, imageUrl, id]);
             } else {
-                await connection.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+                await connection.execute('UPDATE categories SET name = ? WHERE id = ?', [finalName, id]);
             }
 
-            const relatedRefs = await Product.syncRelatedProductsCategoryReference(oldName, name, { connection });
+            const relatedRefs = await Product.syncRelatedProductsCategoryReference(oldName, finalName, { connection });
             relatedRefs.forEach((productId) => affectedProductIds.add(productId));
             await Product.rebuildCategoriesJsonForProducts(Array.from(affectedProductIds), { connection });
             await connection.commit();
@@ -707,6 +831,11 @@ class Product {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
+            const meta = await Product.getCategoryMetaById(categoryId, { connection });
+            if (!meta) throw new Error('Category not found');
+            if (String(meta.system_key || '').toLowerCase() === 'offers') {
+                throw new Error('Offers category is auto-managed from product discounts');
+            }
 
             // 1. Perform the Action on Link Table
             if (action === 'add') {
@@ -751,6 +880,11 @@ class Product {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
+            const meta = await Product.getCategoryMetaById(categoryId, { connection });
+            if (!meta) throw new Error('Category not found');
+            if (String(meta.system_key || '').toLowerCase() === 'offers') {
+                throw new Error('Offers category is auto-managed from product discounts');
+            }
             const placeholders = ids.map(() => '?').join(',');
 
             if (action === 'add') {
@@ -803,6 +937,13 @@ class Product {
     static async createCategory(name, imageUrl) {
         // Handle Duplicate Name Error at DB level
         try {
+            const normalizedName = Product.normalizeCategoryName(name);
+            const isReserved = Product.getDefaultSystemCategories().some(
+                (category) => Product.normalizeCategoryName(category.name) === normalizedName
+            );
+            if (isReserved) {
+                throw new Error('This category name is reserved');
+            }
             const [result] = await db.execute('INSERT INTO categories (name, image_url) VALUES (?, ?)', [name, imageUrl]);
             return result.insertId;
         } catch (error) {
@@ -819,9 +960,13 @@ class Product {
         try {
             await connection.beginTransaction();
             const [catRows] = await connection.execute(
-                'SELECT name FROM categories WHERE id = ? LIMIT 1',
+                'SELECT name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
                 [id]
             );
+            const isImmutable = Number(catRows?.[0]?.is_immutable || 0) === 1 || Product.isImmutableSystemKey(catRows?.[0]?.system_key);
+            if (isImmutable) {
+                throw new Error('This category cannot be deleted');
+            }
             const deletedCategoryName = String(catRows?.[0]?.name || '').trim();
             const [affectedRows] = await connection.execute(
                 'SELECT DISTINCT product_id FROM product_categories WHERE category_id = ?',

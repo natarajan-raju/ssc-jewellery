@@ -109,7 +109,7 @@ export const useCms = () => {
     const getFeaturedCategory = useCallback(async (isAdmin = false) => {
         const token = localStorage.getItem('token');
         const headers = {};
-        if (isAdmin && token && token !== "undefined") {
+        if (token && token !== "undefined") {
             headers['Authorization'] = `Bearer ${token}`;
         }
         const res = await fetch(`${API_URL}/featured-category?admin=${isAdmin}`, { headers });
@@ -123,6 +123,28 @@ export const useCms = () => {
         }
         return res.json();
     }, [logout]);
+
+    const getTertiaryBanner = useCallback(async (isAdmin = false) => {
+        const token = localStorage.getItem('token');
+        const headers = {};
+        if (isAdmin && token && token !== "undefined") {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(`${API_URL}/banner-tertiary?admin=${isAdmin}`, { headers });
+        if (res.status === 401 && isAdmin) {
+            logout();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.message || 'API Error');
+        }
+        return res.json();
+    }, [logout]);
+
+    const getAutopilotConfig = useCallback(async () => {
+        return authFetch('/autopilot');
+    }, [authFetch]);
 
     // 2. Create Slide
     const createSlide = useCallback(async (formData) => {
@@ -181,6 +203,21 @@ export const useCms = () => {
         });
     }, [authFetch]);
 
+    const updateTertiaryBanner = useCallback(async (formData) => {
+        return authFetch('/banner-tertiary', {
+            method: 'PUT',
+            body: formData
+        });
+    }, [authFetch]);
+
+    const updateAutopilotConfig = useCallback(async (data) => {
+        return authFetch('/autopilot', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }, [authFetch]);
+
     // 7. Hero Texts CRUD
     const createHeroText = useCallback(async (data) => {
         return authFetch('/hero-texts', {
@@ -213,9 +250,9 @@ export const useCms = () => {
     }, [authFetch]);
 
     return { 
-        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory,
+        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getAutopilotConfig,
         createSlide, deleteSlide, reorderSlides, updateSlide,
-        updateBanner, updateSecondaryBanner, updateFeaturedCategory,
+        updateBanner, updateSecondaryBanner, updateTertiaryBanner, updateFeaturedCategory, updateAutopilotConfig,
         createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts
     };
 };

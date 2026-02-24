@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
-import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles } from 'lucide-react';
+import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
@@ -13,11 +13,12 @@ export default function HeroCMS() {
     const [isUploading, setIsUploading] = useState(false);
     const [isBannerUpdating, setIsBannerUpdating] = useState(false);
     const [isSecondaryBannerUpdating, setIsSecondaryBannerUpdating] = useState(false);
+    const [isTertiaryBannerUpdating, setIsTertiaryBannerUpdating] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
     const { 
-        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, 
-        createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory,
+        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getAutopilotConfig,
+        createSlide, updateBanner, updateSecondaryBanner, updateTertiaryBanner, updateFeaturedCategory, updateAutopilotConfig,
         createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts,
         deleteSlide, reorderSlides 
     } = useCms();
@@ -33,6 +34,12 @@ export default function HeroCMS() {
     const [secondaryBannerFile, setSecondaryBannerFile] = useState(null);
     const [secondaryBannerPreview, setSecondaryBannerPreview] = useState(null);
     const [secondaryBannerLink, setSecondaryBannerLink] = useState('');
+    const [tertiaryBannerData, setTertiaryBannerData] = useState(null);
+    const [tertiaryBannerFile, setTertiaryBannerFile] = useState(null);
+    const [tertiaryBannerPreview, setTertiaryBannerPreview] = useState(null);
+    const [tertiaryBannerLink, setTertiaryBannerLink] = useState('');
+    const [isAutopilotEnabled, setIsAutopilotEnabled] = useState(false);
+    const [isAutopilotSaving, setIsAutopilotSaving] = useState(false);
     const [featuredCategories, setFeaturedCategories] = useState([]);
     const [isFeaturedLoading, setIsFeaturedLoading] = useState(false);
     const [featuredConfig, setFeaturedConfig] = useState(null);
@@ -44,7 +51,7 @@ export default function HeroCMS() {
     const [isHeroTextLoading, setIsHeroTextLoading] = useState(false);
     const [draggedTextIndex, setDraggedTextIndex] = useState(null);
     const [openCmsSection, setOpenCmsSection] = useState('hero-carousel');
-    const [modalConfig, setModalConfig] = useState({ 
+const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, type: 'delete', title: '', message: '', targetId: null 
     });
     useEffect(() => { 
@@ -52,8 +59,10 @@ export default function HeroCMS() {
         loadHeroTexts();
         loadBanner();
         loadSecondaryBanner();
+        loadTertiaryBanner();
         loadFeaturedConfig();
         loadFeaturedCategories();
+        loadAutopilotConfig();
     }, []);
 
     const loadSlides = async () => {
@@ -98,6 +107,26 @@ export default function HeroCMS() {
         }
     };
 
+    const loadTertiaryBanner = async () => {
+        try {
+            const data = await getTertiaryBanner(true);
+            setTertiaryBannerData(data);
+            setTertiaryBannerLink(data?.link || '');
+            setTertiaryBannerPreview(data?.image_url || null);
+        } catch (error) {
+            toast.error("Failed to load home banner 3");
+        }
+    };
+
+    const loadAutopilotConfig = async () => {
+        try {
+            const data = await getAutopilotConfig();
+            setIsAutopilotEnabled(Boolean(data?.is_enabled));
+        } catch (error) {
+            toast.error("Failed to load autopilot settings");
+        }
+    };
+
     const loadFeaturedConfig = async () => {
         try {
             const data = await getFeaturedCategory(true);
@@ -127,10 +156,12 @@ export default function HeroCMS() {
         'cms:texts_update': () => loadHeroTexts(),
         'cms:banner_update': () => loadBanner(),
         'cms:banner_secondary_update': () => loadSecondaryBanner(),
+        'cms:banner_tertiary_update': () => loadTertiaryBanner(),
         'cms:featured_category_update': () => {
             loadFeaturedConfig();
             loadFeaturedCategories();
         },
+        'cms:autopilot_update': () => loadAutopilotConfig(),
         'refresh:categories': () => {
             loadFeaturedConfig();
             loadFeaturedCategories();
@@ -159,6 +190,14 @@ export default function HeroCMS() {
         if (file) {
             setSecondaryBannerFile(file);
             setSecondaryBannerPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleTertiaryBannerFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setTertiaryBannerFile(file);
+            setTertiaryBannerPreview(URL.createObjectURL(file));
         }
     };
 
@@ -228,6 +267,26 @@ export default function HeroCMS() {
             setIsSecondaryBannerUpdating(false);
         }
     };
+
+    const handleTertiaryBannerUpdate = async (e) => {
+        e.preventDefault();
+        setIsTertiaryBannerUpdating(true);
+        try {
+            const formData = new FormData();
+            if (tertiaryBannerFile) {
+                formData.append('image', tertiaryBannerFile);
+            }
+            formData.append('link', tertiaryBannerLink);
+            await updateTertiaryBanner(formData);
+            toast.success("Home banner 3 updated");
+            setTertiaryBannerFile(null);
+            await loadTertiaryBanner();
+        } catch (error) {
+            toast.error("Home banner 3 update failed");
+        } finally {
+            setIsTertiaryBannerUpdating(false);
+        }
+    };
     const handleRemoveBannerImage = async () => {
         setIsBannerUpdating(true);
         try {
@@ -262,6 +321,45 @@ export default function HeroCMS() {
         } finally {
             setIsSecondaryBannerUpdating(false);
         }
+    };
+
+    const handleRemoveTertiaryBannerImage = async () => {
+        setIsTertiaryBannerUpdating(true);
+        try {
+            const formData = new FormData();
+            formData.append('link', tertiaryBannerLink || '');
+            formData.append('removeImage', 'true');
+            await updateTertiaryBanner(formData);
+            setTertiaryBannerFile(null);
+            setTertiaryBannerPreview(null);
+            toast.success('Home banner 3 image removed');
+            await loadTertiaryBanner();
+        } catch (error) {
+            toast.error('Failed to remove home banner 3 image');
+        } finally {
+            setIsTertiaryBannerUpdating(false);
+        }
+    };
+
+    const handleAutopilotSave = async () => {
+        setIsAutopilotSaving(true);
+        try {
+            await updateAutopilotConfig({ is_enabled: isAutopilotEnabled });
+            toast.success('Autopilot settings updated');
+            await loadAutopilotConfig();
+        } catch (error) {
+            toast.error('Failed to update autopilot settings');
+        } finally {
+            setIsAutopilotSaving(false);
+        }
+    };
+
+    const handleAutopilotToggle = (checked) => {
+        const currentY = window.scrollY;
+        setIsAutopilotEnabled(Boolean(checked));
+        requestAnimationFrame(() => {
+            window.scrollTo({ top: currentY, behavior: 'auto' });
+        });
     };
 
     const handleHeroTextAdd = async (e) => {
@@ -407,20 +505,50 @@ export default function HeroCMS() {
         }
     };
 
+    const sectionHasContent = (id) => {
+        if (id === 'hero-carousel') return slides.length > 0;
+        if (id === 'hero-texts') return heroTexts.length > 0;
+        if (id === 'home-banner-1') return Boolean(bannerData?.image_url && bannerData.image_url !== '/placeholder_banner.jpg');
+        if (id === 'home-banner-2') return Boolean(secondaryBannerData?.image_url && secondaryBannerData.image_url !== '/placeholder_banner.jpg');
+        if (id === 'home-banner-3') return Boolean(tertiaryBannerData?.image_url && tertiaryBannerData.image_url !== '/placeholder_banner.jpg');
+        if (id === 'featured-category') return Boolean(featuredCategoryId);
+        return false;
+    };
+
     const AccordionSection = ({ id, title, subtitle = '', icon: Icon = ImageIcon, children }) => {
         const isOpen = openCmsSection === id;
+        const hasContent = sectionHasContent(id);
+        const toggleSection = () => {
+            const currentY = window.scrollY;
+            setOpenCmsSection((prev) => (prev === id ? '' : id));
+            requestAnimationFrame(() => {
+                window.scrollTo({ top: currentY, behavior: 'auto' });
+            });
+        };
         return (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                 <button
                     type="button"
-                    onClick={() => setOpenCmsSection((prev) => (prev === id ? '' : id))}
+                    onClick={toggleSection}
                     className="w-full px-6 py-4 flex items-center justify-between gap-4 text-left"
                 >
                     <div>
-                        <h3 className="font-bold text-gray-700">{title}</h3>
+                        <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                            <span>{title}</span>
+                            {id === 'featured-category' && isAutopilotEnabled && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-green-100 text-green-700 border border-green-200">
+                                    Auto
+                                </span>
+                            )}
+                        </h3>
                         {!!subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
                     </div>
                     <div className="flex items-center gap-3">
+                        {hasContent ? (
+                            <CheckCircle2 size={20} className="text-green-500" />
+                        ) : (
+                            <AlertTriangle size={20} className="text-amber-500" />
+                        )}
                         <Icon size={32} className="text-slate-200" />
                         <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                     </div>
@@ -540,6 +668,7 @@ export default function HeroCMS() {
                                             {slide.link && <span className="text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full mt-1 inline-block">{slide.link}</span>}
                                         </div>
                                         <button
+                                            type="button"
                                             onClick={() => openDeleteModal(slide.id)}
                                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                         >
@@ -713,54 +842,145 @@ export default function HeroCMS() {
                 </form>
             </AccordionSection>
 
-            {/* FEATURED CATEGORY SECTION */}
-            <AccordionSection id="featured-category" title="Featured Category Section" icon={Save}>
-                <form onSubmit={handleFeaturedCategorySave} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <select
-                            value={featuredCategoryId}
-                            onChange={(e) => {
-                                const nextId = e.target.value;
-                                setFeaturedCategoryId(nextId);
-                                if (!featuredTitle) {
-                                    const found = featuredCategories.find(c => String(c.id) === String(nextId));
-                                    if (found?.name) setFeaturedTitle(found.name);
-                                }
-                            }}
-                            className="input-field"
-                        >
-                            <option value="">Select Category...</option>
-                            {featuredCategories.map((cat) => (
-                                <option key={cat.id} value={cat.id}>
-                                    {cat.name}
-                                </option>
-                            ))}
-                        </select>
-                        <input
-                            placeholder="Title (defaults to category name)"
-                            className="input-field"
-                            value={featuredTitle}
-                            onChange={(e) => setFeaturedTitle(e.target.value)}
-                        />
+            <AccordionSection id="home-banner-3" title="Home Banner 3 (16:9)" icon={ImageIcon}>
+                <form onSubmit={handleTertiaryBannerUpdate} className="flex flex-col md:flex-row gap-6">
+                    <div className="w-full md:w-1/3">
+                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                            {tertiaryBannerPreview ? (
+                                <img src={tertiaryBannerPreview} className="w-full h-full object-cover rounded-xl" />
+                            ) : (
+                                <div className="text-center p-4">
+                                    <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
+                                    <span className="text-sm text-gray-500 font-medium">Click to upload banner</span>
+                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended)</span>
+                                </div>
+                            )}
+                            <input type="file" className="hidden" accept="image/*" onChange={handleTertiaryBannerFileChange} />
+                        </label>
                     </div>
-                    <input
-                        placeholder="Subtitle"
-                        className="input-field"
-                        value={featuredSubtitle}
-                        onChange={(e) => setFeaturedSubtitle(e.target.value)}
-                    />
-                    <div className="pt-2 flex justify-end">
-                        <button
-                            type="submit"
-                            disabled={isFeaturedLoading}
-                            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isFeaturedLoading ? <Loader2 className="animate-spin"/> : <Save size={18} />}
-                            Save Featured Section
-                        </button>
+                    <div className="flex-1 space-y-4">
+                        <input
+                            placeholder="Banner Link (e.g. /shop/offers)"
+                            className="input-field"
+                            value={tertiaryBannerLink}
+                            onChange={e => setTertiaryBannerLink(e.target.value)}
+                        />
+                        <div className="pt-2 flex justify-end">
+                            <button
+                                type="button"
+                                disabled={isTertiaryBannerUpdating || !tertiaryBannerData?.image_url}
+                                onClick={handleRemoveTertiaryBannerImage}
+                                className="mr-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Remove Image
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isTertiaryBannerUpdating}
+                                className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isTertiaryBannerUpdating ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                                Save Banner
+                            </button>
+                        </div>
+                        {tertiaryBannerData?.image_url && (
+                            <p className="text-xs text-gray-400">Current image: {tertiaryBannerData.image_url}</p>
+                        )}
                     </div>
                 </form>
             </AccordionSection>
+
+            {/* FEATURED CATEGORY SECTION */}
+            <AccordionSection id="featured-category" title="Featured Category Section" icon={Save}>
+                <div className="space-y-4">
+                    <label
+                        className="flex items-center justify-between bg-gray-50 rounded-xl border border-gray-200 px-4 py-3"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div>
+                            <p className="text-sm font-semibold text-gray-700">Enable Auto Pilot</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                Auto-rotates weekly and prioritizes categories the customer has not purchased from.
+                            </p>
+                        </div>
+                        <input
+                            type="checkbox"
+                            className="h-5 w-5 accent-primary"
+                            checked={isAutopilotEnabled}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => handleAutopilotToggle(e.target.checked)}
+                        />
+                    </label>
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={handleAutopilotSave}
+                            disabled={isAutopilotSaving}
+                            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isAutopilotSaving ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                            Save Auto Pilot
+                        </button>
+                    </div>
+                    <form
+                        onSubmit={handleFeaturedCategorySave}
+                        className={`space-y-4 transition-all ${isAutopilotEnabled ? 'opacity-60' : ''}`}
+                    >
+                        <div className={`space-y-4 ${isAutopilotEnabled ? 'pointer-events-none blur-[1px]' : ''}`}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <select
+                                    value={featuredCategoryId}
+                                    onChange={(e) => {
+                                        const nextId = e.target.value;
+                                        setFeaturedCategoryId(nextId);
+                                        if (!featuredTitle) {
+                                            const found = featuredCategories.find(c => String(c.id) === String(nextId));
+                                            if (found?.name) setFeaturedTitle(found.name);
+                                        }
+                                    }}
+                                    className="input-field"
+                                >
+                                    <option value="">Select Category...</option>
+                                    {featuredCategories.map((cat) => (
+                                        <option key={cat.id} value={cat.id}>
+                                            {cat.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <input
+                                    placeholder="Title (defaults to category name)"
+                                    className="input-field"
+                                    value={featuredTitle}
+                                    onChange={(e) => setFeaturedTitle(e.target.value)}
+                                />
+                            </div>
+                            <input
+                                placeholder="Subtitle"
+                                className="input-field"
+                                value={featuredSubtitle}
+                                onChange={(e) => setFeaturedSubtitle(e.target.value)}
+                            />
+                        </div>
+                        {isAutopilotEnabled && (
+                            <p className="text-xs text-gray-500">
+                                Disable Auto Pilot to manually edit featured category fields.
+                            </p>
+                        )}
+                        <div className="pt-2 flex justify-end">
+                            <button
+                                type="submit"
+                                disabled={isFeaturedLoading || isAutopilotEnabled}
+                                className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isFeaturedLoading ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                                Save Featured Section
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </AccordionSection>
+
+            {/* Legacy autopilot section intentionally merged into featured-category accordion */}
         </div>
     );
 }

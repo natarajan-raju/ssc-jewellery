@@ -172,8 +172,10 @@ export default function Home() {
     const [categories, setCategories] = useState([]);
     const [bestSellers, setBestSellers] = useState([]);
     const [newArrivals, setNewArrivals] = useState([]);
+    const [offersProducts, setOffersProducts] = useState([]);
     const [homeBanner, setHomeBanner] = useState(null);
     const [secondaryBanner, setSecondaryBanner] = useState(null);
+    const [tertiaryBanner, setTertiaryBanner] = useState(null);
     const [featuredSection, setFeaturedSection] = useState(null);
     const [featuredSectionProducts, setFeaturedSectionProducts] = useState([]);
     const [heroTexts, setHeroTexts] = useState([]);
@@ -183,8 +185,10 @@ export default function Home() {
     const [isLoadingNewArrivals, setIsLoadingNewArrivals] = useState(true);
     const [isLoadingBanner, setIsLoadingBanner] = useState(true);
     const [isLoadingSecondaryBanner, setIsLoadingSecondaryBanner] = useState(true);
+    const [isLoadingTertiaryBanner, setIsLoadingTertiaryBanner] = useState(true);
     const [isLoadingFeaturedSection, setIsLoadingFeaturedSection] = useState(true);
-    const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory } = useCms();
+    const [isLoadingOffers, setIsLoadingOffers] = useState(true);
+    const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory } = useCms();
     const infoSectionRef = useRef(null);
     const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -260,6 +264,17 @@ export default function Home() {
         }
     }, [getSecondaryBanner]);
 
+    const fetchTertiaryBanner = useCallback(async () => {
+        try {
+            const data = await getTertiaryBanner(false);
+            setTertiaryBanner(data);
+        } catch (err) {
+            console.error("Tertiary banner load failed", err);
+        } finally {
+            setIsLoadingTertiaryBanner(false);
+        }
+    }, [getTertiaryBanner]);
+
     const fetchHeroTexts = useCallback(async () => {
         try {
             const data = await getHeroTexts(false);
@@ -280,13 +295,22 @@ export default function Home() {
         }
     }, [getFeaturedCategory]);
 
-    const fetchFeaturedSectionProducts = useCallback(async (categoryName) => {
-        if (!categoryName) {
+    const fetchFeaturedSectionProducts = useCallback(async ({ categoryName, categoryId } = {}) => {
+        const resolvedName = String(categoryName || '').trim();
+        const resolvedId = Number(categoryId);
+        if (!resolvedName && !Number.isFinite(resolvedId)) {
             setFeaturedSectionProducts([]);
             return;
         }
         try {
-            const data = await productService.getProducts(1, categoryName, 'active', 'manual', 10);
+            const data = await productService.getProducts(
+                1,
+                resolvedName || 'all',
+                'active',
+                'manual',
+                10,
+                Number.isFinite(resolvedId) ? resolvedId : null
+            );
             setFeaturedSectionProducts(data.products || []);
         } catch (err) {
             console.error("Featured category products failed", err);
@@ -330,6 +354,17 @@ export default function Home() {
         }
     }, []);
 
+    const fetchOffers = useCallback(async () => {
+        try {
+            const data = await productService.getProducts(1, 'Offers', 'active', 'manual', 10);
+            setOffersProducts(data.products || []);
+        } catch (err) {
+            console.error("Offers load failed", err);
+        } finally {
+            setIsLoadingOffers(false);
+        }
+    }, []);
+
     // [FIX] Unified Parallel Data Loading
     useEffect(() => {
         const loadInitialData = async () => {
@@ -342,20 +377,25 @@ export default function Home() {
                 fetchNewArrivals(),
                 fetchBanner(),
                 fetchSecondaryBanner(),
-                fetchFeaturedSection()
+                fetchTertiaryBanner(),
+                fetchFeaturedSection(),
+                fetchOffers()
             ]);
         };
         loadInitialData();
-    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner, fetchFeaturedSection]);
+    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchOffers]);
 
     useEffect(() => {
         if (!featuredSection) return;
         const titleFallback = featuredSection?.category_name || '';
         featuredCategoryNameRef.current = titleFallback;
         if (titleFallback) {
-            fetchFeaturedSectionProducts(titleFallback);
+            fetchFeaturedSectionProducts({
+                categoryName: titleFallback,
+                categoryId: featuredSection?.category_id
+            });
         } else {
-            fetchFeaturedSectionProducts('');
+            fetchFeaturedSectionProducts({});
         }
     }, [featuredSection, fetchFeaturedSectionProducts]);
 
@@ -445,10 +485,24 @@ export default function Home() {
                     });
                 }
             }
+            if (payload.action === 'reorder' && payload.categoryName && payload.categoryName.toLowerCase() === 'offers') {
+                const ordered = payload.orderedProductIds || [];
+                if (ordered.length > 0) {
+                    setOffersProducts(prev => {
+                        const map = new Map(prev.map(p => [String(p.id), p]));
+                        const reordered = ordered.map(id => map.get(String(id))).filter(Boolean);
+                        const remaining = prev.filter(p => !ordered.includes(String(p.id)));
+                        return [...reordered, ...remaining].slice(0, 10);
+                    });
+                }
+            }
             const featuredName = featuredCategoryNameRef.current;
             if (featuredName && payload.categoryName && payload.categoryName.toLowerCase() === featuredName.toLowerCase()) {
                 productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
-                fetchFeaturedSectionProducts(featuredName);
+                fetchFeaturedSectionProducts({
+                    categoryName: featuredName,
+                    categoryId: featuredSection?.category_id
+                });
             }
         };
 
@@ -481,10 +535,17 @@ export default function Home() {
                     });
                 }
             }
+            if (name.toLowerCase() === 'offers') {
+                productService.clearProductsCache({ category: 'Offers', status: 'active', sort: 'manual', limit: 10 });
+                fetchOffers();
+            }
             const featuredName = featuredCategoryNameRef.current;
             if (featuredName && name.toLowerCase() === featuredName.toLowerCase()) {
                 productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
-                fetchFeaturedSectionProducts(featuredName);
+                fetchFeaturedSectionProducts({
+                    categoryName: featuredName,
+                    categoryId: featuredSection?.category_id
+                });
             }
         };
         socket.on('product:category_change', handleCategoryChange);
@@ -496,6 +557,10 @@ export default function Home() {
         const isNewArrivalProduct = (product) => {
             if (!product || !product.categories) return false;
             return product.categories.some(c => String(c).toLowerCase() === 'new arrivals');
+        };
+        const isOfferProduct = (product) => {
+            if (!product || !product.categories) return false;
+            return product.categories.some(c => String(c).toLowerCase() === 'offers');
         };
 
         const handleProductCreate = (product) => {
@@ -511,10 +576,19 @@ export default function Home() {
                     return [...prev, product].slice(0, 10);
                 });
             }
+            if (isOfferProduct(product) && product.status === 'active') {
+                setOffersProducts(prev => {
+                    if (prev.find(p => String(p.id) === String(product.id))) return prev;
+                    return [...prev, product].slice(0, 10);
+                });
+            }
             const featuredName = featuredCategoryNameRef.current;
             if (featuredName && product?.categories?.some(c => String(c).toLowerCase() === featuredName.toLowerCase())) {
                 productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
-                fetchFeaturedSectionProducts(featuredName);
+                fetchFeaturedSectionProducts({
+                    categoryName: featuredName,
+                    categoryId: featuredSection?.category_id
+                });
             }
         };
 
@@ -522,6 +596,7 @@ export default function Home() {
             if (!product) return;
             const isBest = isBestSellerProduct(product);
             const isNewArrival = isNewArrivalProduct(product);
+            const isOffer = isOfferProduct(product);
             setBestSellers(prev => {
                 const exists = prev.find(p => String(p.id) === String(product.id));
                 if (isBest && product.status === 'active') {
@@ -540,20 +615,36 @@ export default function Home() {
                 if (exists) return prev.filter(p => String(p.id) !== String(product.id));
                 return prev;
             });
+            setOffersProducts(prev => {
+                const exists = prev.find(p => String(p.id) === String(product.id));
+                if (isOffer && product.status === 'active') {
+                    if (exists) return prev.map(p => String(p.id) === String(product.id) ? { ...p, ...product } : p);
+                    return [...prev, product].slice(0, 10);
+                }
+                if (exists) return prev.filter(p => String(p.id) !== String(product.id));
+                return prev;
+            });
             const featuredName = featuredCategoryNameRef.current;
             if (featuredName && product?.categories?.some(c => String(c).toLowerCase() === featuredName.toLowerCase())) {
                 productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
-                fetchFeaturedSectionProducts(featuredName);
+                fetchFeaturedSectionProducts({
+                    categoryName: featuredName,
+                    categoryId: featuredSection?.category_id
+                });
             }
         };
 
         const handleProductDelete = ({ id }) => {
             setBestSellers(prev => prev.filter(p => String(p.id) !== String(id)));
             setNewArrivals(prev => prev.filter(p => String(p.id) !== String(id)));
+            setOffersProducts(prev => prev.filter(p => String(p.id) !== String(id)));
             const featuredName = featuredCategoryNameRef.current;
             if (featuredName) {
                 productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
-                fetchFeaturedSectionProducts(featuredName);
+                fetchFeaturedSectionProducts({
+                    categoryName: featuredName,
+                    categoryId: featuredSection?.category_id
+                });
             }
         };
 
@@ -564,7 +655,9 @@ export default function Home() {
         socket.on('cms:texts_update', fetchHeroTexts);
         socket.on('cms:banner_update', fetchBanner);
         socket.on('cms:banner_secondary_update', fetchSecondaryBanner);
+        socket.on('cms:banner_tertiary_update', fetchTertiaryBanner);
         socket.on('cms:featured_category_update', fetchFeaturedSection);
+        socket.on('cms:autopilot_update', fetchFeaturedSection);
 
         // D. Cleanup (Remove Listener ONLY)
         return () => {
@@ -577,9 +670,11 @@ export default function Home() {
             socket.off('cms:texts_update', fetchHeroTexts);
             socket.off('cms:banner_update', fetchBanner);
             socket.off('cms:banner_secondary_update', fetchSecondaryBanner);
+            socket.off('cms:banner_tertiary_update', fetchTertiaryBanner);
             socket.off('cms:featured_category_update', fetchFeaturedSection);
+            socket.off('cms:autopilot_update', fetchFeaturedSection);
         };
-    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchFeaturedSection, fetchFeaturedSectionProducts]); // Depend on socket
+    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchFeaturedSectionProducts, fetchOffers, featuredSection?.category_id]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
     const handleMouseMove = (e) => {
@@ -745,8 +840,6 @@ export default function Home() {
                     </div>
                 )}
             </section>
-
-          
 
             {/* --- INFO DISPLAY GRID (Interactive Hover Effect) --- */}
             <section 
@@ -1024,8 +1117,13 @@ export default function Home() {
                 ) : (
                     (() => {
                         const categoryName = featuredSection?.category_name || '';
-                        const title = featuredSection?.title?.trim() || categoryName;
-                        const subtitle = featuredSection?.subtitle?.trim() || 'Curated picks from this collection';
+                        const isAutopilotApplied = Boolean(featuredSection?.autopilot_applied);
+                        const title = isAutopilotApplied
+                            ? (categoryName || featuredSection?.title?.trim() || '')
+                            : (featuredSection?.title?.trim() || categoryName);
+                        const subtitle = isAutopilotApplied
+                            ? (featuredSection?.subtitle?.trim() || 'Curated picks from this week\'s highlighted category')
+                            : (featuredSection?.subtitle?.trim() || 'Curated picks from this collection');
 
                         if (!categoryName) {
                             return (
@@ -1063,6 +1161,80 @@ export default function Home() {
                             </>
                         );
                     })()
+                )}
+            </section>
+
+            {/* --- HOME BANNER 3 (below featured showcase section) --- */}
+            {((isLoadingTertiaryBanner) || hasBannerImage(tertiaryBanner?.image_url)) && (
+            <section className="w-full tier-surface">
+                {isLoadingTertiaryBanner ? (
+                    <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
+                ) : (
+                    (() => {
+                        const link = tertiaryBanner?.link || '';
+                        const imageUrl = tertiaryBanner?.image_url || '';
+                        if (!hasBannerImage(imageUrl)) return null;
+                        const content = (
+                            <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
+                                <div className="pt-[56.25%]" />
+                                <img
+                                    src={imageUrl}
+                                    alt="Home banner 3"
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                />
+                            </div>
+                        );
+
+                        if (!link) return content;
+                        if (isExternalLink(link)) {
+                            return (
+                                <a href={link} target="_blank" rel="noreferrer" className="block">
+                                    {content}
+                                </a>
+                            );
+                        }
+                        return (
+                            <Link to={link} className="block">
+                                {content}
+                            </Link>
+                        );
+                    })()
+                )}
+            </section>
+            )}
+
+            {/* --- OFFERS --- */}
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
+                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
+                    <div>
+                        <h2 className="text-3xl font-serif text-primary">Offers</h2>
+                        <p className="text-gray-500 mt-2">Auto-curated products with active discounts</p>
+                    </div>
+                    <Link
+                        to={`/shop/${encodeURIComponent('Offers')}`}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-primary border border-primary/20 hover:border-primary hover:bg-primary/5 transition-all w-fit"
+                    >
+                        View All <ArrowRight size={18} />
+                    </Link>
+                </div>
+
+                {isLoadingOffers ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                        {[...Array(10)].map((_, i) => (
+                            <div key={i} className="h-56 bg-gray-100 rounded-2xl animate-pulse"></div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+                        {offersProducts.slice(0, 10).map((product) => (
+                            <ProductCard key={product.id} product={product} />
+                        ))}
+                        {offersProducts.length === 0 && (
+                            <div className="col-span-full py-10 text-center text-gray-400">
+                                No offers available at the moment.
+                            </div>
+                        )}
+                    </div>
                 )}
             </section>
 

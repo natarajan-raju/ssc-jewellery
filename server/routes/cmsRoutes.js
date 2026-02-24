@@ -4,7 +4,29 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { protect, admin } = require('../middleware/authMiddleware');
-const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, getCompanyInfo, createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory, createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts, deleteSlide, reorderSlides, updateSlide } = require('../controllers/cmsController');
+const {
+    getSlides,
+    getHeroTexts,
+    getBanner,
+    getSecondaryBanner,
+    getTertiaryBanner,
+    getFeaturedCategory,
+    getAutopilotConfig,
+    getCompanyInfo,
+    createSlide,
+    updateBanner,
+    updateSecondaryBanner,
+    updateTertiaryBanner,
+    updateFeaturedCategory,
+    updateAutopilotConfig,
+    createHeroText,
+    updateHeroText,
+    deleteHeroText,
+    reorderHeroTexts,
+    deleteSlide,
+    reorderSlides,
+    updateSlide
+} = require('../controllers/cmsController');
 
 // --- MULTER STORAGE FOR HERO IMAGES ---
 const storage = multer.diskStorage({
@@ -40,7 +62,9 @@ router.get('/hero', getSlides);
 router.get('/hero-texts', getHeroTexts);
 router.get('/banner', getBanner);
 router.get('/banner-secondary', getSecondaryBanner);
+router.get('/banner-tertiary', getTertiaryBanner);
 router.get('/featured-category', getFeaturedCategory);
+router.get('/autopilot', getAutopilotConfig);
 router.get('/company-info', getCompanyInfo);
 
 // Admin: Manage Slides
@@ -51,7 +75,9 @@ router.put('/hero-texts/:id', protect, admin, updateHeroText);
 router.delete('/hero-texts/:id', protect, admin, deleteHeroText);
 router.put('/banner', protect, admin, uploadBanner.single('image'), updateBanner);
 router.put('/banner-secondary', protect, admin, uploadBanner.single('image'), updateSecondaryBanner);
+router.put('/banner-tertiary', protect, admin, uploadBanner.single('image'), updateTertiaryBanner);
 router.put('/featured-category', protect, admin, updateFeaturedCategory);
+router.put('/autopilot', protect, admin, updateAutopilotConfig);
 router.put('/hero/reorder', protect, admin, reorderSlides);
 router.put('/hero/:id', protect, admin, updateSlide);
 router.delete('/hero/:id', protect, admin, deleteSlide);

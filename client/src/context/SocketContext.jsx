@@ -254,7 +254,9 @@ export const SocketProvider = ({ children }) => {
         socket.on('cms:texts_update', handleAdminCrud);
         socket.on('cms:banner_update', handleAdminCrud);
         socket.on('cms:banner_secondary_update', handleAdminCrud);
+        socket.on('cms:banner_tertiary_update', handleAdminCrud);
         socket.on('cms:featured_category_update', handleAdminCrud);
+        socket.on('cms:autopilot_update', handleAdminCrud);
 
         return () => {
             socket.off('product:create', handleProductCreate);
@@ -272,7 +274,9 @@ export const SocketProvider = ({ children }) => {
             socket.off('cms:texts_update', handleAdminCrud);
             socket.off('cms:banner_update', handleAdminCrud);
             socket.off('cms:banner_secondary_update', handleAdminCrud);
+            socket.off('cms:banner_tertiary_update', handleAdminCrud);
             socket.off('cms:featured_category_update', handleAdminCrud);
+            socket.off('cms:autopilot_update', handleAdminCrud);
         };
     }, [socket]);
 

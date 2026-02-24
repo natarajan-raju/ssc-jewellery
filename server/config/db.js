@@ -162,9 +162,17 @@ const initDB = async () => {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 name VARCHAR(255) UNIQUE NOT NULL,
                 image_url TEXT,
+                system_key VARCHAR(50) UNIQUE,
+                is_immutable TINYINT(1) NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        try {
+            await connection.query('ALTER TABLE categories ADD COLUMN system_key VARCHAR(50) UNIQUE');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE categories ADD COLUMN is_immutable TINYINT(1) NOT NULL DEFAULT 0');
+        } catch {}
 
         await connection.query(`
             CREATE TABLE IF NOT EXISTS shipping_zones (
@@ -962,6 +970,13 @@ const initDB = async () => {
             )
         `);
         await connection.query(`
+            CREATE TABLE IF NOT EXISTS cms_autopilot_config (
+                id INT PRIMARY KEY,
+                is_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await connection.query(`
             CREATE TABLE IF NOT EXISTS company_profile (
                 id INT PRIMARY KEY,
                 display_name VARCHAR(255) NOT NULL DEFAULT 'SSC Jewellery',
@@ -997,7 +1012,7 @@ const initDB = async () => {
             )
         `);
         // Ensure singleton rows exist (Primary + Secondary)
-        const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id IN (1, 2)');
+        const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id IN (1, 2, 3)');
         const existingIds = new Set(bannerRows.map(r => r.id));
         if (!existingIds.has(1)) {
             await connection.execute(
@@ -1009,6 +1024,12 @@ const initDB = async () => {
             await connection.execute(
                 'INSERT INTO home_banner (id, image_url, link) VALUES (?, ?, ?)',
                 [2, '/placeholder_banner.jpg', '']
+            );
+        }
+        if (!existingIds.has(3)) {
+            await connection.execute(
+                'INSERT INTO home_banner (id, image_url, link) VALUES (?, ?, ?)',
+                [3, '/placeholder_banner.jpg', '']
             );
         }
         // Ensure featured category row exists (id=1)
@@ -1039,20 +1060,127 @@ const initDB = async () => {
                 [1, 0, '', '', '', '', '', '', 'Shop Now', '/shop', null, null, null, null, null, JSON.stringify({})]
             );
         }
-        // 8. [NEW] Ensure Default Categories Exist (Best Sellers & New Arrivals)
-        const defaultCats = ['Best Sellers', 'New Arrivals'];
-        for (const catName of defaultCats) {
-            // Check if exists
-            const [rows] = await connection.execute('SELECT id FROM categories WHERE name = ?', [catName]);
-            
-            if (rows.length === 0) {
-                // Create if missing (using the requested placeholder path)
+        await connection.execute(
+            `INSERT INTO cms_autopilot_config (id, is_enabled)
+             VALUES (1, 0)
+             ON DUPLICATE KEY UPDATE id = id`
+        );
+
+        // 8. [NEW] Ensure Default Immutable Categories Exist
+        const defaultCats = [
+            { key: 'best_sellers', name: 'Best Sellers', image: '/assets/category.jpg' },
+            { key: 'new_arrivals', name: 'New Arrivals', image: '/assets/category.jpg' },
+            { key: 'offers', name: 'Offers', image: '/assets/category.jpg' }
+        ];
+        for (const cat of defaultCats) {
+            const [keyRows] = await connection.execute('SELECT id FROM categories WHERE system_key = ? LIMIT 1', [cat.key]);
+            if (keyRows.length > 0) {
                 await connection.execute(
-                    'INSERT INTO categories (name, image_url) VALUES (?, ?)', 
-                    [catName, '/src/assets/placeholder.jpg']
+                    `UPDATE categories
+                     SET is_immutable = 1,
+                         image_url = CASE
+                            WHEN image_url IS NULL OR image_url = '' OR image_url LIKE '/src/assets/%' THEN ?
+                            ELSE image_url
+                         END
+                     WHERE id = ?`,
+                    [cat.image, keyRows[0].id]
                 );
-                console.log(`✅ Auto-created default category: ${catName}`);
+                continue;
             }
+            const [nameRows] = await connection.execute('SELECT id FROM categories WHERE name = ? LIMIT 1', [cat.name]);
+            if (nameRows.length > 0) {
+                await connection.execute(
+                    `UPDATE categories
+                     SET system_key = ?,
+                         is_immutable = 1,
+                         image_url = CASE
+                            WHEN image_url IS NULL OR image_url = '' OR image_url LIKE '/src/assets/%' THEN ?
+                            ELSE image_url
+                         END
+                     WHERE id = ?`,
+                    [cat.key, cat.image, nameRows[0].id]
+                );
+                continue;
+            }
+            await connection.execute(
+                'INSERT INTO categories (name, image_url, system_key, is_immutable) VALUES (?, ?, ?, 1)',
+                [cat.name, cat.image, cat.key]
+            );
+            console.log(`✅ Auto-created default category: ${cat.name}`);
+        }
+
+        // One-time sync: auto-tag all discounted products/variants under Offers.
+        const [offerRows] = await connection.execute(
+            'SELECT id FROM categories WHERE system_key = ? LIMIT 1',
+            ['offers']
+        );
+        const offersCategoryId = offerRows?.[0]?.id;
+        if (offersCategoryId) {
+            const [discountedProducts] = await connection.execute(
+                `SELECT DISTINCT p.id
+                 FROM products p
+                 LEFT JOIN product_variants pv ON pv.product_id = p.id
+                 WHERE
+                    (p.discount_price IS NOT NULL AND p.discount_price > 0 AND (p.mrp IS NULL OR p.discount_price < p.mrp))
+                    OR
+                    (pv.discount_price IS NOT NULL AND pv.discount_price > 0 AND (pv.price IS NULL OR pv.discount_price < pv.price))`
+            );
+            const discountedIds = discountedProducts.map((row) => String(row.id || '').trim()).filter(Boolean);
+            if (discountedIds.length > 0) {
+                const [existingRows] = await connection.execute(
+                    `SELECT product_id
+                     FROM product_categories
+                     WHERE category_id = ?`,
+                    [offersCategoryId]
+                );
+                const existing = new Set(existingRows.map((row) => String(row.product_id || '').trim()).filter(Boolean));
+                const [orderRows] = await connection.execute(
+                    'SELECT COALESCE(MAX(display_order), -1) AS max_order FROM product_categories WHERE category_id = ?',
+                    [offersCategoryId]
+                );
+                let nextOrder = Number(orderRows?.[0]?.max_order ?? -1) + 1;
+                for (const productId of discountedIds) {
+                    if (existing.has(productId)) continue;
+                    await connection.execute(
+                        'INSERT INTO product_categories (product_id, category_id, display_order) VALUES (?, ?, ?)',
+                        [productId, offersCategoryId, nextOrder]
+                    );
+                    nextOrder += 1;
+                }
+            }
+
+            // Keep offers list clean if discount was removed from legacy products.
+            await connection.execute(
+                `DELETE pc
+                 FROM product_categories pc
+                 JOIN products p ON p.id = pc.product_id
+                 WHERE pc.category_id = ?
+                   AND NOT (
+                     (p.discount_price IS NOT NULL AND p.discount_price > 0 AND (p.mrp IS NULL OR p.discount_price < p.mrp))
+                     OR EXISTS (
+                         SELECT 1
+                         FROM product_variants pv
+                         WHERE pv.product_id = p.id
+                           AND pv.discount_price IS NOT NULL
+                           AND pv.discount_price > 0
+                           AND (pv.price IS NULL OR pv.discount_price < pv.price)
+                     )
+                   )`,
+                [offersCategoryId]
+            );
+
+            await connection.execute(
+                `UPDATE products p
+                 SET categories = COALESCE(
+                    (
+                        SELECT JSON_ARRAYAGG(c.name)
+                        FROM product_categories pc2
+                        JOIN categories c ON c.id = pc2.category_id
+                        WHERE pc2.product_id = p.id
+                    ),
+                    JSON_ARRAY()
+                 )`
+            );
         }
         
 

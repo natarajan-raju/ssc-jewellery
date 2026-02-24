@@ -12,8 +12,6 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [category, setCategory] = useState(null);
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [newName, setNewName] = useState('');
     
     // Assign Modal State
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -30,6 +28,8 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
     const toast = useToast();
+    const isOffersCategory = String(category?.system_key || '').toLowerCase() === 'offers';
+    const isNameImmutable = Boolean(category?.is_immutable);
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -37,7 +37,6 @@ export default function CategoryDetail({ categoryId, onBack }) {
             const data = await productService.getCategoryDetails(categoryId);
             setCategory(data);
             setProducts(data.products || []);
-            setNewName(data.name);
         } catch (error) {
             toast.error("Failed to load category details");
         } finally {
@@ -89,9 +88,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
         try {
             const formData = new FormData();
             
-            // [FIX] Enforce Name Protection
-            const isProtected = ['Best Sellers', 'New Arrivals'].includes(category.name);
-            const finalName = isProtected ? category.name : name; // Ignore new name if protected
+            const finalName = isNameImmutable ? category.name : name;
 
             formData.append('name', finalName);
             if (imageFile) formData.append('image', imageFile);
@@ -105,27 +102,13 @@ export default function CategoryDetail({ categoryId, onBack }) {
                 image_url: imageFile ? URL.createObjectURL(imageFile) : prev.image_url 
             }));
             
-            toast.success(isProtected ? "Category updated (Name is protected)" : "Category updated");
+            toast.success(isNameImmutable ? "Category updated (Name is immutable)" : "Category updated");
             setShowEditModal(false);
             productService.clearCache();
         } catch (error) {
-            toast.error("Update failed");
+            toast.error(error.message || "Update failed");
         } finally {
             setIsActionLoading(false);
-        }
-    };
-
-    // --- RENAME CATEGORY ---
-    const handleRename = async () => {
-        if (!newName.trim()) return;
-        try {
-            await productService.updateCategory(categoryId, newName);
-            setCategory(prev => ({ ...prev, name: newName }));
-            setIsEditingName(false);
-            toast.success("Category renamed");
-            productService.clearCache(); // Clear cache to refresh global lists
-        } catch (error) {
-            toast.error("Failed to rename");
         }
     };
 
@@ -162,6 +145,10 @@ export default function CategoryDetail({ categoryId, onBack }) {
 
    // A. Open Remove Modal
     const openRemoveModal = (product) => {
+        if (isOffersCategory) {
+            toast.error("Offers products are auto-managed by discount");
+            return;
+        }
         setModalConfig({
             isOpen: true,
             type: 'delete',
@@ -221,6 +208,10 @@ export default function CategoryDetail({ categoryId, onBack }) {
     };
 
     const handleAssignSubmit = async () => {
+        if (isOffersCategory) {
+            toast.error("Offers products are auto-managed by discount");
+            return;
+        }
         if (selectedAssignIds.size === 0) {
             toast.error("Select at least one product");
             return;
@@ -291,6 +282,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
                 onClose={() => setShowEditModal(false)}
                 onConfirm={handleUpdateCategory}
                 isLoading={isActionLoading}
+                disableNameEdit={isNameImmutable}
                 initialData={category} // Pre-fill data
             />
             <Modal 
@@ -329,7 +321,11 @@ export default function CategoryDetail({ categoryId, onBack }) {
                     </div>
                 </div>
                 
-                <button onClick={openAssignModal} className="bg-white border border-gray-200 text-primary font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:border-primary transition-colors">
+                <button
+                    onClick={openAssignModal}
+                    disabled={isOffersCategory}
+                    className="bg-white border border-gray-200 text-primary font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:border-primary transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
                     <Plus size={18} /> Assign products
                 </button>
             </div>
@@ -339,6 +335,11 @@ export default function CategoryDetail({ categoryId, onBack }) {
                 <p className="text-sm text-gray-500">
                     Use drag & drop to change the order of products. Changes are saved automatically.
                 </p>
+                {isOffersCategory && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        Offers membership is auto-managed from product and variant discount values. You can only reorder products here.
+                    </p>
+                )}
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {products.map((product, index) => (
@@ -358,13 +359,15 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                     <div className="w-full h-full flex items-center justify-center text-gray-300">No Image</div>
                                 )}
                                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button 
-                                    onClick={() => openRemoveModal(product)} // <--- CHANGED THIS
-                                    className="p-1.5 bg-white text-red-500 rounded-md shadow-sm hover:bg-red-50"
-                                    title="Remove from category"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
+                                    {!isOffersCategory && (
+                                        <button 
+                                            onClick={() => openRemoveModal(product)}
+                                            className="p-1.5 bg-white text-red-500 rounded-md shadow-sm hover:bg-red-50"
+                                            title="Remove from category"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    )}
                                 </div>
                                 <div className="absolute top-2 left-2 cursor-grab active:cursor-grabbing p-1 bg-white/80 rounded backdrop-blur-sm text-gray-500">
                                     <GripVertical size={14} />

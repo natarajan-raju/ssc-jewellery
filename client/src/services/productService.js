@@ -8,8 +8,8 @@ const API_URL = import.meta.env.PROD
 // --- CACHE STORAGE ---
 let productCache = {};
 
-const buildProductsCacheKey = (page, category, status, sort, limit) =>
-    `page${page}_limit${limit}_cat${category}_stat${status}_sort${sort}`;
+const buildProductsCacheKey = (page, category, status, sort, limit, categoryId = '') =>
+    `page${page}_limit${limit}_cat${category}_catid${categoryId || ''}_stat${status}_sort${sort}`;
 const buildSearchCacheKey = ({
     query = '',
     page = 1,
@@ -24,14 +24,15 @@ const buildSearchCacheKey = ({
     `search_q${String(query || '').trim().toLowerCase()}_p${page}_l${limit}_cat${category}_stat${status}_sort${sort}_stock${inStockOnly ? 1 : 0}_min${minPrice ?? ''}_max${maxPrice ?? ''}`;
 
 const parseProductsCacheKey = (key = '') => {
-    const match = /^page(\d+)_limit(\d+)_cat(.+)_stat(.+)_sort(.+)$/.exec(String(key));
+    const match = /^page(\d+)_limit(\d+)_cat(.*)_catid(.*)_stat(.+)_sort(.+)$/.exec(String(key));
     if (!match) return null;
     return {
         page: Number(match[1]),
         limit: Number(match[2]),
         category: match[3],
-        status: match[4],
-        sort: match[5]
+        categoryId: match[4],
+        status: match[5],
+        sort: match[6]
     };
 };
 
@@ -83,18 +84,26 @@ export const productService = {
         try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
     },
     // --- GET PRODUCTS (With Caching) ---
-    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10) => {
+    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10, categoryId = null) => {
         // [NEW] Include sort + limit in cache key
-        const cacheKey = buildProductsCacheKey(page, category, status, sort, limit);
+        const cacheKey = buildProductsCacheKey(page, category, status, sort, limit, categoryId || '');
 
         const cached = productCache[cacheKey];
         if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
             return cached.data;
         }
 
-        // [NEW] Add sort to query string (and timestamp for cache busting)
-        const query = `?page=${page}&limit=${limit}&category=${category}&status=${status}&sort=${sort}&_t=${Date.now()}`;
-        const res = await fetch(`${API_URL}${query}`, { 
+        // Use URLSearchParams so category names like "Bangles & Bracelet" are encoded safely.
+        const params = new URLSearchParams({
+            page: String(page),
+            limit: String(limit),
+            category: String(category || 'all'),
+            status: String(status || 'all'),
+            sort: String(sort || 'newest'),
+            _t: String(Date.now())
+        });
+        if (categoryId) params.set('categoryId', String(categoryId));
+        const res = await fetch(`${API_URL}?${params.toString()}`, {
             headers: { 
                 ...getAuthHeader(),
                 'Content-Type': 'application/json' 

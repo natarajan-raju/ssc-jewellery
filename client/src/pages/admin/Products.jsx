@@ -5,7 +5,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { 
     Loader2, Search, Plus, Package, 
     ChevronLeft, ChevronRight, Edit3, Trash2, Eye, EyeOff, Filter,
-    Infinity as InfinityIcon, AlertTriangle, X
+    Infinity as InfinityIcon, AlertTriangle
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
@@ -61,19 +61,15 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
 
     // --- HANDLERS ---
     const handleSaveProduct = async (formData, id) => {
-        try {
-            if (id) {
-                await productService.updateProduct(id, formData);
-                toast.success("Product updated successfully!");
-            } else {
-                await productService.createProduct(formData);
-                toast.success("Product created successfully!");
-            }
-            productService.clearCache();
-            refreshAllProducts();
-        } catch (error) {
-            throw error;
+        if (id) {
+            await productService.updateProduct(id, formData);
+            toast.success("Product updated successfully!");
+        } else {
+            await productService.createProduct(formData);
+            toast.success("Product created successfully!");
         }
+        productService.clearCache();
+        refreshAllProducts();
     };
 
     // Open Delete Confirmation Modal
@@ -89,7 +85,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             toast.success(`"${productToDelete.title}" has been deleted.`);
             productService.clearCache();
             refreshAllProducts();
-        } catch (error) {
+        } catch {
             toast.error("Failed to delete product.");
         } finally {
             setProductToDelete(null); // Close modal

@@ -32,12 +32,13 @@ const getProducts = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const category = req.query.category || 'all';
+        const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
         
         // Staff sees only Active? (Optional requirement, usually Staff sees all too)
         const status = req.query.status || 'all'; 
         const sort = req.query.sort || 'newest';
 
-        const result = await Product.getPaginated(page, limit, category, status, sort);
+        const result = await Product.getPaginated(page, limit, category, status, sort, categoryId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
@@ -250,7 +251,8 @@ const updateCategory = async (req, res) => {
         await emitProductUpdatesForIds(req, affectedProductIds);
         res.json({ message: 'Category updated' });
     } catch (error) {
-        res.status(500).json({ message: 'Update failed' });
+        const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
+        res.status(status).json({ message: error.message || 'Update failed' });
     }
 };
 
@@ -292,7 +294,8 @@ const manageCategoryProduct = async (req, res) => {
         });
         res.json({ message: 'Success' });
     } catch (error) {
-        res.status(500).json({ message: 'Action failed' });
+        const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
+        res.status(status).json({ message: error.message || 'Action failed' });
     }
 };
 
@@ -324,7 +327,8 @@ const manageCategoryProductsBulk = async (req, res) => {
         });
         res.json({ message: 'Success', updated: affectedProductIds.length });
     } catch (error) {
-        res.status(500).json({ message: 'Bulk action failed' });
+        const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
+        res.status(status).json({ message: error.message || 'Bulk action failed' });
     }
 };
 
@@ -339,7 +343,7 @@ const createCategory = async (req, res) => {
         notifyClients(req, 'refresh:categories', {action: 'create', category}); // [NEW] Notify Sync
         res.status(201).json({ message: 'Category created' });
     } catch (error) {
-        res.status(500).json({ message: error.message || 'Create failed' });
+        res.status(400).json({ message: error.message || 'Create failed' });
     }
 };
 
@@ -351,7 +355,8 @@ const deleteCategory = async (req, res) => {
         await emitProductUpdatesForIds(req, affectedProductIds);
         res.json({ message: 'Category deleted' });
     } catch (error) {
-        res.status(500).json({ message: 'Delete failed' });
+        const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
+        res.status(status).json({ message: error.message || 'Delete failed' });
     }
 };
 

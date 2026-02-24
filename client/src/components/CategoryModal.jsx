@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, FolderPlus, Image as ImageIcon, Loader2 } from 'lucide-react';
 
-export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, initialData = null }) {
+export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, initialData = null, disableNameEdit = false }) {
     const [name, setName] = useState('');
     const [selectedImage, setSelectedImage] = useState(null); // Preview URL
     const [imageFile, setImageFile] = useState(null); // Actual File
@@ -64,8 +64,12 @@ export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, i
                                 onChange={(e) => setName(e.target.value)}
                                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
                                 placeholder="e.g. Necklaces"
+                                disabled={disableNameEdit}
                                 autoFocus
                             />
+                            {disableNameEdit && (
+                                <p className="text-[11px] text-gray-500 mt-1">Name is locked for system categories.</p>
+                            )}
                         </div>
 
                         {/* Image Upload */}

@@ -200,13 +200,20 @@ export default function Categories() {
                                         )}
                                     </div>
                                     <div>
-                                        <h3 className="font-bold text-gray-800 text-lg">{cat.name}</h3>
+                                        <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                            <span>{cat.name}</span>
+                                            {Boolean(cat.is_immutable) && (
+                                                <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                                    system
+                                                </span>
+                                            )}
+                                        </h3>
                                         <p className="text-sm text-gray-500">{cat.product_count} products</p>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {/* [FIX] Hide Delete for Protected Categories */}
-                                    {!['Best Sellers', 'New Arrivals'].includes(cat.name) && (
+                                    {!Boolean(cat.is_immutable) && (
                                         <button 
                                             onClick={(e) => openDeleteModal(e, cat)}
                                             className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"

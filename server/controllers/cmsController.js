@@ -1,12 +1,47 @@
 const db = require('../config/db');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
 const CompanyProfile = require('../models/CompanyProfile');
 
 const notifyClients = (req, event, payload = {}) => {
     const io = req.app.get('io');
     if (!io) return;
     io.emit(event, payload);
+};
+
+const getOptionalAuthContext = (req) => {
+    try {
+        const header = String(req.headers?.authorization || '');
+        if (!header.startsWith('Bearer ')) return { userId: null, role: null };
+        const token = header.slice(7).trim();
+        if (!token) return { userId: null, role: null };
+        const secret = String(process.env.JWT_SECRET || '').trim();
+        if (!secret) return { userId: null, role: null };
+        const decoded = jwt.verify(token, secret);
+        return {
+            userId: decoded?.id ? String(decoded.id) : null,
+            role: decoded?.role ? String(decoded.role).toLowerCase() : null
+        };
+    } catch {
+        return { userId: null, role: null };
+    }
+};
+
+const getWeekKey = () => {
+    const now = new Date();
+    const yearStart = Date.UTC(now.getUTCFullYear(), 0, 1);
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const dayOfYear = Math.floor((todayUtc - yearStart) / 86400000);
+    return Math.floor(dayOfYear / 7);
+};
+
+const hashText = (text = '') => {
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+    }
+    return hash;
 };
 
 // 1. GET ALL SLIDES (Public & Admin)
@@ -64,8 +99,18 @@ const getSecondaryBanner = async (req, res) => {
     }
 };
 
+const getTertiaryBanner = async (req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 3 LIMIT 1');
+        res.json(rows[0] || { id: 3, image_url: '/placeholder_banner.jpg', link: '' });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch banner' });
+    }
+};
+
 const getFeaturedCategory = async (req, res) => {
     try {
+        const isAdmin = req.query.admin === 'true';
         const [rows] = await db.execute(
             `SELECT h.id, h.category_id, h.title, h.subtitle, c.name AS category_name
              FROM home_featured_category h
@@ -74,6 +119,8 @@ const getFeaturedCategory = async (req, res) => {
              LIMIT 1`
         );
         let config = rows[0] || null;
+        const [autoRows] = await db.execute('SELECT is_enabled FROM cms_autopilot_config WHERE id = 1 LIMIT 1');
+        const autopilotEnabled = Number(autoRows?.[0]?.is_enabled || 0) === 1;
 
         if (!config || !config.category_id || !config.category_name) {
             const [catRows] = await db.execute('SELECT id, name FROM categories ORDER BY name ASC LIMIT 1');
@@ -88,9 +135,98 @@ const getFeaturedCategory = async (req, res) => {
             }
         }
 
-        res.json(config);
+        const auth = getOptionalAuthContext(req);
+        const shouldApplyAutopilot = !isAdmin
+            && autopilotEnabled
+            && (!auth.role || auth.role === 'customer');
+
+        if (shouldApplyAutopilot) {
+            const [categoryRows] = await db.execute(
+                `SELECT c.id, c.name, COUNT(pc.product_id) AS product_count
+                 FROM categories c
+                 JOIN product_categories pc ON pc.category_id = c.id
+                 GROUP BY c.id, c.name
+                 HAVING COUNT(pc.product_id) > 0
+                 ORDER BY c.name ASC`
+            );
+            const allCategories = Array.isArray(categoryRows) ? categoryRows : [];
+            if (allCategories.length > 0) {
+                const userId = auth.userId;
+                let candidateCategories = allCategories;
+                if (userId) {
+                    const [seenRows] = await db.execute(
+                        `SELECT DISTINCT c.id
+                         FROM orders o
+                         JOIN order_items oi ON oi.order_id = o.id
+                         JOIN product_categories pc ON pc.product_id = oi.product_id
+                         JOIN categories c ON c.id = pc.category_id
+                         WHERE o.user_id = ?
+                           AND o.payment_status = 'paid'`,
+                        [userId]
+                    );
+                    const seenSet = new Set(
+                        seenRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id))
+                    );
+                    const unseen = allCategories.filter((row) => !seenSet.has(Number(row.id)));
+                    if (unseen.length > 0) candidateCategories = unseen;
+                }
+
+                const rotationBase = getWeekKey();
+                const personalizedOffset = userId ? (hashText(userId) % candidateCategories.length) : 0;
+                const index = (rotationBase + personalizedOffset) % candidateCategories.length;
+                const selected = candidateCategories[index];
+                if (selected) {
+                    config = {
+                        ...(config || {}),
+                        category_id: Number(selected.id),
+                        category_name: String(selected.name || ''),
+                        title: config?.title || '',
+                        subtitle: config?.subtitle || '',
+                        autopilot_enabled: true,
+                        autopilot_applied: true
+                    };
+                }
+            }
+        }
+
+        const response = config ? { ...config } : null;
+        if (!response) {
+            return res.json({ autopilot_enabled: autopilotEnabled });
+        }
+        response.autopilot_enabled = autopilotEnabled;
+        return res.json(response);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch featured category' });
+    }
+};
+
+const getAutopilotConfig = async (_req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT id, is_enabled, updated_at FROM cms_autopilot_config WHERE id = 1 LIMIT 1');
+        const row = rows[0] || { id: 1, is_enabled: 0, updated_at: null };
+        res.json({
+            id: row.id,
+            is_enabled: Number(row.is_enabled || 0) === 1,
+            updated_at: row.updated_at || null
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch autopilot config' });
+    }
+};
+
+const updateAutopilotConfig = async (req, res) => {
+    try {
+        const enabled = req.body?.is_enabled === true || String(req.body?.is_enabled).toLowerCase() === 'true';
+        await db.execute(
+            `INSERT INTO cms_autopilot_config (id, is_enabled)
+             VALUES (1, ?)
+             ON DUPLICATE KEY UPDATE is_enabled = VALUES(is_enabled)`,
+            [enabled ? 1 : 0]
+        );
+        notifyClients(req, 'cms:autopilot_update', { is_enabled: enabled });
+        res.json({ message: 'Autopilot updated', is_enabled: enabled });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update autopilot config' });
     }
 };
 
@@ -164,6 +300,29 @@ const updateSecondaryBanner = async (req, res) => {
             [imageUrl, link]
         );
         notifyClients(req, 'cms:banner_secondary_update', { image_url: imageUrl, link });
+        res.json({ message: 'Banner updated', image_url: imageUrl, link });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update banner' });
+    }
+};
+
+const updateTertiaryBanner = async (req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 3 LIMIT 1');
+        const current = rows[0] || { image_url: '', link: '' };
+        const removeImage = String(req.body?.removeImage || '').toLowerCase() === 'true';
+        const imageUrl = removeImage
+            ? null
+            : (req.file ? `/uploads/banner/${req.file.filename}` : current.image_url);
+        const link = typeof req.body.link === 'string' ? req.body.link : current.link;
+
+        await db.execute(
+            `INSERT INTO home_banner (id, image_url, link)
+             VALUES (3, ?, ?)
+             ON DUPLICATE KEY UPDATE image_url = VALUES(image_url), link = VALUES(link)`,
+            [imageUrl, link]
+        );
+        notifyClients(req, 'cms:banner_tertiary_update', { image_url: imageUrl, link });
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -312,4 +471,26 @@ const updateSlide = async (req, res) => {
     }
 };
 
-module.exports = { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getFeaturedCategory, getCompanyInfo, createSlide, updateBanner, updateSecondaryBanner, updateFeaturedCategory, createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts, deleteSlide, reorderSlides, updateSlide };
+module.exports = {
+    getSlides,
+    getHeroTexts,
+    getBanner,
+    getSecondaryBanner,
+    getTertiaryBanner,
+    getFeaturedCategory,
+    getAutopilotConfig,
+    getCompanyInfo,
+    createSlide,
+    updateBanner,
+    updateSecondaryBanner,
+    updateTertiaryBanner,
+    updateFeaturedCategory,
+    updateAutopilotConfig,
+    createHeroText,
+    updateHeroText,
+    deleteHeroText,
+    reorderHeroTexts,
+    deleteSlide,
+    reorderSlides,
+    updateSlide
+};
