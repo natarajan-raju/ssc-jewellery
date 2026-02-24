@@ -1432,7 +1432,8 @@ class Order {
             manualRefundRef = null,
             manualRefundUtr = null,
             refundCouponCode = null,
-            refundNotes = null
+            refundNotes = null,
+            actorUserId = null
         } = options || {};
         const normalizedCourier = String(courierPartner || '').trim();
         const normalizedAwb = String(awbNumber || '').trim();
@@ -1490,7 +1491,10 @@ class Order {
                 orderId
             ]
         );
-        await db.execute('INSERT INTO order_status_events (order_id, status) VALUES (?, ?)', [orderId, status]);
+        await db.execute(
+            'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
+            [orderId, status, actorUserId || null]
+        );
         return true;
     }
 

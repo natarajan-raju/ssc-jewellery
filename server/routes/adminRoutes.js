@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -24,6 +24,13 @@ router.get('/dashboard/funnel', getDashboardFunnel);
 router.get('/dashboard/products', getDashboardProducts);
 router.get('/dashboard/customers', getDashboardCustomers);
 router.get('/dashboard/actions', getDashboardActions);
+router.get('/dashboard/goals', listDashboardGoals);
+router.post('/dashboard/goals', upsertDashboardGoal);
+router.put('/dashboard/goals/:id', upsertDashboardGoal);
+router.delete('/dashboard/goals/:id', deleteDashboardGoal);
+router.get('/dashboard/alerts', getDashboardAlertSettings);
+router.put('/dashboard/alerts', updateDashboardAlertSettings);
+router.post('/dashboard/alerts/run', runDashboardAlerts);
 router.post('/users', createUser);
 router.delete('/users/:id', deleteUser);
 router.get('/users/:id/cart', getUserCart);

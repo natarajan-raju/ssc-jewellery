@@ -217,6 +217,10 @@ const buildDashboardScope = (query = {}) => {
         ? 'u.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 DAY)'
         : 'DATE(u.created_at) BETWEEN ? AND ?';
     const usersParams = quickRange === 'latest_10' ? [] : [startDateText, endDateText];
+    const lowStockThresholdRaw = Number(query.lowStockThreshold);
+    const lowStockThreshold = Number.isFinite(lowStockThresholdRaw)
+        ? Math.max(1, Math.min(100, Math.floor(lowStockThresholdRaw)))
+        : 5;
 
     return {
         quickRange,
@@ -235,6 +239,7 @@ const buildDashboardScope = (query = {}) => {
         attemptsParams,
         usersWhereSql,
         usersParams,
+        lowStockThreshold,
         seriesStartDate: startDateText,
         seriesEndDate: endDateText
     };
@@ -253,7 +258,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
     );
     const hasUserCreatedAt = Number(userCreatedAtColumnRows?.[0]?.has_column || 0) > 0;
 
-    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows]] = await Promise.all([
+    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows]] = await Promise.all([
         db.execute(
             `SELECT
                 COUNT(*) AS total_orders,
@@ -384,8 +389,26 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 FROM orders
                 WHERE user_id IS NOT NULL
                 GROUP BY user_id
-             ) fo ON fo.user_id = scoped.user_id`,
+            ) fo ON fo.user_id = scoped.user_id`,
             [scope.seriesStartDate, scope.seriesEndDate, scope.seriesStartDate, ...ordersScopeParams]
+        ),
+        db.execute(
+            `SELECT
+                e.actor_user_id AS user_id,
+                COALESCE(u.name, 'Unknown') AS operator_name,
+                COUNT(*) AS total_actions,
+                SUM(CASE WHEN e.status = 'shipped' THEN 1 ELSE 0 END) AS shipped_updates,
+                SUM(CASE WHEN e.status = 'completed' THEN 1 ELSE 0 END) AS completed_updates,
+                SUM(CASE WHEN e.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_updates
+             FROM order_status_events e
+             JOIN orders o ON o.id = e.order_id
+             LEFT JOIN users u ON u.id = e.actor_user_id
+             WHERE e.actor_user_id IS NOT NULL
+               AND DATE(e.created_at) BETWEEN ? AND ?${scope.orderFilterClause}
+             GROUP BY e.actor_user_id, COALESCE(u.name, 'Unknown')
+             ORDER BY total_actions DESC
+             LIMIT 8`,
+            [scope.seriesStartDate, scope.seriesEndDate, ...scope.orderFilterParams]
         )
     ]);
 
@@ -527,8 +550,8 @@ const getDashboardInsightsPayload = async (query = {}) => {
              FROM products
              WHERE id IN (${placeholders})
                AND COALESCE(track_quantity, 0) = 1
-               AND COALESCE(quantity, 0) <= 5`,
-            topSellerIds
+               AND COALESCE(quantity, 0) <= ?`,
+            [...topSellerIds, scope.lowStockThreshold]
         );
         (lowStockMatches || []).forEach((row) => lowStockTopSellerIds.add(String(row.id)));
     }
@@ -635,6 +658,16 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 revenue: Number(row.revenue || 0)
             }))
         },
+        operators: {
+            scorecards: (operatorRows || []).map((row) => ({
+                userId: row.user_id,
+                name: row.operator_name,
+                totalActions: Number(row.total_actions || 0),
+                shippedUpdates: Number(row.shipped_updates || 0),
+                completedUpdates: Number(row.completed_updates || 0),
+                cancelledUpdates: Number(row.cancelled_updates || 0)
+            }))
+        },
         actions: actions.slice(0, 8),
         lastUpdatedAt: new Date().toISOString()
     };
@@ -700,6 +733,288 @@ const getDashboardActions = async (req, res) => {
         return res.json({ filter: payload.filter, actions: payload.actions, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard actions' });
+    }
+};
+
+const listDashboardGoals = async (req, res) => {
+    try {
+        const [rows] = await db.execute(
+            `SELECT *
+             FROM dashboard_goal_targets
+             WHERE is_active = 1
+             ORDER BY period_start DESC, id DESC`
+        );
+        const cache = new Map();
+        const computeSnapshot = async (startDate, endDate) => {
+            const key = `${startDate}:${endDate}`;
+            if (cache.has(key)) return cache.get(key);
+            const payload = await getDashboardInsightsPayload({
+                quickRange: 'custom',
+                startDate,
+                endDate,
+                status: 'all',
+                paymentMode: 'all',
+                sourceChannel: 'all'
+            });
+            cache.set(key, payload);
+            return payload;
+        };
+
+        const goals = [];
+        for (const row of rows || []) {
+            const startDate = formatDateOnlyUTC(row.period_start || new Date());
+            const endDate = row.period_end ? formatDateOnlyUTC(row.period_end) : formatDateOnlyUTC(new Date());
+            const snapshot = await computeSnapshot(startDate, endDate);
+            const metricKey = String(row.metric_key || '').toLowerCase();
+            let currentValue = 0;
+            if (metricKey === 'net_sales') currentValue = Number(snapshot?.overview?.netSales || 0);
+            if (metricKey === 'total_orders') currentValue = Number(snapshot?.overview?.totalOrders || 0);
+            if (metricKey === 'conversion_rate') currentValue = Number(snapshot?.overview?.conversionRate || 0);
+            if (metricKey === 'repeat_rate') currentValue = Number(snapshot?.overview?.repeatRate || 0);
+            const targetValue = Number(row.target_value || 0);
+            const progressPct = targetValue > 0 ? Math.min(999, Number(((currentValue / targetValue) * 100).toFixed(1))) : 0;
+            goals.push({
+                id: row.id,
+                metricKey,
+                label: row.label,
+                targetValue,
+                currentValue,
+                progressPct,
+                periodType: row.period_type || 'monthly',
+                periodStart: startDate,
+                periodEnd: endDate
+            });
+        }
+        return res.json({ goals });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard goals' });
+    }
+};
+
+const upsertDashboardGoal = async (req, res) => {
+    try {
+        const {
+            id = null,
+            metricKey = 'net_sales',
+            label = '',
+            targetValue = 0,
+            periodType = 'monthly',
+            periodStart = formatDateOnlyUTC(new Date()),
+            periodEnd = null,
+            isActive = true
+        } = req.body || {};
+        const normalizedMetric = toSafeEnum(metricKey, ['net_sales', 'total_orders', 'conversion_rate', 'repeat_rate'], 'net_sales');
+        const normalizedPeriod = toSafeEnum(periodType, ['daily', 'weekly', 'monthly', 'custom'], 'monthly');
+        const safeLabel = String(label || '').trim() || normalizedMetric.replace(/_/g, ' ').toUpperCase();
+        const safeTarget = Number(targetValue || 0);
+        if (!Number.isFinite(safeTarget) || safeTarget < 0) {
+            return res.status(400).json({ message: 'Invalid target value' });
+        }
+        const start = formatDateOnlyUTC(periodStart);
+        const end = periodEnd ? formatDateOnlyUTC(periodEnd) : null;
+
+        if (id) {
+            await db.execute(
+                `UPDATE dashboard_goal_targets
+                 SET metric_key = ?, label = ?, target_value = ?, period_type = ?, period_start = ?, period_end = ?, is_active = ?
+                 WHERE id = ?`,
+                [normalizedMetric, safeLabel, safeTarget, normalizedPeriod, start, end, isActive ? 1 : 0, Number(id)]
+            );
+        } else {
+            await db.execute(
+                `INSERT INTO dashboard_goal_targets
+                    (metric_key, label, target_value, period_type, period_start, period_end, is_active, created_by)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [normalizedMetric, safeLabel, safeTarget, normalizedPeriod, start, end, isActive ? 1 : 0, req.user?.id || null]
+            );
+        }
+        return listDashboardGoals(req, res);
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to save dashboard goal' });
+    }
+};
+
+const deleteDashboardGoal = async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id) || id <= 0) {
+            return res.status(400).json({ message: 'Invalid goal id' });
+        }
+        await db.execute('UPDATE dashboard_goal_targets SET is_active = 0 WHERE id = ?', [id]);
+        return res.json({ ok: true, id });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to delete dashboard goal' });
+    }
+};
+
+const getDashboardAlertSettings = async (_req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT * FROM dashboard_alert_settings WHERE id = 1 LIMIT 1');
+        const row = rows?.[0] || null;
+        if (!row) {
+            return res.json({
+                settings: {
+                    isActive: false,
+                    emailRecipients: '',
+                    whatsappRecipients: '',
+                    pendingOver72Threshold: 10,
+                    failedPayment6hThreshold: 8,
+                    codCancelRateThreshold: 20,
+                    lowStockThreshold: 5
+                }
+            });
+        }
+        return res.json({
+            settings: {
+                isActive: Number(row.is_active || 0) === 1,
+                emailRecipients: row.email_recipients || '',
+                whatsappRecipients: row.whatsapp_recipients || '',
+                pendingOver72Threshold: Number(row.pending_over72_threshold || 10),
+                failedPayment6hThreshold: Number(row.failed_payment_6h_threshold || 8),
+                codCancelRateThreshold: Number(row.cod_cancel_rate_threshold || 20),
+                lowStockThreshold: Number(row.low_stock_threshold || 5),
+                updatedAt: row.updated_at || null
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load dashboard alert settings' });
+    }
+};
+
+const updateDashboardAlertSettings = async (req, res) => {
+    try {
+        const payload = req.body || {};
+        await db.execute(
+            `UPDATE dashboard_alert_settings
+             SET is_active = ?,
+                 email_recipients = ?,
+                 whatsapp_recipients = ?,
+                 pending_over72_threshold = ?,
+                 failed_payment_6h_threshold = ?,
+                 cod_cancel_rate_threshold = ?,
+                 low_stock_threshold = ?
+             WHERE id = 1`,
+            [
+                payload.isActive ? 1 : 0,
+                String(payload.emailRecipients || '').trim(),
+                String(payload.whatsappRecipients || '').trim(),
+                Math.max(1, Number(payload.pendingOver72Threshold || 10)),
+                Math.max(1, Number(payload.failedPayment6hThreshold || 8)),
+                Math.max(1, Number(payload.codCancelRateThreshold || 20)),
+                Math.max(1, Number(payload.lowStockThreshold || 5))
+            ]
+        );
+        return getDashboardAlertSettings(req, res);
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to update dashboard alert settings' });
+    }
+};
+
+const runDashboardAlerts = async (req, res) => {
+    try {
+        const [rows] = await db.execute('SELECT * FROM dashboard_alert_settings WHERE id = 1 LIMIT 1');
+        const settings = rows?.[0] || null;
+        if (!settings || Number(settings.is_active || 0) !== 1) {
+            return res.json({ ok: true, sent: 0, skipped: true, reason: 'alerts_disabled' });
+        }
+        const payload = await getDashboardInsightsPayload({
+            quickRange: 'last_7_days',
+            comparisonMode: 'previous_period',
+            status: 'all',
+            paymentMode: 'all',
+            sourceChannel: 'all',
+            lowStockThreshold: Number(settings.low_stock_threshold || 5)
+        });
+
+        const candidates = [];
+        if (Number(payload?.risk?.pendingAging?.over72h || 0) >= Number(settings.pending_over72_threshold || 10)) {
+            candidates.push({
+                key: 'pending_over72',
+                severity: 'high',
+                message: `${Number(payload.risk.pendingAging.over72h || 0)} pending orders are older than 72h`
+            });
+        }
+        if (Number(payload?.risk?.failedPaymentsCurrent6h || 0) >= Number(settings.failed_payment_6h_threshold || 8)) {
+            candidates.push({
+                key: 'failed_payment_6h',
+                severity: 'high',
+                message: `${Number(payload.risk.failedPaymentsCurrent6h || 0)} failed payments in last 6 hours`
+            });
+        }
+        if (Number(payload?.risk?.codCancellationRate || 0) >= Number(settings.cod_cancel_rate_threshold || 20)) {
+            candidates.push({
+                key: 'cod_cancellation_rate',
+                severity: 'medium',
+                message: `COD cancellation rate is ${Number(payload.risk.codCancellationRate || 0).toFixed(1)}%`
+            });
+        }
+        const lowStockAlerts = (payload?.actions || []).filter((item) => String(item?.id || '').startsWith('low_stock_fast_seller_'));
+        if (lowStockAlerts.length >= 1) {
+            candidates.push({
+                key: 'low_stock_fast_seller',
+                severity: 'high',
+                message: `${lowStockAlerts.length} low-stock fast sellers need replenishment`
+            });
+        }
+
+        if (!candidates.length) {
+            return res.json({ ok: true, sent: 0, skipped: true, reason: 'no_threshold_breach' });
+        }
+
+        const emailRecipients = String(settings.email_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
+        const whatsappRecipients = String(settings.whatsapp_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
+        const sentLogs = [];
+
+        for (const candidate of candidates) {
+            const [dupRows] = await db.execute(
+                `SELECT COUNT(*) AS total
+                 FROM dashboard_alert_logs
+                 WHERE alert_key = ?
+                   AND sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)`,
+                [candidate.key]
+            );
+            if (Number(dupRows?.[0]?.total || 0) > 0) continue;
+
+            const channels = [];
+            if (emailRecipients.length) {
+                await sendEmailCommunication({
+                    to: emailRecipients,
+                    subject: `[Dashboard Alert] ${candidate.message}`,
+                    text: `${candidate.message}\n\nPlease check Admin Dashboard for details.`,
+                    html: `<p><strong>${candidate.message}</strong></p><p>Please check Admin Dashboard for details.</p>`
+                }).catch(() => {});
+                channels.push('email');
+            }
+            if (whatsappRecipients.length) {
+                for (const mobile of whatsappRecipients) {
+                    // WhatsApp channel is currently stubbed, but this keeps flow production-ready.
+                    await sendWhatsapp({
+                        mobile,
+                        message: `SSC Dashboard Alert: ${candidate.message}`
+                    }).catch(() => {});
+                }
+                channels.push('whatsapp');
+            }
+
+            await db.execute(
+                `INSERT INTO dashboard_alert_logs
+                    (alert_key, severity, message, payload_json, channels_json, status)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                    candidate.key,
+                    candidate.severity,
+                    candidate.message,
+                    JSON.stringify(payload || {}),
+                    JSON.stringify(channels),
+                    channels.length ? 'sent' : 'skipped'
+                ]
+            );
+            sentLogs.push({ ...candidate, channels });
+        }
+
+        return res.json({ ok: true, sent: sentLogs.length, alerts: sentLogs });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to run dashboard alerts' });
     }
 };
 
@@ -1273,5 +1588,11 @@ module.exports = {
     getDashboardFunnel,
     getDashboardProducts,
     getDashboardCustomers,
-    getDashboardActions
+    getDashboardActions,
+    listDashboardGoals,
+    upsertDashboardGoal,
+    deleteDashboardGoal,
+    getDashboardAlertSettings,
+    updateDashboardAlertSettings,
+    runDashboardAlerts
 };

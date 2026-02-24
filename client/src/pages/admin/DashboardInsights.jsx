@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, AlertTriangle, Activity, TrendingUp, IndianRupee, Users, ShoppingBag } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Activity, TrendingUp, IndianRupee, Users, ShoppingBag, Target, Bell, Save, Play, Trash2 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
@@ -36,6 +36,27 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [isLoading, setIsLoading] = useState(true);
     const [data, setData] = useState(null);
     const [loadError, setLoadError] = useState('');
+    const [goals, setGoals] = useState([]);
+    const [isGoalsLoading, setIsGoalsLoading] = useState(false);
+    const [goalDraft, setGoalDraft] = useState({
+        metricKey: 'net_sales',
+        label: 'Monthly Net Sales',
+        targetValue: '',
+        periodType: 'monthly',
+        periodStart: new Date().toISOString().slice(0, 10),
+        periodEnd: ''
+    });
+    const [alertSettings, setAlertSettings] = useState({
+        isActive: false,
+        emailRecipients: '',
+        whatsappRecipients: '',
+        pendingOver72Threshold: 10,
+        failedPayment6hThreshold: 8,
+        codCancelRateThreshold: 20,
+        lowStockThreshold: 5
+    });
+    const [isSavingAlerts, setIsSavingAlerts] = useState(false);
+    const [isRunningAlerts, setIsRunningAlerts] = useState(false);
 
     useEffect(() => {
         toastRef.current = toast;
@@ -82,9 +103,43 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         return () => { cancelled = true; };
     }, [comparisonMode, endDate, paymentMode, quickRange, sourceChannel, startDate, statusFilter]);
 
+    useEffect(() => {
+        let cancelled = false;
+        const loadPhaseThree = async () => {
+            setIsGoalsLoading(true);
+            try {
+                const [goalData, alertData] = await Promise.all([
+                    adminService.getDashboardGoals(),
+                    adminService.getDashboardAlertSettings()
+                ]);
+                if (!cancelled) {
+                    setGoals(Array.isArray(goalData?.goals) ? goalData.goals : []);
+                    if (alertData?.settings) {
+                        setAlertSettings({
+                            isActive: Boolean(alertData.settings.isActive),
+                            emailRecipients: alertData.settings.emailRecipients || '',
+                            whatsappRecipients: alertData.settings.whatsappRecipients || '',
+                            pendingOver72Threshold: Number(alertData.settings.pendingOver72Threshold || 10),
+                            failedPayment6hThreshold: Number(alertData.settings.failedPayment6hThreshold || 8),
+                            codCancelRateThreshold: Number(alertData.settings.codCancelRateThreshold || 20),
+                            lowStockThreshold: Number(alertData.settings.lowStockThreshold || 5)
+                        });
+                    }
+                }
+            } catch (error) {
+                if (!cancelled) toastRef.current.error(error?.message || 'Failed to load goals/alerts');
+            } finally {
+                if (!cancelled) setIsGoalsLoading(false);
+            }
+        };
+        loadPhaseThree();
+        return () => { cancelled = true; };
+    }, []);
+
     const overview = data?.overview || {};
     const products = data?.products || {};
     const customers = data?.customers || {};
+    const operators = data?.operators || {};
     const growth = data?.growth || {};
     const risk = data?.risk || {};
     const funnel = data?.funnel || {};
@@ -110,6 +165,74 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users }
     ];
     const comparison = overview?.comparison || null;
+    const refreshGoals = async () => {
+        const goalData = await adminService.getDashboardGoals();
+        setGoals(Array.isArray(goalData?.goals) ? goalData.goals : []);
+    };
+    const handleSaveGoal = async () => {
+        try {
+            const payload = {
+                metricKey: goalDraft.metricKey,
+                label: goalDraft.label,
+                targetValue: Number(goalDraft.targetValue || 0),
+                periodType: goalDraft.periodType,
+                periodStart: goalDraft.periodStart,
+                periodEnd: goalDraft.periodType === 'custom' ? (goalDraft.periodEnd || null) : null
+            };
+            await adminService.saveDashboardGoal(payload);
+            await refreshGoals();
+            setGoalDraft((prev) => ({ ...prev, targetValue: '' }));
+            toastRef.current.success('Goal saved');
+        } catch (error) {
+            toastRef.current.error(error?.message || 'Failed to save goal');
+        }
+    };
+    const handleDeleteGoal = async (id) => {
+        try {
+            await adminService.deleteDashboardGoal(id);
+            await refreshGoals();
+            toastRef.current.success('Goal removed');
+        } catch (error) {
+            toastRef.current.error(error?.message || 'Failed to remove goal');
+        }
+    };
+    const handleSaveAlerts = async () => {
+        setIsSavingAlerts(true);
+        try {
+            const dataRes = await adminService.updateDashboardAlertSettings(alertSettings);
+            if (dataRes?.settings) {
+                setAlertSettings({
+                    isActive: Boolean(dataRes.settings.isActive),
+                    emailRecipients: dataRes.settings.emailRecipients || '',
+                    whatsappRecipients: dataRes.settings.whatsappRecipients || '',
+                    pendingOver72Threshold: Number(dataRes.settings.pendingOver72Threshold || 10),
+                    failedPayment6hThreshold: Number(dataRes.settings.failedPayment6hThreshold || 8),
+                    codCancelRateThreshold: Number(dataRes.settings.codCancelRateThreshold || 20),
+                    lowStockThreshold: Number(dataRes.settings.lowStockThreshold || 5)
+                });
+            }
+            toastRef.current.success('Alert settings saved');
+        } catch (error) {
+            toastRef.current.error(error?.message || 'Failed to save alert settings');
+        } finally {
+            setIsSavingAlerts(false);
+        }
+    };
+    const handleRunAlertsNow = async () => {
+        setIsRunningAlerts(true);
+        try {
+            const result = await adminService.runDashboardAlertsNow();
+            if (Number(result?.sent || 0) > 0) {
+                toastRef.current.success(`Sent ${result.sent} dashboard alerts`);
+            } else {
+                toastRef.current.info(result?.reason ? `No alerts sent (${result.reason})` : 'No alerts sent');
+            }
+        } catch (error) {
+            toastRef.current.error(error?.message || 'Failed to run alerts');
+        } finally {
+            setIsRunningAlerts(false);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -315,6 +438,104 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     </div>
                                 ))}
                                 {!(growth.channelRevenue || []).length && <p className="text-sm text-gray-500">No channel data in this period.</p>}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Target size={16} /> Goal Tracking</h3>
+                                <span className="text-xs text-gray-500">{isGoalsLoading ? 'Loading...' : `${goals.length} active`}</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <select value={goalDraft.metricKey} onChange={(e) => setGoalDraft((prev) => ({ ...prev, metricKey: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                                    <option value="net_sales">Net Sales</option>
+                                    <option value="total_orders">Total Orders</option>
+                                    <option value="conversion_rate">Conversion Rate</option>
+                                    <option value="repeat_rate">Repeat Rate</option>
+                                </select>
+                                <input value={goalDraft.label} onChange={(e) => setGoalDraft((prev) => ({ ...prev, label: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Goal label" />
+                                <input type="number" value={goalDraft.targetValue} onChange={(e) => setGoalDraft((prev) => ({ ...prev, targetValue: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Target value" />
+                                <select value={goalDraft.periodType} onChange={(e) => setGoalDraft((prev) => ({ ...prev, periodType: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm">
+                                    <option value="monthly">Monthly</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="date" value={goalDraft.periodStart} onChange={(e) => setGoalDraft((prev) => ({ ...prev, periodStart: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                                {goalDraft.periodType === 'custom' && (
+                                    <input type="date" value={goalDraft.periodEnd} onChange={(e) => setGoalDraft((prev) => ({ ...prev, periodEnd: e.target.value }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                                )}
+                            </div>
+                            <div className="mt-3">
+                                <button type="button" onClick={handleSaveGoal} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-accent text-xs font-semibold hover:bg-primary-light">
+                                    <Save size={13} /> Save Goal
+                                </button>
+                            </div>
+                            <div className="mt-4 space-y-2">
+                                {goals.map((goal) => (
+                                    <div key={goal.id} className="border border-gray-200 rounded-lg p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-sm font-semibold text-gray-800">{goal.label}</p>
+                                            <button type="button" onClick={() => handleDeleteGoal(goal.id)} className="p-1 rounded-md text-red-600 hover:bg-red-50">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">{goal.metricKey} | Target {Number(goal.targetValue || 0).toLocaleString('en-IN')}</p>
+                                        <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
+                                            <div className="h-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, Number(goal.progressPct || 0)))}%` }} />
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">{Number(goal.currentValue || 0).toLocaleString('en-IN')} ({Number(goal.progressPct || 0)}%)</p>
+                                    </div>
+                                ))}
+                                {!goals.length && !isGoalsLoading && <p className="text-sm text-gray-500">No goals configured yet.</p>}
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Bell size={16} /> Alerting & Operators</h3>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input type="checkbox" checked={alertSettings.isActive} onChange={(e) => setAlertSettings((prev) => ({ ...prev, isActive: e.target.checked }))} />
+                                    Enable dashboard alerts
+                                </label>
+                                <input value={alertSettings.emailRecipients} onChange={(e) => setAlertSettings((prev) => ({ ...prev, emailRecipients: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Alert emails (comma separated)" />
+                                <input value={alertSettings.whatsappRecipients} onChange={(e) => setAlertSettings((prev) => ({ ...prev, whatsappRecipients: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Alert WhatsApp numbers (comma separated)" />
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" value={alertSettings.pendingOver72Threshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, pendingOver72Threshold: Number(e.target.value || 0) }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Pending >72h threshold" />
+                                    <input type="number" value={alertSettings.failedPayment6hThreshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, failedPayment6hThreshold: Number(e.target.value || 0) }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Failed payment 6h threshold" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <input type="number" value={alertSettings.codCancelRateThreshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, codCancelRateThreshold: Number(e.target.value || 0) }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="COD cancel % threshold" />
+                                    <input type="number" value={alertSettings.lowStockThreshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, lowStockThreshold: Number(e.target.value || 0) }))} className="px-3 py-2 rounded-lg border border-gray-200 text-sm" placeholder="Low stock threshold" />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button type="button" onClick={handleSaveAlerts} disabled={isSavingAlerts} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold hover:bg-gray-50 disabled:opacity-60">
+                                        <Save size={13} /> {isSavingAlerts ? 'Saving...' : 'Save Alerts'}
+                                    </button>
+                                    <button type="button" onClick={handleRunAlertsNow} disabled={isRunningAlerts} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-accent text-xs font-semibold hover:bg-primary-light disabled:opacity-60">
+                                        <Play size={13} /> {isRunningAlerts ? 'Running...' : 'Run Alerts Now'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="mt-5">
+                                <h4 className="text-sm font-semibold text-gray-800">Operator Scorecards</h4>
+                                <div className="mt-2 space-y-2">
+                                    {(operators.scorecards || []).map((op) => (
+                                        <div key={String(op.userId)} className="border border-gray-200 rounded-lg p-2 flex items-center justify-between">
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-800">{op.name}</p>
+                                                <p className="text-xs text-gray-500">
+                                                    Total {Number(op.totalActions || 0)} | Shipped {Number(op.shippedUpdates || 0)} | Completed {Number(op.completedUpdates || 0)} | Cancelled {Number(op.cancelledUpdates || 0)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {!(operators.scorecards || []).length && <p className="text-sm text-gray-500">No operator activity in selected range.</p>}
+                                </div>
                             </div>
                         </div>
                     </div>

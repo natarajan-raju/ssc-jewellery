@@ -603,8 +603,77 @@ const initDB = async () => {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 order_id INT NOT NULL,
                 status VARCHAR(20) NOT NULL,
+                actor_user_id VARCHAR(50) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+                FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE order_status_events ADD COLUMN actor_user_id VARCHAR(50) NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_status_events ADD INDEX idx_order_status_actor_created (actor_user_id, created_at)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_status_events ADD INDEX idx_order_status_order_created (order_id, created_at)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS dashboard_goal_targets (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                metric_key VARCHAR(80) NOT NULL,
+                label VARCHAR(120) NOT NULL,
+                target_value DECIMAL(14,2) NOT NULL DEFAULT 0,
+                period_type VARCHAR(20) NOT NULL DEFAULT 'monthly',
+                period_start DATE NOT NULL,
+                period_end DATE NULL,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                created_by VARCHAR(50) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_dashboard_goal_period (period_type, period_start, is_active)
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE dashboard_goal_targets ADD COLUMN created_by VARCHAR(50) NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE dashboard_goal_targets ADD INDEX idx_dashboard_goal_metric (metric_key, is_active)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS dashboard_alert_settings (
+                id INT PRIMARY KEY,
+                is_active TINYINT(1) NOT NULL DEFAULT 0,
+                email_recipients TEXT,
+                whatsapp_recipients TEXT,
+                pending_over72_threshold INT NOT NULL DEFAULT 10,
+                failed_payment_6h_threshold INT NOT NULL DEFAULT 8,
+                cod_cancel_rate_threshold DECIMAL(6,2) NOT NULL DEFAULT 20,
+                low_stock_threshold INT NOT NULL DEFAULT 5,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await connection.execute(
+            `INSERT INTO dashboard_alert_settings
+                (id, is_active, email_recipients, whatsapp_recipients, pending_over72_threshold, failed_payment_6h_threshold, cod_cancel_rate_threshold, low_stock_threshold)
+             VALUES (1, 0, '', '', 10, 8, 20, 5)
+             ON DUPLICATE KEY UPDATE id = id`
+        );
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS dashboard_alert_logs (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                alert_key VARCHAR(80) NOT NULL,
+                severity VARCHAR(20) NOT NULL DEFAULT 'medium',
+                message VARCHAR(500) NOT NULL,
+                payload_json JSON,
+                channels_json JSON,
+                status VARCHAR(20) NOT NULL DEFAULT 'sent',
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_dashboard_alert_key_time (alert_key, sent_at),
+                INDEX idx_dashboard_alert_time (sent_at)
             )
         `);
 

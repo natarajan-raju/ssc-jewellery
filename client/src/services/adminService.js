@@ -354,6 +354,47 @@ export const adminService = {
         actions: data?.actions || [],
         lastUpdatedAt: data?.lastUpdatedAt || null
     })),
+    getDashboardGoals: async () => {
+        const res = await fetch(`${API_URL}/dashboard/goals`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    saveDashboardGoal: async (goal = {}) => {
+        const id = goal?.id ? Number(goal.id) : null;
+        const endpoint = id ? `${API_URL}/dashboard/goals/${id}` : `${API_URL}/dashboard/goals`;
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(endpoint, {
+            method,
+            headers: getAuthHeader(),
+            body: JSON.stringify(goal || {})
+        });
+        return handleResponse(res);
+    },
+    deleteDashboardGoal: async (id) => {
+        const res = await fetch(`${API_URL}/dashboard/goals/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
+    getDashboardAlertSettings: async () => {
+        const res = await fetch(`${API_URL}/dashboard/alerts`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    updateDashboardAlertSettings: async (settings = {}) => {
+        const res = await fetch(`${API_URL}/dashboard/alerts`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(settings || {})
+        });
+        return handleResponse(res);
+    },
+    runDashboardAlertsNow: async () => {
+        const res = await fetch(`${API_URL}/dashboard/alerts/run`, {
+            method: 'POST',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
     invalidateDashboardCache: () => {
         dashboardCache = {};
     },
