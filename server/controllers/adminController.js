@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const db = require('../config/db');
 const Cart = require('../models/Cart');
 const bcrypt = require('bcryptjs');
 const CompanyProfile = require('../models/CompanyProfile');
@@ -26,6 +27,33 @@ const emitCouponChanged = (req, payload = {}) => {
     if (payload.broadcast === true) {
         io.emit('coupon:changed', eventPayload);
     }
+};
+
+const resolveCategoryCouponContext = async (categoryIds = []) => {
+    const ids = [...new Set((Array.isArray(categoryIds) ? categoryIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0))];
+    if (!ids.length) return null;
+    const placeholders = ids.map(() => '?').join(',');
+    const [rows] = await db.execute(`SELECT id, name FROM categories WHERE id IN (${placeholders})`, ids);
+    if (!rows.length) return null;
+    const namesById = new Map(rows.map((row) => [Number(row.id), String(row.name || '').trim()]).filter(([, name]) => Boolean(name)));
+    const categoryNames = ids.map((id) => namesById.get(id)).filter(Boolean);
+    if (!categoryNames.length) return null;
+    const primaryCategoryName = categoryNames[0];
+    const baseUrl = String(
+        process.env.CLIENT_BASE_URL
+        || process.env.FRONTEND_URL
+        || process.env.APP_URL
+        || ''
+    ).replace(/\/+$/, '');
+    const categoryPath = `/shop/${encodeURIComponent(primaryCategoryName)}`;
+    return {
+        categoryNames,
+        primaryCategoryName,
+        categoryLink: categoryPath,
+        categoryUrl: baseUrl ? `${baseUrl}${categoryPath}` : categoryPath
+    };
 };
 
 // --- 1. GET ALL USERS (PAGINATED) ---
@@ -338,12 +366,19 @@ const issueCouponToUser = async (req, res) => {
         if (body.expiresAt && new Date(body.expiresAt).getTime() < new Date(body.startsAt).getTime()) {
             return res.status(400).json({ message: 'end date must be on or after start date' });
         }
+        const requestedScopeType = String(body.scopeType || 'customer').toLowerCase();
+        const scopeType = requestedScopeType === 'category' ? 'category' : 'customer';
+        const categoryIds = scopeType === 'category'
+            ? [...new Set((Array.isArray(body.categoryIds) ? body.categoryIds : [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isFinite(id) && id > 0))]
+            : [];
         const coupon = await Coupon.createCoupon({
             code: body.code || undefined,
             name: body.name || `Customer Offer - ${user.name || userId}`,
             description: body.description || null,
             sourceType: 'admin',
-            scopeType: 'customer',
+            scopeType,
             discountType: body.discountType || 'percent',
             discountValue: Number(body.discountValue || 0),
             maxDiscount: body.maxDiscount != null ? Number(body.maxDiscount) : null,
@@ -352,6 +387,7 @@ const issueCouponToUser = async (req, res) => {
             usageLimitPerUser: Math.max(1, Number(body.usageLimitPerUser || 1)),
             startsAt: body.startsAt,
             expiresAt: body.expiresAt || null,
+            categoryIds,
             customerTargets: [user.id]
         }, { createdBy: req.user?.id || null });
 
@@ -366,6 +402,15 @@ const issueCouponToUser = async (req, res) => {
                 : offerType === 'shipping_partial'
                     ? `${offerValue}% SHIPPING OFF`
                     : `${offerValue}% OFF`;
+        const categoryContext = scopeType === 'category'
+            ? await resolveCategoryCouponContext(categoryIds)
+            : null;
+        const categoryEligibilityLine = categoryContext?.primaryCategoryName
+            ? `This coupon is valid only for ${categoryContext.primaryCategoryName} category products.`
+            : '';
+        const categoryCtaLine = categoryContext?.categoryLink
+            ? `Explore eligible products: ${categoryContext.categoryUrl || categoryContext.categoryLink}`
+            : '';
         const message = `Hi ${customerName}, your coupon code is ${coupon.code}.`;
         const [emailResult, whatsappResult] = await Promise.all([
             user.email
@@ -381,6 +426,8 @@ const issueCouponToUser = async (req, res) => {
                         `Coupon code: ${coupon.code}`,
                         `Offer: ${offerLabel}`,
                         `Valid till: ${expiryLabel}`,
+                        ...(categoryEligibilityLine ? [categoryEligibilityLine] : []),
+                        ...(categoryCtaLine ? [categoryCtaLine] : []),
                         '',
                         `Whenever you are ready, apply this code at checkout and enjoy your savings.`,
                         '',
@@ -410,6 +457,8 @@ const issueCouponToUser = async (req, res) => {
                                                     <div style="font-size:22px;font-weight:700;color:#111827;margin-top:4px;">${coupon.code}</div>
                                                     <div style="font-size:14px;color:#111827;margin-top:8px;">Offer: <strong>${offerLabel}</strong></div>
                                                     <div style="font-size:14px;color:#111827;margin-top:4px;">Valid till: <strong>${expiryLabel}</strong></div>
+                                                    ${categoryEligibilityLine ? `<div style="font-size:14px;color:#92400e;margin-top:8px;"><strong>${categoryEligibilityLine}</strong></div>` : ''}
+                                                    ${categoryContext?.categoryLink ? `<div style="font-size:13px;color:#1f2937;margin-top:6px;"><a href="${categoryContext.categoryUrl || categoryContext.categoryLink}" style="color:#1f2937;text-decoration:underline;font-weight:600;">Browse eligible category products</a></div>` : ''}
                                                 </td>
                                             </tr>
                                         </table>
@@ -431,7 +480,7 @@ const issueCouponToUser = async (req, res) => {
             user.mobile
                 ? sendWhatsapp({
                     mobile: user.mobile,
-                    message: `${message} Use once per order.`
+                    message: `${message}${categoryEligibilityLine ? ` ${categoryEligibilityLine}` : ''}${categoryCtaLine ? ` ${categoryCtaLine}` : ''} Use once per order.`
                 }).catch(() => ({ ok: false }))
                 : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
         ]);
@@ -439,7 +488,7 @@ const issueCouponToUser = async (req, res) => {
         emitCouponChanged(req, {
             action: 'created',
             couponId: coupon?.id || null,
-            scopeType: 'customer',
+            scopeType,
             sourceType: 'admin',
             userTargets: [user.id]
         });
@@ -515,6 +564,10 @@ const deleteUserCoupon = async (req, res) => {
         }
         const coupon = await Coupon.getById(couponId);
         if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+        const scopeType = String(coupon.scope_type || 'generic').toLowerCase();
+        if (scopeType !== 'customer') {
+            return res.status(400).json({ message: 'Only customer-scope coupons can be deleted from a customer drawer' });
+        }
         const affected = await Coupon.deactivateCoupon(couponId);
         if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
         emitCouponChanged(req, {

@@ -124,6 +124,11 @@ const CarouselHero = ({ slides }) => {
 };
 
 const isExternalLink = (url) => /^https?:\/\//i.test(url || '');
+const hasBannerImage = (imageUrl = '') => {
+    const normalized = String(imageUrl || '').trim();
+    if (!normalized) return false;
+    return normalized !== '/placeholder_banner.jpg';
+};
 
 const TextCarousel = ({ texts }) => {
     const [index, setIndex] = useState(0);
@@ -200,7 +205,7 @@ export default function Home() {
 
     const isBirthdayToday = (dob) => {
         if (!dob) return false;
-        const [year, month, day] = String(dob).split('T')[0].split('-');
+        const [_year, month, day] = String(dob).split('T')[0].split('-');
         if (!month || !day) return false;
         const now = new Date();
         return Number(month) === now.getMonth() + 1 && Number(day) === now.getDate();
@@ -649,7 +654,7 @@ export default function Home() {
                                             if (res?.user) {
                                                 updateUser(res.user);
                                             }
-                                        } catch (error) {
+                                        } catch {
                                             // Silently ignore claim errors for now
                                         } finally {
                                             setShowBirthdayModal(false);
@@ -900,13 +905,15 @@ export default function Home() {
             </section>
 
             {/* --- HOME BANNER --- */}
+            {((isLoadingBanner) || hasBannerImage(homeBanner?.image_url)) && (
             <section className="w-full tier-surface">
                 {isLoadingBanner ? (
                     <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
                     (() => {
                         const link = homeBanner?.link || '';
-                        const imageUrl = homeBanner?.image_url || '/placeholder_banner.jpg';
+                        const imageUrl = homeBanner?.image_url || '';
+                        if (!hasBannerImage(imageUrl)) return null;
                         const content = (
                             <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
                                 <div className="pt-[56.25%]" />
@@ -914,7 +921,6 @@ export default function Home() {
                                     src={imageUrl}
                                     alt="Featured banner"
                                     className="absolute inset-0 w-full h-full object-contain"
-                                    onError={(e) => { e.currentTarget.src = '/placeholder_banner.jpg'; }}
                                 />
                             </div>
                         );
@@ -935,6 +941,7 @@ export default function Home() {
                     })()
                 )}
             </section>
+            )}
 
             {/* --- NEW ARRIVALS --- */}
             <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
@@ -972,13 +979,15 @@ export default function Home() {
             </section>
 
             {/* --- SECOND HOME BANNER --- */}
+            {((isLoadingSecondaryBanner) || hasBannerImage(secondaryBanner?.image_url)) && (
             <section className="w-full tier-surface">
                 {isLoadingSecondaryBanner ? (
                     <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
                     (() => {
                         const link = secondaryBanner?.link || '';
-                        const imageUrl = secondaryBanner?.image_url || '/placeholder_banner.jpg';
+                        const imageUrl = secondaryBanner?.image_url || '';
+                        if (!hasBannerImage(imageUrl)) return null;
                         const content = (
                             <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
                                 <div className="pt-[56.25%]" />
@@ -986,7 +995,6 @@ export default function Home() {
                                     src={imageUrl}
                                     alt="Featured banner"
                                     className="absolute inset-0 w-full h-full object-contain"
-                                    onError={(e) => { e.currentTarget.src = '/placeholder_banner.jpg'; }}
                                 />
                             </div>
                         );
@@ -1007,6 +1015,7 @@ export default function Home() {
                     })()
                 )}
             </section>
+            )}
 
             {/* --- FEATURED CATEGORY SECTION --- */}
             <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">

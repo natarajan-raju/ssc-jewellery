@@ -98,6 +98,12 @@ const formatCouponOffer = (coupon = {}) => {
     if (type === 'shipping_partial') return `${value}% shipping off`;
     return `${value}% off`;
 };
+const canDeleteCouponFromDrawer = (coupon = {}) => {
+    const sourceType = String(coupon.sourceType || coupon.source_type || '').toLowerCase();
+    if (sourceType === 'abandoned') return true;
+    const scopeType = String(coupon.scopeType || coupon.scope_type || '').toLowerCase();
+    return scopeType === 'customer';
+};
 
 export default function Customers({ onOpenLoyalty }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
@@ -450,7 +456,7 @@ export default function Customers({ onOpenLoyalty }) {
                             </label>
                             <label className="text-xs text-gray-600">
                                 Discount Type
-                                <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}>
+                                <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value, discountValue: e.target.value === 'shipping_full' ? 0 : p.discountValue }))}>
                                     <option value="percent">Percent</option>
                                     <option value="fixed">Fixed INR</option>
                                     <option value="shipping_full">Shipping Full</option>
@@ -607,15 +613,17 @@ export default function Customers({ onOpenLoyalty }) {
                                                     {(cp.expiresAt || cp.expires_at) ? ` • Expires ${formatLongDate(cp.expiresAt || cp.expires_at)}` : ' • No expiry'}
                                                 </p>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteUserCoupon(selectedUser.id, cp.id || cp.code, cp.code)}
-                                                disabled={couponDeletingId === String(cp.id || cp.code)}
-                                                className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
-                                                title="Delete coupon"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                            {canDeleteCouponFromDrawer(cp) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteUserCoupon(selectedUser.id, cp.id || cp.code, cp.code)}
+                                                    disabled={couponDeletingId === String(cp.id || cp.code)}
+                                                    className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                    title="Delete coupon"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            )}
                                         </div>
                                     ))}
                                     {!activeCouponsLoading && activeCoupons.length === 0 && <p className="text-xs text-gray-400">No active coupons.</p>}

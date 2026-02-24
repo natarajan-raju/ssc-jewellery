@@ -228,6 +228,41 @@ export default function HeroCMS() {
             setIsSecondaryBannerUpdating(false);
         }
     };
+    const handleRemoveBannerImage = async () => {
+        setIsBannerUpdating(true);
+        try {
+            const formData = new FormData();
+            formData.append('link', bannerLink || '');
+            formData.append('removeImage', 'true');
+            await updateBanner(formData);
+            setBannerFile(null);
+            setBannerPreview(null);
+            toast.success('Banner image removed');
+            await loadBanner();
+        } catch (error) {
+            toast.error('Failed to remove banner image');
+        } finally {
+            setIsBannerUpdating(false);
+        }
+    };
+
+    const handleRemoveSecondaryBannerImage = async () => {
+        setIsSecondaryBannerUpdating(true);
+        try {
+            const formData = new FormData();
+            formData.append('link', secondaryBannerLink || '');
+            formData.append('removeImage', 'true');
+            await updateSecondaryBanner(formData);
+            setSecondaryBannerFile(null);
+            setSecondaryBannerPreview(null);
+            toast.success('Secondary banner image removed');
+            await loadSecondaryBanner();
+        } catch (error) {
+            toast.error('Failed to remove secondary banner image');
+        } finally {
+            setIsSecondaryBannerUpdating(false);
+        }
+    };
 
     const handleHeroTextAdd = async (e) => {
         e.preventDefault();
@@ -605,6 +640,14 @@ export default function HeroCMS() {
                             onChange={e => setBannerLink(e.target.value)}
                         />
                         <div className="pt-2 flex justify-end">
+                            <button
+                                type="button"
+                                disabled={isBannerUpdating || !bannerData?.image_url}
+                                onClick={handleRemoveBannerImage}
+                                className="mr-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Remove Image
+                            </button>
                             <button 
                                 type="submit" 
                                 disabled={isBannerUpdating}
@@ -646,6 +689,14 @@ export default function HeroCMS() {
                             onChange={e => setSecondaryBannerLink(e.target.value)}
                         />
                         <div className="pt-2 flex justify-end">
+                            <button
+                                type="button"
+                                disabled={isSecondaryBannerUpdating || !secondaryBannerData?.image_url}
+                                onClick={handleRemoveSecondaryBannerImage}
+                                className="mr-2 px-3 py-2 rounded-lg border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Remove Image
+                            </button>
                             <button 
                                 type="submit" 
                                 disabled={isSecondaryBannerUpdating}

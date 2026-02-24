@@ -132,7 +132,10 @@ const updateBanner = async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 1 LIMIT 1');
         const current = rows[0] || { image_url: '', link: '' };
-        const imageUrl = req.file ? `/uploads/banner/${req.file.filename}` : current.image_url;
+        const removeImage = String(req.body?.removeImage || '').toLowerCase() === 'true';
+        const imageUrl = removeImage
+            ? null
+            : (req.file ? `/uploads/banner/${req.file.filename}` : current.image_url);
         const link = typeof req.body.link === 'string' ? req.body.link : current.link;
 
         await db.execute(
@@ -150,7 +153,10 @@ const updateSecondaryBanner = async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 2 LIMIT 1');
         const current = rows[0] || { image_url: '', link: '' };
-        const imageUrl = req.file ? `/uploads/banner/${req.file.filename}` : current.image_url;
+        const removeImage = String(req.body?.removeImage || '').toLowerCase() === 'true';
+        const imageUrl = removeImage
+            ? null
+            : (req.file ? `/uploads/banner/${req.file.filename}` : current.image_url);
         const link = typeof req.body.link === 'string' ? req.body.link : current.link;
 
         await db.execute(

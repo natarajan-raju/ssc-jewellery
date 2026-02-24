@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, Sparkles, Ticket, TrendingUp } from 'lucide-react';
+import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, ShoppingBag, Sparkles, Ticket, TrendingUp, UserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
@@ -76,6 +76,32 @@ const formatCouponOffer = (entry = {}) => {
     if (type === 'shipping_partial') return `${value}% SHIPPING OFF`;
     return `${value}% OFF`;
 };
+const getCouponEligibility = (entry = {}) => {
+    const required = Number(entry?.requiredCartValue ?? entry?.minCartValue ?? 0);
+    const current = Number(entry?.currentCartValue ?? 0);
+    const explicit = entry?.isEligible;
+    const isEligible = typeof explicit === 'boolean'
+        ? explicit
+        : current >= required;
+    const shortfall = Math.max(0, required - current);
+    return {
+        isEligible,
+        required,
+        current,
+        shortfall
+    };
+};
+const isAlwaysVisibleCoupon = (entry = {}) => {
+    const sourceType = String(entry?.sourceType || '').toLowerCase();
+    const discountType = String(entry?.discountType || '').toLowerCase();
+    const name = String(entry?.name || '').toLowerCase();
+    const code = String(entry?.code || '').toUpperCase();
+    const isRefund = name.includes('refund') || name.includes('voucher') || code.startsWith('RFND');
+    return sourceType === 'abandoned'
+        || isRefund
+        || discountType === 'shipping_full'
+        || discountType === 'shipping_partial';
+};
 
 const TIER_THEME = {
     regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/25', fill: 'bg-white', tag: 'bg-white/20 border-white/35 text-white' },
@@ -125,7 +151,8 @@ export default function Checkout() {
     }, [location.search]);
 
     const refreshAvailableCoupons = useCallback(async () => {
-        if (!user || itemCount <= 0) {
+        const cartSubtotal = Number(subtotal || 0);
+        if (!user || itemCount <= 0 || cartSubtotal <= 0) {
             setAvailableCoupons([]);
             return;
         }
@@ -137,11 +164,20 @@ export default function Checkout() {
                 setAppliedCoupon(null);
                 setCoupon('');
                 toast.info('Applied coupon is no longer available.');
+                return;
+            }
+            if (appliedCoupon?.code) {
+                const matched = nextCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(appliedCoupon.code || '').toUpperCase());
+                if (matched && !getCouponEligibility(matched).isEligible) {
+                    setAppliedCoupon(null);
+                    setCoupon('');
+                    toast.info('Applied coupon is no longer eligible for the current cart value.');
+                }
             }
         } catch {
             setAvailableCoupons([]);
         }
-    }, [user, itemCount, appliedCoupon?.code, toast]);
+    }, [user, itemCount, subtotal, appliedCoupon?.code, toast]);
 
     useEffect(() => {
         if (!loading && !user) {
@@ -313,6 +349,13 @@ export default function Checkout() {
     const handleApplyCoupon = () => {
         const code = String(coupon || '').trim().toUpperCase();
         if (!code) return toast.error('Enter a coupon code');
+        const knownCoupon = availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === code);
+        if (knownCoupon) {
+            const eligibility = getCouponEligibility(knownCoupon);
+            if (!eligibility.isEligible) {
+                return toast.error(`Add ₹${eligibility.shortfall.toLocaleString('en-IN')} more to unlock this coupon.`);
+            }
+        }
         setIsApplyingCoupon(true);
         orderService.validateRecoveryCoupon({
             code,
@@ -339,19 +382,29 @@ export default function Checkout() {
     };
 
     const handleApplyAvailableCoupon = (code) => {
-        setCoupon(String(code || '').toUpperCase());
-        if (appliedCoupon?.code === String(code || '').toUpperCase()) return;
+        const normalizedCode = String(code || '').toUpperCase();
+        const selectedCoupon = availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === normalizedCode);
+        if (selectedCoupon) {
+            const eligibility = getCouponEligibility(selectedCoupon);
+            if (!eligibility.isEligible) {
+                setCoupon(normalizedCode);
+                toast.error(`Add ₹${eligibility.shortfall.toLocaleString('en-IN')} more to unlock this coupon.`);
+                return;
+            }
+        }
+        setCoupon(normalizedCode);
+        if (appliedCoupon?.code === normalizedCode) return;
         setIsApplyingCoupon(true);
         orderService.validateRecoveryCoupon({
             code,
             shippingAddress: form.address
         }).then((data) => {
             setAppliedCoupon({
-                code: String(code || '').toUpperCase(),
+                code: normalizedCode,
                 discountTotal: Number(data?.discountTotal || 0),
                 coupon: data?.coupon || null
             });
-            toast.success(`Coupon applied: ${String(code || '').toUpperCase()}`);
+            toast.success(`Coupon applied: ${normalizedCode}`);
         }).catch((error) => {
             toast.error(error?.message || 'Coupon is invalid or expired');
             setAppliedCoupon(null);
@@ -443,6 +496,24 @@ export default function Checkout() {
         lineItems.some((item) => String(item?.status || '').toLowerCase() !== 'active' || Boolean(item?.isOutOfStock))
     ), [lineItems]);
     const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment) && !hasUnavailableItems;
+    const selectedCouponForInput = useMemo(
+        () => availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(coupon || '').trim().toUpperCase()) || null,
+        [availableCoupons, coupon]
+    );
+    const selectedCouponEligibility = useMemo(
+        () => (selectedCouponForInput ? getCouponEligibility(selectedCouponForInput) : null),
+        [selectedCouponForInput]
+    );
+    const isCouponInputDisabled = Boolean(selectedCouponEligibility && !selectedCouponEligibility.isEligible && !appliedCoupon);
+    const visibleCoupons = useMemo(
+        () => availableCoupons.filter((entry) => {
+            const scopeType = String(entry?.scopeType || '').toLowerCase();
+            const eligibility = getCouponEligibility(entry);
+            if (scopeType === 'category' && !eligibility.isEligible) return false;
+            return eligibility.isEligible || isAlwaysVisibleCoupon(entry);
+        }),
+        [availableCoupons]
+    );
 
     const handlePayNow = async () => {
         if (lineItems.length === 0) return toast.error('Your cart is empty');
@@ -597,57 +668,27 @@ export default function Checkout() {
 
                         <div className="mt-8">
                                 <div className="flex items-center gap-3 text-sm text-gray-500">
-                                    <Link to="/cart" className="font-semibold text-primary">Shopping Cart</Link>
+                                    <Link to="/cart" className="font-semibold text-primary inline-flex items-center gap-1.5"><ShoppingBag size={14} /> Shopping Cart</Link>
                                 <ChevronRight size={14} />
-                                <span className="font-semibold text-primary">Contact Information</span>
+                                <span className="font-semibold text-primary inline-flex items-center gap-1.5"><UserRound size={14} /> Contact Information</span>
                                 <ChevronRight size={14} />
-                                <span>Payment Method</span>
+                                <span className="inline-flex items-center gap-1.5"><CreditCard size={14} /> Payment Method</span>
                                 <ChevronRight size={14} />
-                                <span>Confirmation</span>
+                                <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={14} /> Confirmation</span>
                             </div>
                             <div className="mt-4 relative">
                                 <div className="h-1 rounded-full bg-gray-100" />
                                 <div className="absolute top-0 left-0 h-1 rounded-full bg-primary w-1/2" />
                                 <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
-                                    <span className="text-primary font-semibold">Cart</span>
-                                    <span className="text-primary font-semibold">Checkout</span>
-                                    <span>Payment</span>
-                                    <span>Done</span>
+                                    <span className="text-primary font-semibold inline-flex items-center gap-1"><ShoppingBag size={12} /> Cart</span>
+                                    <span className="text-primary font-semibold inline-flex items-center gap-1"><UserRound size={12} /> Checkout</span>
+                                    <span className="inline-flex items-center gap-1"><CreditCard size={12} /> Payment</span>
+                                    <span className="inline-flex items-center gap-1"><CheckCircle2 size={12} /> Done</span>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
-                        {!loyaltyStatus && isSummaryLoading ? (
-                            <div className="text-white/90 text-sm">Loading membership benefits...</div>
-                        ) : (
-                            <>
-                                <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
-                                        <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{loyaltyStatus?.profile?.label || tier} Tier</p>
-                                        <p className={`text-sm mt-2 ${tierTheme.body}`}>
-                                            {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
-                                        </p>
-                                    </div>
-                                    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
-                                        <Sparkles size={14} /> Extra member pricing
-                                    </span>
-                                </div>
-                                <div className="mt-4">
-                                    <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
-                                        <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
-                                    </div>
-                                    <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
-                                        <span>{progressPct}% to next tier</span>
-                                        <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6 items-stretch">
                         {lineItems.length === 0 ? (
                             <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-8 md:p-10">
                                 <div className="flex flex-col items-center text-center">
@@ -666,7 +707,36 @@ export default function Checkout() {
                             </div>
                         ) : (
                         <>
-                        <div className="space-y-6">
+                        <div className="flex flex-col gap-6 h-full">
+                            <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
+                                {!loyaltyStatus && isSummaryLoading ? (
+                                    <div className="text-white/90 text-sm">Loading membership benefits...</div>
+                                ) : (
+                                    <>
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div>
+                                                <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
+                                                <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{loyaltyStatus?.profile?.label || tier} Tier</p>
+                                                <p className={`text-sm mt-2 ${tierTheme.body}`}>
+                                                    {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
+                                                </p>
+                                            </div>
+                                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
+                                                <Sparkles size={14} /> Extra member pricing
+                                            </span>
+                                        </div>
+                                        <div className="mt-4">
+                                            <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
+                                                <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                                            </div>
+                                            <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
+                                                <span>{progressPct}% to next tier</span>
+                                                <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                                 <div className="flex items-center justify-between gap-4">
                                     <div>
@@ -825,33 +895,42 @@ export default function Checkout() {
                                         value={coupon}
                                         onChange={(e) => setCoupon(e.target.value)}
                                         placeholder="Enter coupon code"
-                                        className="input-field flex-1"
+                                        className={`input-field flex-1 ${isCouponInputDisabled ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed' : ''}`}
+                                        disabled={isCouponInputDisabled}
                                     />
                                     {appliedCoupon ? (
                                         <button onClick={handleRemoveCoupon} className="px-6 py-3 rounded-xl border border-gray-200 font-semibold text-gray-500 hover:bg-gray-50">
                                             Remove
                                         </button>
                                     ) : (
-                                        <button onClick={handleApplyCoupon} disabled={isApplyingCoupon} className="px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60">
+                                        <button onClick={handleApplyCoupon} disabled={isApplyingCoupon || isCouponInputDisabled} className="px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60 disabled:cursor-not-allowed">
                                             {isApplyingCoupon ? 'Applying...' : 'Apply'}
                                         </button>
                                     )}
                                 </div>
+                                {isCouponInputDisabled && selectedCouponEligibility && (
+                                    <p className="text-xs text-amber-700 mt-3">
+                                        This coupon unlocks after cart reaches ₹{selectedCouponEligibility.required.toLocaleString('en-IN')}. Add ₹{selectedCouponEligibility.shortfall.toLocaleString('en-IN')} more.
+                                    </p>
+                                )}
                                 {appliedCoupon && (
                                     <p className="text-xs text-emerald-600 mt-3">Coupon {appliedCoupon.code} applied. Discount: ₹{Number(appliedCoupon.discountTotal || 0).toLocaleString()}.</p>
                                 )}
-                                {availableCoupons.length > 0 && (
+                                {visibleCoupons.length > 0 && (
                                     <div className="mt-4">
                                         <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Available Coupons</p>
                                         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            {availableCoupons.map((entry) => (
+                                            {visibleCoupons.map((entry) => {
+                                                const eligibility = getCouponEligibility(entry);
+                                                return (
                                                 <button
                                                     key={entry.id || entry.code}
                                                     type="button"
                                                     onClick={() => handleApplyAvailableCoupon(entry.code)}
-                                                    className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''}`}
+                                                    disabled={!eligibility.isEligible}
+                                                    className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''} ${!eligibility.isEligible ? 'opacity-60 cursor-not-allowed' : ''}`}
                                                 >
-                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[104px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
+                                                    <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[116px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
                                                         <div className="bg-primary px-4 py-3 flex flex-col justify-center">
                                                             <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
                                                             <p className="text-sm font-bold mt-1 text-white leading-5 break-all min-h-[2.5rem] max-h-[2.5rem] line-clamp-2">{entry.code}</p>
@@ -863,19 +942,25 @@ export default function Checkout() {
                                                             <p className="text-[11px] mt-1 text-primary/80 font-medium">
                                                                 {entry.expiresAt ? `Expires ${formatLongDate(entry.expiresAt)}` : 'No expiry'}
                                                             </p>
+                                                            {!eligibility.isEligible && (
+                                                                <p className="text-[10px] mt-1 font-semibold text-amber-700">
+                                                                    Add ₹{eligibility.shortfall.toLocaleString('en-IN')} more
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <span style={{ left: 'calc(100% - 156px)' }} className="absolute -top-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
                                                     <span style={{ left: 'calc(100% - 156px)' }} className="absolute -bottom-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
                                                 </button>
-                                            ))}
+                                            );
+                                            })}
                                         </div>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        <div className="space-y-6">
+                        <div className="flex flex-col gap-6 h-full">
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                                 <div className="flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-gray-800">Order Summary</h2>

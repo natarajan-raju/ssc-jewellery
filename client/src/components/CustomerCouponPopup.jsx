@@ -226,6 +226,10 @@ export default function CustomerCouponPopup() {
     if (!open || !popup) return null;
     if (dismissed) return null;
     const coupon = popup.coupon || null;
+    const categoryOnlyCoupon = String(coupon?.scopeType || '').toLowerCase() === 'category';
+    const categoryName = String(coupon?.primaryCategoryName || coupon?.categoryNames?.[0] || '').trim();
+    const categoryNotice = String(coupon?.categoryNotice || '').trim()
+        || (categoryOnlyCoupon && categoryName ? `Valid only for ${categoryName} category products.` : '');
     const renderCouponCard = (extraClass = '') => (
         <div className={`relative inline-grid max-w-full rounded-xl border overflow-hidden grid-cols-[auto_148px] ${extraClass}`}>
             <div className="bg-primary px-5 py-4 flex flex-col justify-center">
@@ -293,6 +297,7 @@ export default function CustomerCouponPopup() {
                                 <h3 className="text-2xl font-serif text-primary font-bold">{popup.title || 'Exclusive Offer'}</h3>
                                 {!!popup.summary && <p className="text-sm text-gray-700">{popup.summary}</p>}
                                 {!!popup.content && <p className="text-sm text-gray-600">{popup.content}</p>}
+                                {!!categoryNotice && <p className="text-sm text-amber-700 font-medium">{categoryNotice}</p>}
                                 {!!popup.encouragement && <p className="text-sm text-emerald-700 font-medium">{popup.encouragement}</p>}
                             </div>
                             <div className="order-last md:order-none md:w-44 md:shrink-0 flex justify-center md:justify-end">

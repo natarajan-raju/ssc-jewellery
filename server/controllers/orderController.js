@@ -1,4 +1,5 @@
 const Order = require('../models/Order');
+const db = require('../config/db');
 const crypto = require('crypto');
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const WebhookEvent = require('../models/WebhookEvent');
@@ -98,6 +99,37 @@ const parseAddressObject = (value) => {
     } catch {
         return null;
     }
+};
+
+const parseCategoryScopeIds = (coupon = null) => {
+    if (!coupon) return [];
+    const raw = coupon.category_scope_json ?? coupon.categoryScopeJson ?? coupon.categoryIds ?? [];
+    const source = Array.isArray(raw) ? raw : [];
+    return [...new Set(source.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))];
+};
+
+const buildCategoryCouponContext = async (coupon = null) => {
+    const scopeType = String(coupon?.scope_type || coupon?.scopeType || '').toLowerCase();
+    if (scopeType !== 'category') return null;
+    const categoryIds = parseCategoryScopeIds(coupon);
+    if (!categoryIds.length) return null;
+    const placeholders = categoryIds.map(() => '?').join(',');
+    const [rows] = await db.execute(
+        `SELECT id, name FROM categories WHERE id IN (${placeholders})`,
+        categoryIds
+    );
+    if (!rows.length) return null;
+    const namesById = new Map(rows.map((row) => [Number(row.id), String(row.name || '').trim()]).filter(([, name]) => Boolean(name)));
+    const categoryNames = categoryIds.map((id) => namesById.get(id)).filter(Boolean);
+    if (!categoryNames.length) return null;
+    const primaryCategoryName = categoryNames[0];
+    return {
+        categoryIds,
+        categoryNames,
+        primaryCategoryName,
+        categoryLink: `/shop/${encodeURIComponent(primaryCategoryName)}`,
+        categoryNotice: `Valid only for ${primaryCategoryName} category products.`
+    };
 };
 
 const createOrderFromRecoveryPayment = async (req, {
@@ -957,6 +989,7 @@ const getCustomerPopupData = async (req, res) => {
             if (couponRow && Number(couponRow.is_active || 0) === 1) {
                 const scope = String(couponRow.scope_type || 'generic').toLowerCase();
                 if (scope !== 'tier' && scope !== 'customer') {
+                    const categoryContext = await buildCategoryCouponContext(couponRow);
                     popupCoupon = {
                         id: couponRow.id,
                         code: couponRow.code,
@@ -967,27 +1000,46 @@ const getCustomerPopupData = async (req, res) => {
                         discountValue: Number(couponRow.discount_value || 0),
                         usageLimitPerUser: Number(couponRow.usage_limit_per_user || 1),
                         expiresAt: couponRow.expires_at || null,
-                        createdAt: couponRow.created_at || null
+                        createdAt: couponRow.created_at || null,
+                        categoryIds: categoryContext?.categoryIds || [],
+                        categoryNames: categoryContext?.categoryNames || [],
+                        primaryCategoryName: categoryContext?.primaryCategoryName || '',
+                        categoryLink: categoryContext?.categoryLink || '',
+                        categoryNotice: categoryContext?.categoryNotice || ''
                     };
                 }
             }
         }
 
+        let latestCouponCategoryContext = null;
+        if (String(latestCoupon?.scopeType || '').toLowerCase() === 'category' && latestCoupon?.id) {
+            const fullCoupon = await Coupon.getById(latestCoupon.id);
+            latestCouponCategoryContext = await buildCategoryCouponContext(fullCoupon);
+        }
         const couponCandidate = latestCoupon ? {
             type: 'coupon',
             key: `coupon:${latestCoupon.id || latestCoupon.code}`,
             createdAt: latestCoupon.createdAt || null,
             title: 'Exclusive Coupon Unlocked',
             summary: `${latestCoupon.code || 'Coupon'} is now active for your account.`,
-            content: latestCoupon.sourceType === 'abandoned'
+            content: String(latestCoupon?.scopeType || '').toLowerCase() === 'category' && latestCouponCategoryContext?.primaryCategoryName
+                ? `${latestCoupon.code || 'This coupon'} is valid only for ${latestCouponCategoryContext.primaryCategoryName} category products.`
+                : latestCoupon.sourceType === 'abandoned'
                 ? 'We saved your cart offer. Use this recovery coupon before it expires.'
                 : 'A new coupon has been issued for your account. Apply it during checkout.',
             encouragement: 'Great pick. Continue shopping and save more on your next order.',
             imageUrl: '',
             audioUrl: '',
-            buttonLabel: 'Shop Now',
-            buttonLink: '/shop',
-            coupon: latestCoupon
+            buttonLabel: latestCouponCategoryContext?.primaryCategoryName ? `Shop ${latestCouponCategoryContext.primaryCategoryName}` : 'Shop Now',
+            buttonLink: latestCouponCategoryContext?.categoryLink || '/shop',
+            coupon: {
+                ...latestCoupon,
+                categoryIds: latestCouponCategoryContext?.categoryIds || [],
+                categoryNames: latestCouponCategoryContext?.categoryNames || [],
+                primaryCategoryName: latestCouponCategoryContext?.primaryCategoryName || '',
+                categoryLink: latestCouponCategoryContext?.categoryLink || '',
+                categoryNotice: latestCouponCategoryContext?.categoryNotice || ''
+            }
         } : null;
 
         const genericCandidate = genericPopup ? {
@@ -1000,8 +1052,8 @@ const getCustomerPopupData = async (req, res) => {
             encouragement: genericPopup.encouragement || '',
             imageUrl: genericPopup.imageUrl || '',
             audioUrl: genericPopup.audioUrl || '',
-            buttonLabel: genericPopup.buttonLabel || 'Shop Now',
-            buttonLink: genericPopup.buttonLink || '/shop',
+            buttonLabel: genericPopup.buttonLabel || (popupCoupon?.primaryCategoryName ? `Shop ${popupCoupon.primaryCategoryName}` : 'Shop Now'),
+            buttonLink: genericPopup.buttonLink || popupCoupon?.categoryLink || '/shop',
             coupon: popupCoupon
         } : null;
 
@@ -1021,7 +1073,8 @@ const getPublicPopupData = async (req, res) => {
             const couponRow = await Coupon.getByCode(genericPopup.couponCode);
             if (couponRow && Number(couponRow.is_active || 0) === 1) {
                 const scope = String(couponRow.scope_type || 'generic').toLowerCase();
-                if (scope === 'generic') {
+                if (scope === 'generic' || scope === 'category') {
+                    const categoryContext = await buildCategoryCouponContext(couponRow);
                     popupCoupon = {
                         id: couponRow.id,
                         code: couponRow.code,
@@ -1032,7 +1085,12 @@ const getPublicPopupData = async (req, res) => {
                         discountValue: Number(couponRow.discount_value || 0),
                         usageLimitPerUser: Number(couponRow.usage_limit_per_user || 1),
                         expiresAt: couponRow.expires_at || null,
-                        createdAt: couponRow.created_at || null
+                        createdAt: couponRow.created_at || null,
+                        categoryIds: categoryContext?.categoryIds || [],
+                        categoryNames: categoryContext?.categoryNames || [],
+                        primaryCategoryName: categoryContext?.primaryCategoryName || '',
+                        categoryLink: categoryContext?.categoryLink || '',
+                        categoryNotice: categoryContext?.categoryNotice || ''
                     };
                 }
             }
@@ -1048,8 +1106,8 @@ const getPublicPopupData = async (req, res) => {
             encouragement: genericPopup.encouragement || '',
             imageUrl: genericPopup.imageUrl || '',
             audioUrl: genericPopup.audioUrl || '',
-            buttonLabel: genericPopup.buttonLabel || 'Shop Now',
-            buttonLink: genericPopup.buttonLink || '/shop',
+            buttonLabel: genericPopup.buttonLabel || (popupCoupon?.primaryCategoryName ? `Shop ${popupCoupon.primaryCategoryName}` : 'Shop Now'),
+            buttonLink: genericPopup.buttonLink || popupCoupon?.categoryLink || '/shop',
             coupon: popupCoupon
         } : null;
 

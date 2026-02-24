@@ -318,6 +318,8 @@ class Coupon {
             const discountType = normalizeDiscountType(coupon.discount_type || 'percent');
             let discountSubunits = 0;
             if (discountType === 'fixed') {
+                const fixedSubunits = toSubunits(coupon.discount_value);
+                if (Number(cartTotalSubunits || 0) < fixedSubunits) return null;
                 discountSubunits = toSubunits(coupon.discount_value);
             } else if (discountType === 'shipping_full') {
                 discountSubunits = Number(shippingFeeSubunits || 0);
@@ -409,7 +411,6 @@ class Coupon {
             if (!isWithinDateWindow(row)) continue;
             if (row.usage_limit_total != null && Number(row.used_count || 0) >= Number(row.usage_limit_total || 0)) continue;
             if (Number(row.used_by_user || 0) >= Math.max(1, Number(row.usage_limit_per_user || 1))) continue;
-            if (Number(cartTotalSubunits || 0) < Number(row.min_cart_subunits || 0)) continue;
             if (scope === 'customer' && Number(row.is_user_target || 0) !== 1) continue;
             if (scope === 'tier') {
                 const tierScope = String(row.tier_scope || '').toLowerCase();
@@ -431,6 +432,13 @@ class Coupon {
                 );
                 if (!matchRows.length) continue;
             }
+            const minCartSubunits = Number(row.min_cart_subunits || 0);
+            const fixedDiscountSubunits = String(row.discount_type || '').toLowerCase() === 'fixed'
+                ? toSubunits(row.discount_value || 0)
+                : 0;
+            const requiredCartSubunits = Math.max(minCartSubunits, fixedDiscountSubunits);
+            const currentCartSubunits = Number(cartTotalSubunits || 0);
+            const isEligible = currentCartSubunits >= requiredCartSubunits;
             out.push({
                 id: row.id,
                 code: row.code,
@@ -440,6 +448,9 @@ class Coupon {
                 discountType: row.discount_type,
                 discountValue: Number(row.discount_value || 0),
                 minCartValue: fromSubunits(row.min_cart_subunits || 0),
+                requiredCartValue: fromSubunits(requiredCartSubunits),
+                currentCartValue: fromSubunits(currentCartSubunits),
+                isEligible,
                 expiresAt: row.expires_at || null
             });
         }
@@ -454,7 +465,9 @@ class Coupon {
             [userId]
         );
         for (const row of recoveryRows) {
-            if (Number(cartTotalSubunits || 0) < Number(row.min_cart_subunits || 0)) continue;
+            const minCartSubunits = Number(row.min_cart_subunits || 0);
+            const currentCartSubunits = Number(cartTotalSubunits || 0);
+            const isEligible = currentCartSubunits >= minCartSubunits;
             out.push({
                 id: `abandoned:${row.code}`,
                 code: row.code,
@@ -464,6 +477,9 @@ class Coupon {
                 discountType: row.discount_type || 'percent',
                 discountValue: Number(row.discount_percent || 0),
                 minCartValue: fromSubunits(row.min_cart_subunits || 0),
+                requiredCartValue: fromSubunits(minCartSubunits),
+                currentCartValue: fromSubunits(currentCartSubunits),
+                isEligible,
                 expiresAt: row.expires_at || null
             });
         }

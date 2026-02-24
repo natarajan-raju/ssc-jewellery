@@ -425,7 +425,9 @@ export default function LoyaltySettings({ onBack }) {
                 name: couponForm.name || 'Admin Coupon',
                 scopeType: couponForm.scopeType,
                 discountType: couponForm.discountType,
-                discountValue: Number(couponForm.discountValue || 0),
+                discountValue: couponForm.discountType === 'shipping_full'
+                    ? 0
+                    : Number(couponForm.discountValue || 0),
                 minCartValue: Math.max(0, Number(couponForm.minCartValue || 0)),
                 usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
                 tierScope: couponForm.scopeType === 'tier' ? couponForm.tierScope : undefined,
@@ -1006,7 +1008,7 @@ export default function LoyaltySettings({ onBack }) {
                                 <label className="text-sm text-gray-600">Coupon Code<input maxLength={15} className="input-field mt-1" placeholder="SSC-AB12-CD34" value={couponForm.code} onChange={(e) => setCouponForm((p) => ({ ...p, code: sanitizeCouponCode(e.target.value) }))} /></label>
                                 <label className="text-sm text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
-                                <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
+                                <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value, discountValue: e.target.value === 'shipping_full' ? 0 : p.discountValue }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
                                 <label className="text-sm text-gray-600">Discount Value<input className="input-field mt-1" type="number" disabled={couponForm.discountType === 'shipping_full'} value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">Minimum Cart Value (INR)<input className="input-field mt-1" type="number" min="0" value={couponForm.minCartValue} onChange={(e) => setCouponForm((p) => ({ ...p, minCartValue: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
