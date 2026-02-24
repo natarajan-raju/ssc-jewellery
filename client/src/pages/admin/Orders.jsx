@@ -12,7 +12,7 @@ import { useAdminKPI } from '../../context/AdminKPIContext';
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
     { value: 'last_7_days', label: 'Last 7 Days' },
-    { value: 'last_1_month', label: 'Last 1 Month' },
+    { value: 'last_30_days', label: 'Last 30 Days' },
     { value: 'last_90_days', label: 'Last 90 Days' },
     { value: 'custom', label: 'Custom Range' }
 ];
@@ -97,7 +97,16 @@ export default function Orders({
     focusOrderId = null,
     onFocusHandled = () => {},
     initialStatusFilter = '',
-    onInitialStatusApplied = () => {}
+    onInitialStatusApplied = () => {},
+    initialQuickRange = '',
+    onInitialQuickRangeApplied = () => {},
+    initialStartDate = '',
+    initialEndDate = '',
+    onInitialDateRangeApplied = () => {},
+    initialSortBy = '',
+    onInitialSortApplied = () => {},
+    initialSourceChannel = '',
+    onInitialSourceChannelApplied = () => {}
 }) {
     const toast = useToast();
     const [orders, setOrders] = useState([]);
@@ -113,6 +122,7 @@ export default function Orders({
     const [draftQuickRange, setDraftQuickRange] = useState('latest_10');
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
+    const [sourceChannel, setSourceChannel] = useState('all');
     const startDateInputRef = useRef(null);
     const endDateInputRef = useRef(null);
     const fetchSeqRef = useRef(0);
@@ -165,8 +175,9 @@ export default function Orders({
         search,
         startDate,
         endDate,
-        quickRange
-    }), [endDate, quickRange, search, startDate]);
+        quickRange,
+        sourceChannel
+    }), [endDate, quickRange, search, sourceChannel, startDate]);
     const metricsKey = toOrderMetricsKey(metricsQuery);
     const sharedMetrics = orderMetricsByKey[metricsKey]?.metrics || null;
     const getPaymentMethodLabel = (order) => {
@@ -316,6 +327,7 @@ export default function Orders({
                 endDate,
                 quickRange,
                 sortBy,
+                sourceChannel,
                 limit: quickRange === 'latest_10' ? 10 : 12
             };
             const metricsParams = {
@@ -326,7 +338,8 @@ export default function Orders({
                 startDate,
                 endDate,
                 quickRange,
-                sortBy
+                sortBy,
+                sourceChannel
             };
 
             const [listData, metricsData] = await Promise.all([
@@ -348,10 +361,11 @@ export default function Orders({
         } catch (error) {
             toast.error(error.message || 'Failed to load orders');
         } finally {
-            if (requestSeq !== fetchSeqRef.current) return;
-            setIsLoading(false);
+            if (requestSeq === fetchSeqRef.current) {
+                setIsLoading(false);
+            }
         }
-    }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, startDate, statusFilter, toast]);
+    }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, sourceChannel, startDate, statusFilter, toast]);
 
     useEffect(() => {
         registerOrderMetricsQuery(metricsQuery);
@@ -434,7 +448,58 @@ export default function Orders({
             setPage(1);
         }
         onInitialStatusApplied(next);
-    }, [initialStatusFilter]);
+    }, [initialStatusFilter, onInitialStatusApplied, page, statusFilter]);
+
+    useEffect(() => {
+        const nextRange = String(initialQuickRange || '').trim().toLowerCase();
+        if (!nextRange) return;
+        setDraftQuickRange(nextRange);
+        if (quickRange !== nextRange) {
+            setQuickRange(nextRange);
+        }
+        if (page !== 1) {
+            setPage(1);
+        }
+        onInitialQuickRangeApplied(nextRange);
+    }, [initialQuickRange, onInitialQuickRangeApplied, page, quickRange]);
+
+    useEffect(() => {
+        const hasStart = String(initialStartDate || '').trim().length > 0;
+        const hasEnd = String(initialEndDate || '').trim().length > 0;
+        if (!hasStart && !hasEnd) return;
+        const nextStart = hasStart ? String(initialStartDate).trim() : '';
+        const nextEnd = hasEnd ? String(initialEndDate).trim() : '';
+        setDraftQuickRange('custom');
+        setDraftStartDate(nextStart);
+        setDraftEndDate(nextEnd);
+        setQuickRange('custom');
+        setStartDate(nextStart);
+        setEndDate(nextEnd);
+        if (page !== 1) {
+            setPage(1);
+        }
+        onInitialDateRangeApplied();
+    }, [initialEndDate, initialStartDate, onInitialDateRangeApplied, page]);
+
+    useEffect(() => {
+        const nextSort = String(initialSortBy || '').trim().toLowerCase();
+        if (!nextSort) return;
+        setSortBy(nextSort);
+        if (page !== 1) {
+            setPage(1);
+        }
+        onInitialSortApplied(nextSort);
+    }, [initialSortBy, onInitialSortApplied, page]);
+
+    useEffect(() => {
+        const nextChannel = String(initialSourceChannel || '').trim().toLowerCase();
+        if (!nextChannel) return;
+        setSourceChannel(nextChannel);
+        if (page !== 1) {
+            setPage(1);
+        }
+        onInitialSourceChannelApplied(nextChannel);
+    }, [initialSourceChannel, onInitialSourceChannelApplied, page]);
 
     const handleStatusFilterChange = (nextStatus) => {
         setDraftStatusFilter(nextStatus);
@@ -499,7 +564,8 @@ export default function Orders({
                     startDate,
                     endDate,
                     quickRange,
-                    sortBy
+                    sortBy,
+                    sourceChannel
                 });
                 const pageOrders = data.orders || [];
                 exportRows.push(...pageOrders);

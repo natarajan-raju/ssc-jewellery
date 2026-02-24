@@ -182,7 +182,7 @@ const matchesAdminQuickRange = (createdAt, query = {}) => {
         const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         return created >= cutoff;
     }
-    if (quickRange === 'last_1_month') {
+    if (quickRange === 'last_1_month' || quickRange === 'last_30_days') {
         const cutoff = new Date(now);
         cutoff.setMonth(cutoff.getMonth() - 1);
         return created >= cutoff;
@@ -231,6 +231,16 @@ const matchesAdminStatus = (order, query = {}) => {
     return String(order?.status || '').toLowerCase() === status;
 };
 
+const matchesAdminSourceChannel = (order, query = {}) => {
+    const source = String(query.sourceChannel || 'all').toLowerCase();
+    if (!source || source === 'all') return true;
+    const channel = String(order?.source_channel || '').toLowerCase();
+    const isRecovery = Boolean(order?.is_abandoned_recovery) || channel === 'abandoned_recovery';
+    if (source === 'abandoned_recovery') return isRecovery;
+    if (source === 'direct') return !isRecovery;
+    return channel === source;
+};
+
 const sortAdminOrders = (orders = [], query = {}) => {
     const list = [...orders];
     const quickRange = String(query.quickRange || 'all');
@@ -250,6 +260,7 @@ const sortAdminOrders = (orders = [], query = {}) => {
 
 const orderMatchesAdminQuery = (order, query = {}) => {
     if (!matchesAdminStatus(order, query)) return false;
+    if (!matchesAdminSourceChannel(order, query)) return false;
     if (!matchesAdminSearch(order, query)) return false;
     if (!matchesAdminQuickRange(order?.created_at, query)) return false;
     if (!matchesAdminCustomDate(order?.created_at, query)) return false;
@@ -434,19 +445,20 @@ export const orderService = {
         startDate = '',
         endDate = '',
         quickRange = 'last_90_days',
-        sortBy = 'newest'
+        sortBy = 'newest',
+        sourceChannel = 'all'
     }) => {
-        const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${quickRange}_${sortBy}`;
+        const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${quickRange}_${sortBy}_${sourceChannel}`;
         const cached = adminOrdersCache[cacheKey];
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {
             return cached.data;
         }
-        const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(quickRange)}&sortBy=${encodeURIComponent(sortBy)}`;
+        const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(quickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
         const res = await fetch(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         adminOrdersCache[cacheKey] = {
             ts: Date.now(),
-            query: { page, limit, status, search, startDate, endDate, quickRange, sortBy },
+            query: { page, limit, status, search, startDate, endDate, quickRange, sortBy, sourceChannel },
             data
         };
         return data;

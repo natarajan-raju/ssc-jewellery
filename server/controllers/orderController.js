@@ -1169,8 +1169,10 @@ const getAdminOrders = async (req, res) => {
         const search = req.query.search || '';
         const startDate = req.query.startDate || '';
         const endDate = req.query.endDate || '';
-        const quickRange = req.query.quickRange || 'last_90_days';
+        const quickRangeRaw = String(req.query.quickRange || 'last_90_days').trim().toLowerCase();
+        const quickRange = quickRangeRaw === 'last_30_days' ? 'last_1_month' : quickRangeRaw;
         const sortBy = req.query.sortBy || 'newest';
+        const sourceChannel = String(req.query.sourceChannel || 'all').trim().toLowerCase();
         if (quickRange === 'custom') {
             const now = new Date();
             const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
@@ -1192,7 +1194,7 @@ const getAdminOrders = async (req, res) => {
                 }
             }
         }
-        const filters = { status, search, startDate, endDate, quickRange, sortBy };
+        const filters = { status, search, startDate, endDate, quickRange, sortBy, sourceChannel };
         const result = await Order.getPaginated({ page, limit, ...filters });
         const metrics = await Order.getMetrics(filters);
         res.json({ orders: result.orders, pagination: { currentPage: page, totalPages: result.totalPages, totalOrders: result.total }, metrics });

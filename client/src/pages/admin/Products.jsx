@@ -23,7 +23,7 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 
-export default function Products({ onNavigate }) {
+export default function Products({ onNavigate, focusProductId = null, onFocusHandled = () => {} }) {
     const { allProducts, isDownloading, ensureAllProducts, refreshAllProducts } = useProducts();
     
     // Pagination & Filters
@@ -100,6 +100,16 @@ export default function Products({ onNavigate }) {
         setEditingProduct(product);
         setIsAddModalOpen(true);
     };
+
+    useEffect(() => {
+        const targetId = String(focusProductId || '').trim();
+        if (!targetId) return;
+        const targetProduct = (allProducts || []).find((product) => String(product?.id || '') === targetId);
+        if (!targetProduct) return;
+        setEditingProduct(targetProduct);
+        setIsAddModalOpen(true);
+        onFocusHandled(targetId);
+    }, [allProducts, focusProductId, onFocusHandled]);
 
     const handleCloseModal = () => {
         setIsAddModalOpen(false);

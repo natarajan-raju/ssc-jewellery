@@ -267,14 +267,27 @@ const getDashboardInsightsPayload = async (query = {}) => {
         && scope.filters.status === 'all'
         && scope.filters.paymentMode === 'all'
         && scope.filters.sourceChannel === 'all';
-    const [userCreatedAtColumnRows] = await db.execute(
-        `SELECT COUNT(*) AS has_column
-         FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = 'users'
-           AND COLUMN_NAME = 'created_at'`
-    );
+    const [[userCreatedAtColumnRows], [userLoyaltyTierColumnRows]] = await Promise.all([
+        db.execute(
+            `SELECT COUNT(*) AS has_column
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'users'
+               AND COLUMN_NAME = 'created_at'`
+        ),
+        db.execute(
+            `SELECT COUNT(*) AS has_column
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'users'
+               AND COLUMN_NAME = 'loyalty_tier'`
+        )
+    ]);
     const hasUserCreatedAt = Number(userCreatedAtColumnRows?.[0]?.has_column || 0) > 0;
+    const hasUserLoyaltyTier = Number(userLoyaltyTierColumnRows?.[0]?.has_column || 0) > 0;
+    const loyaltyTierSql = hasUserLoyaltyTier
+        ? "LOWER(COALESCE(u.loyalty_tier, 'regular'))"
+        : "'regular'";
     let useDailyAggregate = false;
     if (canUseDailyAggregate) {
         const [aggregateCoverageRows] = await db.execute(
@@ -286,7 +299,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
         useDailyAggregate = Number(aggregateCoverageRows?.[0]?.total || 0) > 0;
     }
 
-    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows]] = await Promise.all([
+    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows], [paymentGatewayRows], [paymentModeRows]] = await Promise.all([
         useDailyAggregate
             ? db.execute(
                 `SELECT
@@ -370,14 +383,17 @@ const getDashboardInsightsPayload = async (query = {}) => {
         db.execute(
             `SELECT
                 oi.product_id,
+                COALESCE(NULLIF(oi.variant_id, ''), '') AS variant_id,
                 COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product') AS title,
+                COALESCE(NULLIF(oi.variant_title, ''), '') AS variant_title,
+                MAX(NULLIF(oi.image_url, '')) AS thumbnail,
                 SUM(COALESCE(oi.quantity, 0)) AS units_sold,
                 SUM(COALESCE(oi.line_total, 0)) AS revenue
              FROM ${ordersScopeSql} scoped
              JOIN order_items oi ON oi.order_id = scoped.id
              LEFT JOIN products p ON p.id = oi.product_id
              WHERE scoped.status <> 'cancelled'
-             GROUP BY oi.product_id, COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product')
+             GROUP BY oi.product_id, COALESCE(NULLIF(oi.variant_id, ''), ''), COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product'), COALESCE(NULLIF(oi.variant_title, ''), '')
              ORDER BY units_sold DESC, revenue DESC
              LIMIT 8`,
             ordersScopeParams
@@ -401,12 +417,13 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 scoped.user_id,
                 COALESCE(u.name, 'Guest') AS customer_name,
                 COALESCE(u.mobile, '') AS customer_mobile,
+                ${loyaltyTierSql} AS loyalty_tier,
                 COUNT(*) AS orders_count,
                 SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
              FROM ${ordersScopeSql} scoped
              LEFT JOIN users u ON u.id = scoped.user_id
              WHERE scoped.user_id IS NOT NULL
-             GROUP BY scoped.user_id, COALESCE(u.name, 'Guest'), COALESCE(u.mobile, '')
+             GROUP BY scoped.user_id, COALESCE(u.name, 'Guest'), COALESCE(u.mobile, ''), ${loyaltyTierSql}
              ORDER BY revenue DESC, orders_count DESC
              LIMIT 6`,
             ordersScopeParams
@@ -440,7 +457,8 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 CASE
                     WHEN scoped.is_abandoned_recovery = 1 OR LOWER(COALESCE(scoped.source_channel, '')) = 'abandoned_recovery'
                         THEN 'abandoned_recovery'
-                    WHEN COALESCE(scoped.source_channel, '') = '' THEN 'direct'
+                    WHEN LOWER(COALESCE(scoped.source_channel, '')) IN ('', 'direct', 'checkout', 'web', 'website')
+                        THEN 'direct'
                     ELSE LOWER(scoped.source_channel)
                 END AS channel,
                 SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue,
@@ -480,6 +498,39 @@ const getDashboardInsightsPayload = async (query = {}) => {
              ORDER BY total_actions DESC
              LIMIT 8`,
             [scope.seriesStartDate, scope.seriesEndDate, ...scope.orderFilterParams]
+        ),
+        db.execute(
+            `SELECT
+                LOWER(COALESCE(scoped.payment_gateway, 'unknown')) AS gateway,
+                COUNT(*) AS orders,
+                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
+             FROM ${ordersScopeSql} scoped
+             GROUP BY LOWER(COALESCE(scoped.payment_gateway, 'unknown'))
+             ORDER BY orders DESC`,
+            ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                COALESCE(NULLIF(pm.mode, ''), 'unknown') AS mode,
+                COUNT(*) AS orders,
+                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
+             FROM ${ordersScopeSql} scoped
+             LEFT JOIN (
+                SELECT payment_id, MAX(mode) AS mode
+                FROM (
+                    SELECT
+                        JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.payload.payment.entity.id')) AS payment_id,
+                        LOWER(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.payload.payment.entity.method'))) AS mode
+                    FROM razorpay_webhook_events
+                    WHERE event_type IN ('payment.authorized', 'payment.captured', 'payment.failed')
+                ) raw
+                WHERE COALESCE(payment_id, '') <> ''
+                GROUP BY payment_id
+             ) pm ON pm.payment_id = scoped.razorpay_payment_id
+             WHERE LOWER(COALESCE(scoped.payment_gateway, '')) <> 'cod'
+             GROUP BY COALESCE(NULLIF(pm.mode, ''), 'unknown')
+             ORDER BY orders DESC`,
+            ordersScopeParams
         )
     ]);
 
@@ -593,6 +644,16 @@ const getDashboardInsightsPayload = async (query = {}) => {
             channel: row.channel || 'unknown',
             revenue: Number(row.revenue || 0),
             orders: Number(row.orders || 0)
+        })),
+        paymentGateways: (paymentGatewayRows || []).map((row) => ({
+            gateway: row.gateway || 'unknown',
+            orders: Number(row.orders || 0),
+            revenue: Number(row.revenue || 0)
+        })),
+        paymentModes: (paymentModeRows || []).map((row) => ({
+            mode: row.mode || 'unknown',
+            orders: Number(row.orders || 0),
+            revenue: Number(row.revenue || 0)
         }))
     };
 
@@ -648,15 +709,6 @@ const getDashboardInsightsPayload = async (query = {}) => {
             target: { tab: 'orders', status: 'failed' }
         });
     }
-    if (codOrders >= 10 && codCancellationRate >= 15) {
-        actions.push({
-            id: 'cod_cancellation_risk',
-            priority: codCancellationRate >= 25 ? 'high' : 'medium',
-            title: `COD cancellation rate is ${codCancellationRate}%`,
-            description: 'Review COD fulfillment and confirmation flow.',
-            target: { tab: 'orders', status: 'cancelled' }
-        });
-    }
     ((productRows || []).slice(0, 2)).forEach((row) => {
         if (lowStockTopSellerIds.has(String(row.product_id || ''))) {
             actions.push({
@@ -708,7 +760,10 @@ const getDashboardInsightsPayload = async (query = {}) => {
         products: {
             topSellers: (productRows || []).map((row) => ({
                 productId: row.product_id,
+                variantId: row.variant_id || '',
                 title: row.title,
+                variantTitle: row.variant_title || '',
+                thumbnail: row.thumbnail || '',
                 unitsSold: Number(row.units_sold || 0),
                 revenue: Number(row.revenue || 0)
             })),
@@ -725,6 +780,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 userId: row.user_id,
                 name: row.customer_name,
                 mobile: row.customer_mobile,
+                loyaltyTier: row.loyalty_tier || 'regular',
                 orders: Number(row.orders_count || 0),
                 revenue: Number(row.revenue || 0)
             }))
@@ -894,6 +950,7 @@ const upsertDashboardGoal = async (req, res) => {
         const start = formatDateOnlyUTC(periodStart);
         const end = periodEnd ? formatDateOnlyUTC(periodEnd) : null;
 
+        let goalId = null;
         if (id) {
             await db.execute(
                 `UPDATE dashboard_goal_targets
@@ -901,16 +958,29 @@ const upsertDashboardGoal = async (req, res) => {
                  WHERE id = ?`,
                 [normalizedMetric, safeLabel, safeTarget, normalizedPeriod, start, end, isActive ? 1 : 0, Number(id)]
             );
+            goalId = Number(id);
         } else {
-            await db.execute(
+            const [insertResult] = await db.execute(
                 `INSERT INTO dashboard_goal_targets
                     (metric_key, label, target_value, period_type, period_start, period_end, is_active, created_by)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [normalizedMetric, safeLabel, safeTarget, normalizedPeriod, start, end, isActive ? 1 : 0, req.user?.id || null]
             );
+            goalId = Number(insertResult?.insertId || 0) || null;
         }
         invalidateDashboardPayloadCache();
-        return listDashboardGoals(req, res);
+        return res.json({
+            ok: true,
+            goal: {
+                id: goalId,
+                metricKey: normalizedMetric,
+                label: safeLabel,
+                targetValue: safeTarget,
+                periodType: normalizedPeriod,
+                periodStart: start,
+                periodEnd: end
+            }
+        });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to save dashboard goal' });
     }
@@ -1022,13 +1092,6 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
             key: 'failed_payment_6h',
             severity: 'high',
             message: `${Number(payload.risk.failedPaymentsCurrent6h || 0)} failed payments in last 6 hours`
-        });
-    }
-    if (Number(payload?.risk?.codCancellationRate || 0) >= Number(settings.cod_cancel_rate_threshold || 20)) {
-        candidates.push({
-            key: 'cod_cancellation_rate',
-            severity: 'medium',
-            message: `COD cancellation rate is ${Number(payload.risk.codCancellationRate || 0).toFixed(1)}%`
         });
     }
     const lowStockAlerts = (payload?.actions || []).filter((item) => String(item?.id || '').startsWith('low_stock_fast_seller_'));

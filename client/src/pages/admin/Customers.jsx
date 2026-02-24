@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
@@ -105,7 +105,11 @@ const canDeleteCouponFromDrawer = (coupon = {}) => {
     return scopeType === 'customer';
 };
 
-export default function Customers({ onOpenLoyalty }) {
+export default function Customers({
+    onOpenLoyalty,
+    focusCustomerId = null,
+    onFocusCustomerHandled = () => {}
+}) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
     const { user: currentUser } = useAuth();
     const toast = useToast();
@@ -295,7 +299,7 @@ export default function Customers({ onOpenLoyalty }) {
         }
     };
 
-    const openProfile = async (user) => {
+    const openProfile = useCallback(async (user) => {
         if (String(user.role || 'customer') !== 'customer') return;
         setSelectedUser(user);
         setIsProfileOpen(true);
@@ -309,7 +313,17 @@ export default function Customers({ onOpenLoyalty }) {
         } finally {
             setActiveCouponsLoading(false);
         }
-    };
+    }, [toast]);
+
+    useEffect(() => {
+        const targetId = String(focusCustomerId || '').trim();
+        if (!targetId) return;
+        const customer = users.find((entry) => String(entry.id) === targetId);
+        if (customer && String(customer.role || 'customer') === 'customer') {
+            openProfile(customer);
+        }
+        onFocusCustomerHandled();
+    }, [focusCustomerId, onFocusCustomerHandled, openProfile, users]);
 
     const openIssueCouponModal = (user) => {
         setCouponModalUser(user);

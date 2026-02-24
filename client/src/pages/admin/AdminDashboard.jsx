@@ -31,7 +31,14 @@ export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [expandedMenu, setExpandedMenu] = useState('');
     const [focusOrderId, setFocusOrderId] = useState(null);
+    const [focusProductId, setFocusProductId] = useState(null);
+    const [focusCustomerId, setFocusCustomerId] = useState(null);
     const [ordersInitialStatusFilter, setOrdersInitialStatusFilter] = useState('');
+    const [ordersInitialQuickRange, setOrdersInitialQuickRange] = useState('');
+    const [ordersInitialStartDate, setOrdersInitialStartDate] = useState('');
+    const [ordersInitialEndDate, setOrdersInitialEndDate] = useState('');
+    const [ordersInitialSortBy, setOrdersInitialSortBy] = useState('');
+    const [ordersInitialSourceChannel, setOrdersInitialSourceChannel] = useState('');
     const [incomingOrders, setIncomingOrders] = useState([]);
     const [activePopupType, setActivePopupType] = useState(null);
     const [activeShippingSummary, setActiveShippingSummary] = useState(null);
@@ -83,11 +90,22 @@ export default function AdminDashboard() {
         if (target.tab === 'orders') {
             setActiveTab('orders');
             setOrdersInitialStatusFilter(target.status || '');
+            setOrdersInitialQuickRange(target.quickRange || 'last_30_days');
+            setOrdersInitialStartDate(target.startDate || '');
+            setOrdersInitialEndDate(target.endDate || '');
+            setOrdersInitialSortBy(target.sortBy || '');
+            setOrdersInitialSourceChannel(target.sourceChannel || 'all');
             setFocusOrderId(target.orderId || null);
             return;
         }
         if (target.tab === 'products') {
             setActiveTab('products');
+            setFocusProductId(target.productId || null);
+            return;
+        }
+        if (target.tab === 'customers') {
+            setActiveTab('customers');
+            setFocusCustomerId(target.userId || null);
             return;
         }
         if (target.tab) {
@@ -405,9 +423,21 @@ export default function AdminDashboard() {
                 )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-                    {activeTab === 'products' && <Products onNavigate={setActiveTab} />}
+                    {activeTab === 'products' && (
+                        <Products
+                            onNavigate={setActiveTab}
+                            focusProductId={focusProductId}
+                            onFocusHandled={() => setFocusProductId(null)}
+                        />
+                    )}
                     {activeTab === 'categories' && <Categories />}
-                    {activeTab === 'customers' && <Customers onOpenLoyalty={() => setActiveTab('loyalty')} />}
+                    {activeTab === 'customers' && (
+                        <Customers
+                            onOpenLoyalty={() => setActiveTab('loyalty')}
+                            focusCustomerId={focusCustomerId}
+                            onFocusCustomerHandled={() => setFocusCustomerId(null)}
+                        />
+                    )}
                     {activeTab === 'shipping' && <ShippingSettings />}
                     {activeTab === 'cms' && <HeroCMS />}
                     {activeTab === 'dashboard' && <DashboardInsights onRunAction={handleDashboardAction} />}
@@ -417,6 +447,18 @@ export default function AdminDashboard() {
                             onFocusHandled={() => setFocusOrderId(null)}
                             initialStatusFilter={ordersInitialStatusFilter}
                             onInitialStatusApplied={() => setOrdersInitialStatusFilter('')}
+                            initialQuickRange={ordersInitialQuickRange}
+                            onInitialQuickRangeApplied={() => setOrdersInitialQuickRange('')}
+                            initialStartDate={ordersInitialStartDate}
+                            initialEndDate={ordersInitialEndDate}
+                            onInitialDateRangeApplied={() => {
+                                setOrdersInitialStartDate('');
+                                setOrdersInitialEndDate('');
+                            }}
+                            initialSortBy={ordersInitialSortBy}
+                            onInitialSortApplied={() => setOrdersInitialSortBy('')}
+                            initialSourceChannel={ordersInitialSourceChannel}
+                            onInitialSourceChannelApplied={() => setOrdersInitialSourceChannel('')}
                         />
                     )}
                     {activeTab === 'abandoned' && <AbandonedCarts />}

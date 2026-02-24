@@ -96,7 +96,7 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
 
 const MAX_FETCH_RANGE_DAYS = 90;
 
-const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days' } = {}) => {
+const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) => {
     const params = [];
     let where = 'WHERE 1=1';
     let latestLimit = null;
@@ -119,10 +119,23 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
         params.push(term, term, term);
     }
 
+    if (sourceChannel && sourceChannel !== 'all') {
+        const normalizedSource = String(sourceChannel || '').trim().toLowerCase();
+        if (normalizedSource === 'abandoned_recovery') {
+            where += " AND (o.is_abandoned_recovery = 1 OR LOWER(COALESCE(o.source_channel, '')) = 'abandoned_recovery')";
+        } else if (normalizedSource === 'direct') {
+            where += " AND (o.is_abandoned_recovery = 0 AND (COALESCE(o.source_channel, '') = '' OR LOWER(o.source_channel) <> 'abandoned_recovery'))";
+        } else {
+            where += ' AND LOWER(COALESCE(o.source_channel, \'\')) = ?';
+            params.push(normalizedSource);
+        }
+    }
+
     switch (quickRange) {
         case 'last_7_days':
             where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
             break;
+        case 'last_30_days':
         case 'last_1_month':
             where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)';
             break;
@@ -909,18 +922,20 @@ class Order {
         startDate = '',
         endDate = '',
         quickRange = 'last_90_days',
-        sortBy = 'newest'
+        sortBy = 'newest',
+        sourceChannel = 'all'
     }) {
         const safeLimit = Math.max(1, Number(limit) || 20);
         const safePage = Math.max(1, Number(page) || 1);
         const offset = (safePage - 1) * safeLimit;
         const latestLimit = quickRange === 'latest_10' ? 10 : null;
-        const includeAttemptRows = status === 'all' || status === 'failed';
+        const includeAttemptRows = (status === 'all' || status === 'failed') && String(sourceChannel || 'all').toLowerCase() === 'all';
 
         const buildDateClause = (alias, params) => {
             switch (quickRange) {
                 case 'last_7_days':
                     return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
+                case 'last_30_days':
                 case 'last_1_month':
                     return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`;
                 case 'last_90_days':
@@ -973,6 +988,17 @@ class Order {
             }
         } else if (status === 'failed') {
             orderWhere += " AND (o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed')";
+        }
+        if (sourceChannel && sourceChannel !== 'all') {
+            const normalizedSource = String(sourceChannel || '').trim().toLowerCase();
+            if (normalizedSource === 'abandoned_recovery') {
+                orderWhere += " AND (o.is_abandoned_recovery = 1 OR LOWER(COALESCE(o.source_channel, '')) = 'abandoned_recovery')";
+            } else if (normalizedSource === 'direct') {
+                orderWhere += " AND (o.is_abandoned_recovery = 0 AND (COALESCE(o.source_channel, '') = '' OR LOWER(o.source_channel) <> 'abandoned_recovery'))";
+            } else {
+                orderWhere += ' AND LOWER(COALESCE(o.source_channel, \'\')) = ?';
+                orderParams.push(normalizedSource);
+            }
         }
         orderWhere += searchClauseForOrder(orderParams);
         orderWhere += buildDateClause('o', orderParams);
@@ -1367,8 +1393,8 @@ class Order {
         };
     }
 
-    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days' } = {}) {
-        const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange });
+    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) {
+        const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange, sourceChannel });
         let summaryRows = [];
         if (latestLimit) {
             [summaryRows] = await db.execute(
