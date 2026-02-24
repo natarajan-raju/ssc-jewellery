@@ -63,6 +63,7 @@ const {
     setKnownPublicOriginFromRequest
 } = require('./services/abandonedCartRecoveryService');
 const { runMonthlyLoyaltyReassessment, ensureLoyaltyConfigLoaded, issueBirthdayCouponsForEligibleUsersToday } = require('./services/loyaltyService');
+const { runDashboardAlertsJob, refreshDashboardDailyAggregates } = require('./controllers/adminController');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -281,6 +282,32 @@ const scheduleDailyBirthdayCoupons = () => {
     runIfWindow();
 };
 scheduleDailyBirthdayCoupons();
+
+const scheduleDashboardAlerts = () => {
+    setInterval(async () => {
+        try {
+            await runDashboardAlertsJob();
+        } catch (error) {
+            console.error('Dashboard alert scheduler failed:', error?.message || error);
+        }
+    }, 10 * 60 * 1000);
+};
+
+const scheduleDashboardAggregatesRefresh = () => {
+    const run = async () => {
+        try {
+            await refreshDashboardDailyAggregates({ lookbackDays: 120 });
+        } catch (error) {
+            console.error('Dashboard aggregate refresh failed:', error?.message || error);
+        }
+    };
+    setInterval(run, 60 * 60 * 1000);
+    run();
+};
+
+scheduleDashboardAlerts();
+scheduleDashboardAggregatesRefresh();
+
 startAbandonedCartRecoveryScheduler({
     onJourneyUpdate: (payload = {}) => {
         io.to('admin').emit('abandoned_cart:journey:update', {

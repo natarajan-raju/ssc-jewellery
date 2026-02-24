@@ -57,10 +57,36 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     });
     const [isSavingAlerts, setIsSavingAlerts] = useState(false);
     const [isRunningAlerts, setIsRunningAlerts] = useState(false);
+    const [resolvedActionIds, setResolvedActionIds] = useState(() => new Set());
+    const hasTrackedFilterChangeRef = useRef(false);
 
     useEffect(() => {
         toastRef.current = toast;
     }, [toast]);
+
+    const trackEvent = (eventType, payload = {}) => {
+        adminService.trackDashboardEvent({
+            eventType,
+            widgetId: payload.widgetId || '',
+            actionId: payload.actionId || '',
+            meta: payload.meta || {}
+        }).catch(() => {});
+    };
+
+    useEffect(() => {
+        trackEvent('dashboard_opened', { meta: { page: 'dashboard_insights' } });
+    }, []);
+
+    useEffect(() => {
+        if (!hasTrackedFilterChangeRef.current) {
+            hasTrackedFilterChangeRef.current = true;
+            return;
+        }
+        trackEvent('filters_changed', {
+            widgetId: 'dashboard_filters',
+            meta: { quickRange, comparisonMode, statusFilter, paymentMode, sourceChannel }
+        });
+    }, [quickRange, comparisonMode, statusFilter, paymentMode, sourceChannel]);
 
     useEffect(() => {
         let cancelled = false;
@@ -157,12 +183,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     );
 
     const cards = [
-        { label: 'Net Sales', value: formatCurrency(overview.netSales), icon: IndianRupee },
-        { label: 'Gross Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp },
-        { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag },
-        { label: 'AOV', value: formatCurrency(overview.averageOrderValue), icon: Activity },
-        { label: 'Conversion', value: `${Number(overview.conversionRate || 0).toFixed(1)}%`, icon: TrendingUp },
-        { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users }
+        { label: 'Net Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all' }, widgetId: 'kpi_net_sales' },
+        { label: 'Gross Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all' }, widgetId: 'kpi_gross_sales' },
+        { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: 'all' }, widgetId: 'kpi_orders' },
+        { label: 'AOV', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all' }, widgetId: 'kpi_aov' },
+        { label: 'Conversion', value: `${Number(overview.conversionRate || 0).toFixed(1)}%`, icon: TrendingUp, target: { tab: 'orders', status: 'failed' }, widgetId: 'kpi_conversion' },
+        { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate' }
     ];
     const comparison = overview?.comparison || null;
     const refreshGoals = async () => {
@@ -182,6 +208,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             await adminService.saveDashboardGoal(payload);
             await refreshGoals();
             setGoalDraft((prev) => ({ ...prev, targetValue: '' }));
+            trackEvent('goal_saved', { widgetId: 'goals', meta: { metricKey: payload.metricKey, periodType: payload.periodType } });
             toastRef.current.success('Goal saved');
         } catch (error) {
             toastRef.current.error(error?.message || 'Failed to save goal');
@@ -191,6 +218,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         try {
             await adminService.deleteDashboardGoal(id);
             await refreshGoals();
+            trackEvent('goal_deleted', { widgetId: 'goals', actionId: String(id) });
             toastRef.current.success('Goal removed');
         } catch (error) {
             toastRef.current.error(error?.message || 'Failed to remove goal');
@@ -211,6 +239,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     lowStockThreshold: Number(dataRes.settings.lowStockThreshold || 5)
                 });
             }
+            trackEvent('alerts_saved', { widgetId: 'alerts', meta: { isActive: Boolean(alertSettings.isActive) } });
             toastRef.current.success('Alert settings saved');
         } catch (error) {
             toastRef.current.error(error?.message || 'Failed to save alert settings');
@@ -222,6 +251,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         setIsRunningAlerts(true);
         try {
             const result = await adminService.runDashboardAlertsNow();
+            trackEvent('alerts_run', { widgetId: 'alerts', meta: { sent: Number(result?.sent || 0) } });
             if (Number(result?.sent || 0) > 0) {
                 toastRef.current.success(`Sent ${result.sent} dashboard alerts`);
             } else {
@@ -233,6 +263,29 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             setIsRunningAlerts(false);
         }
     };
+    const handleOpenCard = (card) => {
+        onRunAction({ id: `card_${String(card.widgetId || card.label).toLowerCase()}`, target: card.target || { tab: 'orders' } });
+        trackEvent('kpi_clicked', { widgetId: card.widgetId || card.label, meta: { quickRange, statusFilter, paymentMode, sourceChannel } });
+    };
+    const handleOpenAction = (action) => {
+        onRunAction(action);
+        trackEvent('action_opened', { actionId: action?.id || '', widgetId: 'action_center', meta: { priority: action?.priority || 'low' } });
+    };
+    const handleResolveAction = (action) => {
+        const actionId = String(action?.id || '').trim();
+        if (!actionId) return;
+        setResolvedActionIds((prev) => {
+            const next = new Set(prev);
+            next.add(actionId);
+            return next;
+        });
+        trackEvent('action_resolved', { actionId, widgetId: 'action_center' });
+        toastRef.current.success('Action marked as resolved');
+    };
+    const lastUpdatedLabel = data?.lastUpdatedAt
+        ? new Date(data.lastUpdatedAt).toLocaleString('en-IN', { hour12: true })
+        : null;
+    const visibleActions = actions.filter((action) => !resolvedActionIds.has(String(action?.id || '')));
 
     return (
         <div className="space-y-6">
@@ -240,6 +293,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                 <div>
                     <h2 className="text-xl font-semibold text-gray-900">Store Intelligence</h2>
                     <p className="text-sm text-gray-500 mt-1">Sales insights, funnel health, and action priorities.</p>
+                    {lastUpdatedLabel && <p className="text-xs text-gray-400 mt-1">Last updated: {lastUpdatedLabel}</p>}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-2 w-full md:w-auto">
                     <select
@@ -311,7 +365,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                 <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                         {cards.map((card) => (
-                            <div key={card.label} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex items-center justify-between">
+                            <button
+                                key={card.label}
+                                type="button"
+                                onClick={() => handleOpenCard(card)}
+                                className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+                            >
                                 <div>
                                     <p className="text-xs uppercase tracking-wide text-gray-500">{card.label}</p>
                                     <p className="text-2xl font-semibold text-gray-900 mt-1">{card.value}</p>
@@ -322,7 +381,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     )}
                                 </div>
                                 <card.icon size={20} className="text-gray-400" />
-                            </div>
+                            </button>
                         ))}
                     </div>
 
@@ -546,7 +605,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             <span className="text-xs text-gray-500">Prioritized operational tasks</span>
                         </div>
                         <div className="mt-4 space-y-3">
-                            {actions.map((action) => (
+                            {visibleActions.map((action) => (
                                 <div key={action.id} className="border border-gray-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                     <div>
                                         <span className={`inline-flex px-2 py-0.5 rounded-md text-[10px] font-semibold border ${priorityStyles[action.priority] || priorityStyles.low}`}>
@@ -560,15 +619,22 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     </div>
                                     <button
                                         type="button"
-                                        onClick={() => onRunAction(action)}
+                                        onClick={() => handleOpenAction(action)}
                                         className="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 hover:bg-gray-50"
                                     >
                                         Open
                                         <ArrowRight size={12} />
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleResolveAction(action)}
+                                        className="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 hover:bg-gray-50"
+                                    >
+                                        Resolve
+                                    </button>
                                 </div>
                             ))}
-                            {!actions.length && <p className="text-sm text-gray-500">No high-priority actions right now.</p>}
+                            {!visibleActions.length && <p className="text-sm text-gray-500">No high-priority actions right now.</p>}
                         </div>
                     </div>
                 </>

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -31,6 +31,7 @@ router.delete('/dashboard/goals/:id', deleteDashboardGoal);
 router.get('/dashboard/alerts', getDashboardAlertSettings);
 router.put('/dashboard/alerts', updateDashboardAlertSettings);
 router.post('/dashboard/alerts/run', runDashboardAlerts);
+router.post('/dashboard/events', trackDashboardEvent);
 router.post('/users', createUser);
 router.delete('/users/:id', deleteUser);
 router.get('/users/:id/cart', getUserCart);

@@ -678,6 +678,62 @@ const initDB = async () => {
         `);
 
         await connection.query(`
+            CREATE TABLE IF NOT EXISTS dashboard_daily_aggregates (
+                day_date DATE PRIMARY KEY,
+                total_orders INT NOT NULL DEFAULT 0,
+                gross_sales DECIMAL(14,2) NOT NULL DEFAULT 0,
+                net_sales DECIMAL(14,2) NOT NULL DEFAULT 0,
+                paid_orders INT NOT NULL DEFAULT 0,
+                shipped_orders INT NOT NULL DEFAULT 0,
+                completed_orders INT NOT NULL DEFAULT 0,
+                cancelled_orders INT NOT NULL DEFAULT 0,
+                refunded_orders INT NOT NULL DEFAULT 0,
+                refunded_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+                attempted_payments INT NOT NULL DEFAULT 0,
+                failed_payments INT NOT NULL DEFAULT 0,
+                new_customers INT NOT NULL DEFAULT 0,
+                active_customers INT NOT NULL DEFAULT 0,
+                repeat_customers INT NOT NULL DEFAULT 0,
+                coupon_orders INT NOT NULL DEFAULT 0,
+                coupon_discount_total DECIMAL(14,2) NOT NULL DEFAULT 0,
+                cod_orders INT NOT NULL DEFAULT 0,
+                cod_cancelled INT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_dashboard_daily_updated (updated_at)
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE dashboard_daily_aggregates ADD COLUMN shipped_orders INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE dashboard_daily_aggregates ADD COLUMN completed_orders INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE dashboard_daily_aggregates ADD COLUMN refunded_orders INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE dashboard_daily_aggregates ADD COLUMN failed_payments INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE dashboard_daily_aggregates ADD INDEX idx_dashboard_daily_updated (updated_at)');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS dashboard_usage_events (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                event_type VARCHAR(80) NOT NULL,
+                widget_id VARCHAR(120) NULL,
+                action_id VARCHAR(120) NULL,
+                meta_json JSON,
+                user_id VARCHAR(50) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_dashboard_usage_type_time (event_type, created_at),
+                INDEX idx_dashboard_usage_user_time (user_id, created_at),
+                INDEX idx_dashboard_usage_widget_time (widget_id, created_at)
+            )
+        `);
+
+        await connection.query(`
             CREATE TABLE IF NOT EXISTS shipping_options (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 zone_id INT NOT NULL,

@@ -395,6 +395,19 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    trackDashboardEvent: async ({ eventType = 'dashboard_opened', widgetId = '', actionId = '', meta = {} } = {}) => {
+        const res = await fetch(`${API_URL}/dashboard/events`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({
+                eventType,
+                widgetId,
+                actionId,
+                meta
+            })
+        });
+        return handleResponse(res);
+    },
     invalidateDashboardCache: () => {
         dashboardCache = {};
     },

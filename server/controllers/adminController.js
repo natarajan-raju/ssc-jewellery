@@ -12,6 +12,7 @@ const {
     sendWhatsapp
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
+const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
 
 const emitCouponChanged = (req, payload = {}) => {
     const io = req.app.get('io');
@@ -57,6 +58,9 @@ const resolveCategoryCouponContext = async (categoryIds = []) => {
 };
 
 const DASHBOARD_MAX_RANGE_DAYS = 90;
+const DASHBOARD_CACHE_TTL_MS = Math.max(30 * 1000, Number(process.env.DASHBOARD_CACHE_TTL_MS || 120 * 1000));
+const DASHBOARD_CACHE_MAX_ENTRIES = 120;
+const dashboardPayloadCache = new Map();
 
 const toDateOnlyInput = (value) => {
     const raw = String(value || '').trim();
@@ -89,17 +93,27 @@ const addMonthsUTC = (date, months) => {
     return next;
 };
 
-const computeChange = (currentValue, previousValue) => {
-    const current = Number(currentValue || 0);
-    const previous = Number(previousValue || 0);
-    if (!Number.isFinite(current) || !Number.isFinite(previous)) return null;
-    if (previous === 0) return current === 0 ? 0 : 100;
-    return Number((((current - previous) / Math.abs(previous)) * 100).toFixed(1));
+const readDashboardPayloadCache = (query = {}) => {
+    const key = buildDashboardCacheKey(query);
+    const cached = dashboardPayloadCache.get(key);
+    if (!cached) return null;
+    if (Date.now() - cached.ts > DASHBOARD_CACHE_TTL_MS) {
+        dashboardPayloadCache.delete(key);
+        return null;
+    }
+    return cached.value || null;
 };
 
-const toSafeEnum = (value, allowed = [], fallback = '') => {
-    const normalized = String(value || '').trim().toLowerCase();
-    return allowed.includes(normalized) ? normalized : fallback;
+const writeDashboardPayloadCache = (query = {}, value = null) => {
+    const key = buildDashboardCacheKey(query);
+    dashboardPayloadCache.set(key, { ts: Date.now(), value });
+    if (dashboardPayloadCache.size <= DASHBOARD_CACHE_MAX_ENTRIES) return;
+    const oldestKey = dashboardPayloadCache.keys().next().value;
+    if (oldestKey) dashboardPayloadCache.delete(oldestKey);
+};
+
+const invalidateDashboardPayloadCache = () => {
+    dashboardPayloadCache.clear();
 };
 
 const buildOrderFilterFragments = (query = {}, alias = 'o') => {
@@ -249,6 +263,10 @@ const getDashboardInsightsPayload = async (query = {}) => {
     const scope = buildDashboardScope(query || {});
     const ordersScopeSql = scope.ordersScopeSql;
     const ordersScopeParams = scope.ordersScopeParams || [];
+    const canUseDailyAggregate = scope.quickRange !== 'latest_10'
+        && scope.filters.status === 'all'
+        && scope.filters.paymentMode === 'all'
+        && scope.filters.sourceChannel === 'all';
     const [userCreatedAtColumnRows] = await db.execute(
         `SELECT COUNT(*) AS has_column
          FROM information_schema.COLUMNS
@@ -257,45 +275,98 @@ const getDashboardInsightsPayload = async (query = {}) => {
            AND COLUMN_NAME = 'created_at'`
     );
     const hasUserCreatedAt = Number(userCreatedAtColumnRows?.[0]?.has_column || 0) > 0;
+    let useDailyAggregate = false;
+    if (canUseDailyAggregate) {
+        const [aggregateCoverageRows] = await db.execute(
+            `SELECT COUNT(*) AS total
+             FROM dashboard_daily_aggregates
+             WHERE day_date BETWEEN ? AND ?`,
+            [scope.seriesStartDate, scope.seriesEndDate]
+        );
+        useDailyAggregate = Number(aggregateCoverageRows?.[0]?.total || 0) > 0;
+    }
 
     const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows]] = await Promise.all([
-        db.execute(
-            `SELECT
-                COUNT(*) AS total_orders,
-                SUM(COALESCE(scoped.subtotal, 0) + COALESCE(scoped.shipping_fee, 0)) AS gross_sales,
-                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS net_sales,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid_orders,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN COALESCE(scoped.refund_amount, 0) ELSE 0 END) AS refunded_amount
-             FROM ${ordersScopeSql} scoped`,
-            ordersScopeParams
-        ),
-        db.execute(
-            `SELECT COUNT(*) AS attempted_payments
-             FROM payment_attempts pa
-             WHERE ${scope.attemptsWhereSql}`,
-            scope.attemptsParams
-        ),
-        db.execute(
-            `SELECT
-                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'shipped' THEN 1 ELSE 0 END) AS shipped,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'completed' THEN 1 ELSE 0 END) AS completed,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
-                SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN 1 ELSE 0 END) AS refunded
-             FROM ${ordersScopeSql} scoped`,
-            ordersScopeParams
-        ),
-        db.execute(
-            `SELECT
-                DATE(scoped.created_at) AS bucket_date,
-                COUNT(*) AS orders_count,
-                SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
-             FROM ${ordersScopeSql} scoped
-             GROUP BY DATE(scoped.created_at)
-             ORDER BY DATE(scoped.created_at) ASC`,
-            ordersScopeParams
-        ),
+        useDailyAggregate
+            ? db.execute(
+                `SELECT
+                    SUM(COALESCE(total_orders, 0)) AS total_orders,
+                    SUM(COALESCE(gross_sales, 0)) AS gross_sales,
+                    SUM(COALESCE(net_sales, 0)) AS net_sales,
+                    SUM(COALESCE(paid_orders, 0)) AS paid_orders,
+                    SUM(COALESCE(cancelled_orders, 0)) AS cancelled_orders,
+                    SUM(COALESCE(refunded_amount, 0)) AS refunded_amount
+                 FROM dashboard_daily_aggregates
+                 WHERE day_date BETWEEN ? AND ?`,
+                [scope.seriesStartDate, scope.seriesEndDate]
+            )
+            : db.execute(
+                `SELECT
+                    COUNT(*) AS total_orders,
+                    SUM(COALESCE(scoped.subtotal, 0) + COALESCE(scoped.shipping_fee, 0)) AS gross_sales,
+                    SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS net_sales,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN COALESCE(scoped.refund_amount, 0) ELSE 0 END) AS refunded_amount
+                 FROM ${ordersScopeSql} scoped`,
+                ordersScopeParams
+            ),
+        useDailyAggregate
+            ? db.execute(
+                `SELECT SUM(COALESCE(attempted_payments, 0)) AS attempted_payments
+                 FROM dashboard_daily_aggregates
+                 WHERE day_date BETWEEN ? AND ?`,
+                [scope.seriesStartDate, scope.seriesEndDate]
+            )
+            : db.execute(
+                `SELECT COUNT(*) AS attempted_payments
+                 FROM payment_attempts pa
+                 WHERE ${scope.attemptsWhereSql}`,
+                scope.attemptsParams
+            ),
+        useDailyAggregate
+            ? db.execute(
+                `SELECT
+                    SUM(COALESCE(paid_orders, 0)) AS paid,
+                    SUM(COALESCE(shipped_orders, 0)) AS shipped,
+                    SUM(COALESCE(completed_orders, 0)) AS completed,
+                    SUM(COALESCE(cancelled_orders, 0)) AS cancelled,
+                    SUM(COALESCE(refunded_orders, 0)) AS refunded
+                 FROM dashboard_daily_aggregates
+                 WHERE day_date BETWEEN ? AND ?`,
+                [scope.seriesStartDate, scope.seriesEndDate]
+            )
+            : db.execute(
+                `SELECT
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'shipped' THEN 1 ELSE 0 END) AS shipped,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'completed' THEN 1 ELSE 0 END) AS completed,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                    SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN 1 ELSE 0 END) AS refunded
+                 FROM ${ordersScopeSql} scoped`,
+                ordersScopeParams
+            ),
+        useDailyAggregate
+            ? db.execute(
+                `SELECT
+                    day_date AS bucket_date,
+                    total_orders AS orders_count,
+                    net_sales AS revenue
+                 FROM dashboard_daily_aggregates
+                 WHERE day_date BETWEEN ? AND ?
+                 ORDER BY day_date ASC`,
+                [scope.seriesStartDate, scope.seriesEndDate]
+            )
+            : db.execute(
+                `SELECT
+                    DATE(scoped.created_at) AS bucket_date,
+                    COUNT(*) AS orders_count,
+                    SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
+                 FROM ${ordersScopeSql} scoped
+                 GROUP BY DATE(scoped.created_at)
+                 ORDER BY DATE(scoped.created_at) ASC`,
+                ordersScopeParams
+            ),
         db.execute(
             `SELECT
                 oi.product_id,
@@ -673,9 +744,19 @@ const getDashboardInsightsPayload = async (query = {}) => {
     };
 };
 
+const getDashboardInsightsPayloadCached = async (query = {}, { force = false } = {}) => {
+    if (!force) {
+        const cached = readDashboardPayloadCache(query || {});
+        if (cached) return cached;
+    }
+    const payload = await getDashboardInsightsPayload(query || {});
+    writeDashboardPayloadCache(query || {}, payload);
+    return payload;
+};
+
 const getDashboardInsights = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json(payload);
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard insights' });
@@ -684,7 +765,7 @@ const getDashboardInsights = async (req, res) => {
 
 const getDashboardOverview = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json({ filter: payload.filter, overview: payload.overview, growth: payload.growth, risk: payload.risk, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard overview' });
@@ -693,7 +774,7 @@ const getDashboardOverview = async (req, res) => {
 
 const getDashboardTrends = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json({ filter: payload.filter, trends: payload.trends, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard trends' });
@@ -702,7 +783,7 @@ const getDashboardTrends = async (req, res) => {
 
 const getDashboardFunnel = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json({ filter: payload.filter, funnel: payload.funnel, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard funnel' });
@@ -711,7 +792,7 @@ const getDashboardFunnel = async (req, res) => {
 
 const getDashboardProducts = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json({ filter: payload.filter, products: payload.products, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard products' });
@@ -720,7 +801,7 @@ const getDashboardProducts = async (req, res) => {
 
 const getDashboardCustomers = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json({ filter: payload.filter, customers: payload.customers, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard customers' });
@@ -729,7 +810,7 @@ const getDashboardCustomers = async (req, res) => {
 
 const getDashboardActions = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayload(req.query || {});
+        const payload = await getDashboardInsightsPayloadCached(req.query || {});
         return res.json({ filter: payload.filter, actions: payload.actions, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard actions' });
@@ -748,7 +829,7 @@ const listDashboardGoals = async (req, res) => {
         const computeSnapshot = async (startDate, endDate) => {
             const key = `${startDate}:${endDate}`;
             if (cache.has(key)) return cache.get(key);
-            const payload = await getDashboardInsightsPayload({
+            const payload = await getDashboardInsightsPayloadCached({
                 quickRange: 'custom',
                 startDate,
                 endDate,
@@ -828,6 +909,7 @@ const upsertDashboardGoal = async (req, res) => {
                 [normalizedMetric, safeLabel, safeTarget, normalizedPeriod, start, end, isActive ? 1 : 0, req.user?.id || null]
             );
         }
+        invalidateDashboardPayloadCache();
         return listDashboardGoals(req, res);
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to save dashboard goal' });
@@ -841,6 +923,7 @@ const deleteDashboardGoal = async (req, res) => {
             return res.status(400).json({ message: 'Invalid goal id' });
         }
         await db.execute('UPDATE dashboard_goal_targets SET is_active = 0 WHERE id = ?', [id]);
+        invalidateDashboardPayloadCache();
         return res.json({ ok: true, id });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to delete dashboard goal' });
@@ -904,117 +987,372 @@ const updateDashboardAlertSettings = async (req, res) => {
                 Math.max(1, Number(payload.lowStockThreshold || 5))
             ]
         );
+        invalidateDashboardPayloadCache();
         return getDashboardAlertSettings(req, res);
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update dashboard alert settings' });
     }
 };
 
+const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, forceRefresh = false } = {}) => {
+    const [rows] = await db.execute('SELECT * FROM dashboard_alert_settings WHERE id = 1 LIMIT 1');
+    const settings = rows?.[0] || null;
+    if (!settings || Number(settings.is_active || 0) !== 1) {
+        return { ok: true, sent: 0, skipped: true, reason: 'alerts_disabled' };
+    }
+    const payload = await getDashboardInsightsPayloadCached({
+        quickRange: 'last_7_days',
+        comparisonMode: 'previous_period',
+        status: 'all',
+        paymentMode: 'all',
+        sourceChannel: 'all',
+        lowStockThreshold: Number(settings.low_stock_threshold || 5)
+    }, { force: forceRefresh });
+
+    const candidates = [];
+    if (Number(payload?.risk?.pendingAging?.over72h || 0) >= Number(settings.pending_over72_threshold || 10)) {
+        candidates.push({
+            key: 'pending_over72',
+            severity: 'high',
+            message: `${Number(payload.risk.pendingAging.over72h || 0)} pending orders are older than 72h`
+        });
+    }
+    if (Number(payload?.risk?.failedPaymentsCurrent6h || 0) >= Number(settings.failed_payment_6h_threshold || 8)) {
+        candidates.push({
+            key: 'failed_payment_6h',
+            severity: 'high',
+            message: `${Number(payload.risk.failedPaymentsCurrent6h || 0)} failed payments in last 6 hours`
+        });
+    }
+    if (Number(payload?.risk?.codCancellationRate || 0) >= Number(settings.cod_cancel_rate_threshold || 20)) {
+        candidates.push({
+            key: 'cod_cancellation_rate',
+            severity: 'medium',
+            message: `COD cancellation rate is ${Number(payload.risk.codCancellationRate || 0).toFixed(1)}%`
+        });
+    }
+    const lowStockAlerts = (payload?.actions || []).filter((item) => String(item?.id || '').startsWith('low_stock_fast_seller_'));
+    if (lowStockAlerts.length >= 1) {
+        candidates.push({
+            key: 'low_stock_fast_seller',
+            severity: 'high',
+            message: `${lowStockAlerts.length} low-stock fast sellers need replenishment`
+        });
+    }
+
+    if (!candidates.length) {
+        return { ok: true, sent: 0, skipped: true, reason: 'no_threshold_breach' };
+    }
+
+    const emailRecipients = String(settings.email_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
+    const whatsappRecipients = String(settings.whatsapp_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
+    const sentLogs = [];
+
+    for (const candidate of candidates) {
+        const [dupRows] = await db.execute(
+            `SELECT COUNT(*) AS total
+             FROM dashboard_alert_logs
+             WHERE alert_key = ?
+               AND sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)`,
+            [candidate.key]
+        );
+        if (Number(dupRows?.[0]?.total || 0) > 0) continue;
+
+        const channels = [];
+        if (emailRecipients.length) {
+            await sendEmailCommunication({
+                to: emailRecipients,
+                subject: `[Dashboard Alert] ${candidate.message}`,
+                text: `${candidate.message}\n\nPlease check Admin Dashboard for details.`,
+                html: `<p><strong>${candidate.message}</strong></p><p>Please check Admin Dashboard for details.</p>`
+            }).catch(() => {});
+            channels.push('email');
+        }
+        if (whatsappRecipients.length) {
+            for (const mobile of whatsappRecipients) {
+                await sendWhatsapp({
+                    mobile,
+                    message: `SSC Dashboard Alert: ${candidate.message}`
+                }).catch(() => {});
+            }
+            channels.push('whatsapp');
+        }
+
+        await db.execute(
+            `INSERT INTO dashboard_alert_logs
+                (alert_key, severity, message, payload_json, channels_json, status)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                candidate.key,
+                candidate.severity,
+                candidate.message,
+                JSON.stringify({
+                    trigger,
+                    actorUserId: actorUserId || null,
+                    snapshot: payload || {}
+                }),
+                JSON.stringify(channels),
+                channels.length ? 'sent' : 'skipped'
+            ]
+        );
+        sentLogs.push({ ...candidate, channels });
+    }
+
+    return { ok: true, sent: sentLogs.length, alerts: sentLogs };
+};
+
 const runDashboardAlerts = async (req, res) => {
     try {
-        const [rows] = await db.execute('SELECT * FROM dashboard_alert_settings WHERE id = 1 LIMIT 1');
-        const settings = rows?.[0] || null;
-        if (!settings || Number(settings.is_active || 0) !== 1) {
-            return res.json({ ok: true, sent: 0, skipped: true, reason: 'alerts_disabled' });
-        }
-        const payload = await getDashboardInsightsPayload({
-            quickRange: 'last_7_days',
-            comparisonMode: 'previous_period',
-            status: 'all',
-            paymentMode: 'all',
-            sourceChannel: 'all',
-            lowStockThreshold: Number(settings.low_stock_threshold || 5)
+        const result = await executeDashboardAlerts({
+            trigger: 'manual',
+            actorUserId: req.user?.id || null,
+            forceRefresh: true
         });
-
-        const candidates = [];
-        if (Number(payload?.risk?.pendingAging?.over72h || 0) >= Number(settings.pending_over72_threshold || 10)) {
-            candidates.push({
-                key: 'pending_over72',
-                severity: 'high',
-                message: `${Number(payload.risk.pendingAging.over72h || 0)} pending orders are older than 72h`
-            });
-        }
-        if (Number(payload?.risk?.failedPaymentsCurrent6h || 0) >= Number(settings.failed_payment_6h_threshold || 8)) {
-            candidates.push({
-                key: 'failed_payment_6h',
-                severity: 'high',
-                message: `${Number(payload.risk.failedPaymentsCurrent6h || 0)} failed payments in last 6 hours`
-            });
-        }
-        if (Number(payload?.risk?.codCancellationRate || 0) >= Number(settings.cod_cancel_rate_threshold || 20)) {
-            candidates.push({
-                key: 'cod_cancellation_rate',
-                severity: 'medium',
-                message: `COD cancellation rate is ${Number(payload.risk.codCancellationRate || 0).toFixed(1)}%`
-            });
-        }
-        const lowStockAlerts = (payload?.actions || []).filter((item) => String(item?.id || '').startsWith('low_stock_fast_seller_'));
-        if (lowStockAlerts.length >= 1) {
-            candidates.push({
-                key: 'low_stock_fast_seller',
-                severity: 'high',
-                message: `${lowStockAlerts.length} low-stock fast sellers need replenishment`
-            });
-        }
-
-        if (!candidates.length) {
-            return res.json({ ok: true, sent: 0, skipped: true, reason: 'no_threshold_breach' });
-        }
-
-        const emailRecipients = String(settings.email_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
-        const whatsappRecipients = String(settings.whatsapp_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
-        const sentLogs = [];
-
-        for (const candidate of candidates) {
-            const [dupRows] = await db.execute(
-                `SELECT COUNT(*) AS total
-                 FROM dashboard_alert_logs
-                 WHERE alert_key = ?
-                   AND sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)`,
-                [candidate.key]
-            );
-            if (Number(dupRows?.[0]?.total || 0) > 0) continue;
-
-            const channels = [];
-            if (emailRecipients.length) {
-                await sendEmailCommunication({
-                    to: emailRecipients,
-                    subject: `[Dashboard Alert] ${candidate.message}`,
-                    text: `${candidate.message}\n\nPlease check Admin Dashboard for details.`,
-                    html: `<p><strong>${candidate.message}</strong></p><p>Please check Admin Dashboard for details.</p>`
-                }).catch(() => {});
-                channels.push('email');
-            }
-            if (whatsappRecipients.length) {
-                for (const mobile of whatsappRecipients) {
-                    // WhatsApp channel is currently stubbed, but this keeps flow production-ready.
-                    await sendWhatsapp({
-                        mobile,
-                        message: `SSC Dashboard Alert: ${candidate.message}`
-                    }).catch(() => {});
-                }
-                channels.push('whatsapp');
-            }
-
-            await db.execute(
-                `INSERT INTO dashboard_alert_logs
-                    (alert_key, severity, message, payload_json, channels_json, status)
-                 VALUES (?, ?, ?, ?, ?, ?)`,
-                [
-                    candidate.key,
-                    candidate.severity,
-                    candidate.message,
-                    JSON.stringify(payload || {}),
-                    JSON.stringify(channels),
-                    channels.length ? 'sent' : 'skipped'
-                ]
-            );
-            sentLogs.push({ ...candidate, channels });
-        }
-
-        return res.json({ ok: true, sent: sentLogs.length, alerts: sentLogs });
+        return res.json(result);
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to run dashboard alerts' });
+    }
+};
+
+const runDashboardAlertsJob = async () => executeDashboardAlerts({
+    trigger: 'scheduler',
+    actorUserId: null,
+    forceRefresh: true
+});
+
+const refreshDashboardDailyAggregates = async ({ lookbackDays = 120 } = {}) => {
+    const safeLookback = Math.max(7, Math.min(365, Number(lookbackDays || 120)));
+    const [orderRows] = await db.execute(
+        `SELECT
+            DATE(o.created_at) AS day_date,
+            COUNT(*) AS total_orders,
+            SUM(COALESCE(o.subtotal, 0) + COALESCE(o.shipping_fee, 0)) AS gross_sales,
+            SUM(CASE WHEN o.status <> 'cancelled' THEN COALESCE(o.total, 0) ELSE 0 END) AS net_sales,
+            SUM(CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid_orders,
+            SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'shipped' THEN 1 ELSE 0 END) AS shipped_orders,
+            SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'completed' THEN 1 ELSE 0 END) AS completed_orders,
+            SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
+            SUM(CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'refunded' OR COALESCE(o.refund_amount, 0) > 0 THEN 1 ELSE 0 END) AS refunded_orders,
+            SUM(CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'refunded' OR COALESCE(o.refund_amount, 0) > 0 THEN COALESCE(o.refund_amount, 0) ELSE 0 END) AS refunded_amount,
+            COUNT(DISTINCT o.user_id) AS active_customers,
+            SUM(CASE WHEN COALESCE(o.coupon_code, '') <> '' THEN 1 ELSE 0 END) AS coupon_orders,
+            SUM(COALESCE(o.coupon_discount_value, 0)) AS coupon_discount_total,
+            SUM(CASE WHEN LOWER(COALESCE(o.payment_gateway, '')) = 'cod' THEN 1 ELSE 0 END) AS cod_orders,
+            SUM(CASE WHEN LOWER(COALESCE(o.payment_gateway, '')) = 'cod' AND LOWER(COALESCE(o.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cod_cancelled
+         FROM orders o
+         WHERE o.created_at >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY)
+         GROUP BY DATE(o.created_at)`,
+        [safeLookback]
+    );
+    const [repeatRows] = await db.execute(
+        `SELECT day_date, COUNT(*) AS repeat_customers
+         FROM (
+            SELECT DATE(created_at) AS day_date, user_id
+            FROM orders
+            WHERE created_at >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY)
+              AND user_id IS NOT NULL
+            GROUP BY DATE(created_at), user_id
+            HAVING COUNT(*) > 1
+         ) repeats
+         GROUP BY day_date`,
+        [safeLookback]
+    );
+    const [attemptRows] = await db.execute(
+        `SELECT
+            DATE(pa.created_at) AS day_date,
+            COUNT(*) AS attempted_payments,
+            SUM(CASE WHEN LOWER(COALESCE(pa.status, '')) = 'failed' THEN 1 ELSE 0 END) AS failed_payments
+         FROM payment_attempts pa
+         WHERE pa.created_at >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY)
+         GROUP BY DATE(pa.created_at)`,
+        [safeLookback]
+    );
+    const [newCustomerRows] = await db.execute(
+        `SELECT
+            DATE(u.created_at) AS day_date,
+            COUNT(*) AS new_customers
+         FROM users u
+         WHERE u.created_at >= DATE_SUB(UTC_DATE(), INTERVAL ? DAY)
+         GROUP BY DATE(u.created_at)`,
+        [safeLookback]
+    );
+
+    const byDate = new Map();
+    (orderRows || []).forEach((row) => byDate.set(String(row.day_date), {
+        day_date: String(row.day_date),
+        total_orders: Number(row.total_orders || 0),
+        gross_sales: Number(row.gross_sales || 0),
+        net_sales: Number(row.net_sales || 0),
+        paid_orders: Number(row.paid_orders || 0),
+        shipped_orders: Number(row.shipped_orders || 0),
+        completed_orders: Number(row.completed_orders || 0),
+        cancelled_orders: Number(row.cancelled_orders || 0),
+        refunded_orders: Number(row.refunded_orders || 0),
+        refunded_amount: Number(row.refunded_amount || 0),
+        attempted_payments: 0,
+        failed_payments: 0,
+        new_customers: 0,
+        active_customers: Number(row.active_customers || 0),
+        repeat_customers: 0,
+        coupon_orders: Number(row.coupon_orders || 0),
+        coupon_discount_total: Number(row.coupon_discount_total || 0),
+        cod_orders: Number(row.cod_orders || 0),
+        cod_cancelled: Number(row.cod_cancelled || 0)
+    }));
+    (repeatRows || []).forEach((row) => {
+        const key = String(row.day_date);
+        const current = byDate.get(key) || {
+            day_date: key,
+            total_orders: 0,
+            gross_sales: 0,
+            net_sales: 0,
+            paid_orders: 0,
+            shipped_orders: 0,
+            completed_orders: 0,
+            cancelled_orders: 0,
+            refunded_orders: 0,
+            refunded_amount: 0,
+            attempted_payments: 0,
+            failed_payments: 0,
+            new_customers: 0,
+            active_customers: 0,
+            repeat_customers: 0,
+            coupon_orders: 0,
+            coupon_discount_total: 0,
+            cod_orders: 0,
+            cod_cancelled: 0
+        };
+        current.repeat_customers = Number(row.repeat_customers || 0);
+        byDate.set(key, current);
+    });
+    (attemptRows || []).forEach((row) => {
+        const key = String(row.day_date);
+        const current = byDate.get(key) || {
+            day_date: key,
+            total_orders: 0,
+            gross_sales: 0,
+            net_sales: 0,
+            paid_orders: 0,
+            shipped_orders: 0,
+            completed_orders: 0,
+            cancelled_orders: 0,
+            refunded_orders: 0,
+            refunded_amount: 0,
+            attempted_payments: 0,
+            failed_payments: 0,
+            new_customers: 0,
+            active_customers: 0,
+            repeat_customers: 0,
+            coupon_orders: 0,
+            coupon_discount_total: 0,
+            cod_orders: 0,
+            cod_cancelled: 0
+        };
+        current.attempted_payments = Number(row.attempted_payments || 0);
+        current.failed_payments = Number(row.failed_payments || 0);
+        byDate.set(key, current);
+    });
+    (newCustomerRows || []).forEach((row) => {
+        const key = String(row.day_date);
+        const current = byDate.get(key) || {
+            day_date: key,
+            total_orders: 0,
+            gross_sales: 0,
+            net_sales: 0,
+            paid_orders: 0,
+            shipped_orders: 0,
+            completed_orders: 0,
+            cancelled_orders: 0,
+            refunded_orders: 0,
+            refunded_amount: 0,
+            attempted_payments: 0,
+            failed_payments: 0,
+            new_customers: 0,
+            active_customers: 0,
+            repeat_customers: 0,
+            coupon_orders: 0,
+            coupon_discount_total: 0,
+            cod_orders: 0,
+            cod_cancelled: 0
+        };
+        current.new_customers = Number(row.new_customers || 0);
+        byDate.set(key, current);
+    });
+
+    const values = [...byDate.values()].map((row) => [
+        row.day_date,
+        row.total_orders,
+        row.gross_sales,
+        row.net_sales,
+        row.paid_orders,
+        row.shipped_orders,
+        row.completed_orders,
+        row.cancelled_orders,
+        row.refunded_orders,
+        row.refunded_amount,
+        row.attempted_payments,
+        row.failed_payments,
+        row.new_customers,
+        row.active_customers,
+        row.repeat_customers,
+        row.coupon_orders,
+        row.coupon_discount_total,
+        row.cod_orders,
+        row.cod_cancelled
+    ]);
+    if (values.length) {
+        await db.query(
+            `INSERT INTO dashboard_daily_aggregates
+                (day_date, total_orders, gross_sales, net_sales, paid_orders, shipped_orders, completed_orders, cancelled_orders, refunded_orders, refunded_amount, attempted_payments, failed_payments, new_customers, active_customers, repeat_customers, coupon_orders, coupon_discount_total, cod_orders, cod_cancelled)
+             VALUES ?
+             ON DUPLICATE KEY UPDATE
+                total_orders = VALUES(total_orders),
+                gross_sales = VALUES(gross_sales),
+                net_sales = VALUES(net_sales),
+                paid_orders = VALUES(paid_orders),
+                shipped_orders = VALUES(shipped_orders),
+                completed_orders = VALUES(completed_orders),
+                cancelled_orders = VALUES(cancelled_orders),
+                refunded_orders = VALUES(refunded_orders),
+                refunded_amount = VALUES(refunded_amount),
+                attempted_payments = VALUES(attempted_payments),
+                failed_payments = VALUES(failed_payments),
+                new_customers = VALUES(new_customers),
+                active_customers = VALUES(active_customers),
+                repeat_customers = VALUES(repeat_customers),
+                coupon_orders = VALUES(coupon_orders),
+                coupon_discount_total = VALUES(coupon_discount_total),
+                cod_orders = VALUES(cod_orders),
+                cod_cancelled = VALUES(cod_cancelled),
+                updated_at = CURRENT_TIMESTAMP`,
+            [values]
+        );
+    }
+    invalidateDashboardPayloadCache();
+    return { ok: true, daysUpserted: values.length, lookbackDays: safeLookback };
+};
+
+const trackDashboardEvent = async (req, res) => {
+    try {
+        const eventType = normalizeDashboardEventType(req.body?.eventType);
+        const widgetId = String(req.body?.widgetId || '').trim().slice(0, 120) || null;
+        const actionId = String(req.body?.actionId || '').trim().slice(0, 120) || null;
+        const meta = req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : {};
+        await db.execute(
+            `INSERT INTO dashboard_usage_events
+                (event_type, widget_id, action_id, meta_json, user_id)
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+                eventType,
+                widgetId,
+                actionId,
+                JSON.stringify(meta || {}),
+                req.user?.id || null
+            ]
+        );
+        return res.json({ ok: true });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to track dashboard event' });
     }
 };
 
@@ -1594,5 +1932,14 @@ module.exports = {
     deleteDashboardGoal,
     getDashboardAlertSettings,
     updateDashboardAlertSettings,
-    runDashboardAlerts
+    runDashboardAlerts,
+    runDashboardAlertsJob,
+    refreshDashboardDailyAggregates,
+    trackDashboardEvent,
+    __test__: {
+        computeChange,
+        toSafeEnum,
+        normalizeDashboardEventType,
+        buildDashboardCacheKey
+    }
 };
