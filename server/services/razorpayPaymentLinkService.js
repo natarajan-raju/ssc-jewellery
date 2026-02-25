@@ -18,7 +18,7 @@ const createStandardPaymentLink = async ({
         throw new Error('Valid amountSubunits is required');
     }
 
-    const razorpay = createRazorpayClient();
+    const razorpay = await createRazorpayClient();
     const payload = {
         amount,
         currency: String(currency || 'INR').toUpperCase(),

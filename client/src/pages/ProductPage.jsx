@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
     Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, Minus, Plus,
     AlertTriangle, Check, ArrowRight, Home, ShieldCheck, Truck,
-    MessageCircle, Facebook, Twitter, Send, Copy
+    MessageCircle, Facebook, Twitter, Send, Copy, PlayCircle, Instagram, Youtube, X
 } from 'lucide-react';
 import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
@@ -36,6 +36,152 @@ const isProductOutOfStock = (product = {}, activeVariantId = null) => {
     }
     return Boolean(toBool(product.track_quantity) && toNumber(product.quantity, 0) <= 0);
 };
+const parseYoutubeInfo = (input = '') => {
+    const raw = String(input || '').trim();
+    if (!raw) return { videoId: '', isShorts: false };
+    try {
+        const url = new URL(raw);
+        const host = String(url.hostname || '').toLowerCase();
+        let videoId = '';
+        let isShorts = false;
+        if (host.includes('youtu.be')) {
+            videoId = url.pathname.split('/').filter(Boolean)[0] || '';
+        } else if (host.includes('youtube.com')) {
+            if (url.pathname.startsWith('/shorts/')) {
+                videoId = url.pathname.split('/')[2] || '';
+                isShorts = true;
+            } else if (url.pathname.startsWith('/embed/')) {
+                videoId = url.pathname.split('/')[2] || '';
+            } else {
+                videoId = url.searchParams.get('v') || '';
+            }
+        }
+        return { videoId, isShorts };
+    } catch {
+        return { videoId: '', isShorts: false };
+    }
+};
+const buildYoutubeEmbedUrl = (input = '') => {
+    const raw = String(input || '').trim();
+    if (!raw) return '';
+    const { videoId } = parseYoutubeInfo(raw);
+    return videoId ? `https://www.youtube.com/embed/${videoId}` : '';
+};
+const isYoutubePortraitInput = (input = '') => {
+    const { isShorts } = parseYoutubeInfo(input);
+    return isShorts;
+};
+const buildInstagramEmbedUrl = (input = '') => {
+    const raw = String(input || '').trim();
+    if (!raw) return '';
+    try {
+        const url = new URL(raw);
+        const host = String(url.hostname || '').toLowerCase();
+        if (!host.includes('instagram.com')) return '';
+        const parts = url.pathname.split('/').filter(Boolean);
+        const type = parts[0];
+        const id = parts[1] || '';
+        if (!id || !['p', 'reel', 'tv'].includes(type)) return '';
+        return `https://www.instagram.com/${type}/${id}/embed`;
+    } catch {
+        return '';
+    }
+};
+const buildInstagramThumbnailUrl = (input = '') => {
+    const raw = String(input || '').trim();
+    if (!raw) return '';
+    try {
+        const url = new URL(raw);
+        const host = String(url.hostname || '').toLowerCase();
+        if (!host.includes('instagram.com')) return '';
+        const parts = url.pathname.split('/').filter(Boolean);
+        const type = parts[0];
+        const id = parts[1] || '';
+        if (!id || !['p', 'reel', 'tv'].includes(type)) return '';
+        return `https://www.instagram.com/${type}/${id}/media/?size=m`;
+    } catch {
+        return '';
+    }
+};
+const buildInstagramPermalink = (input = '') => {
+    const raw = String(input || '').trim();
+    if (!raw) return '';
+    try {
+        const url = new URL(raw);
+        const host = String(url.hostname || '').toLowerCase();
+        if (!host.includes('instagram.com')) return '';
+        const parts = url.pathname.split('/').filter(Boolean);
+        const type = parts[0];
+        const id = parts[1] || '';
+        if (!id || !['p', 'reel', 'tv'].includes(type)) return '';
+        return `https://www.instagram.com/${type}/${id}/?utm_source=ig_embed&utm_campaign=loading`;
+    } catch {
+        return '';
+    }
+};
+let instagramScriptPromise = null;
+const ensureInstagramEmbedScript = () => {
+    if (typeof window === 'undefined') return Promise.resolve();
+    if (window.instgrm?.Embeds?.process) return Promise.resolve();
+    if (instagramScriptPromise) return instagramScriptPromise;
+    instagramScriptPromise = new Promise((resolve) => {
+        const existing = document.querySelector('script[data-instgrm-embed-script="true"]');
+        if (existing) {
+            existing.addEventListener('load', () => resolve(), { once: true });
+            existing.addEventListener('error', () => resolve(), { once: true });
+            return;
+        }
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://www.instagram.com/embed.js';
+        script.setAttribute('data-instgrm-embed-script', 'true');
+        script.onload = () => resolve();
+        script.onerror = () => resolve();
+        document.body.appendChild(script);
+    });
+    return instagramScriptPromise;
+};
+const parseProductMedia = (mediaInput) => {
+    if (!mediaInput) return [];
+    try {
+        const rawMedia = typeof mediaInput === 'string' ? JSON.parse(mediaInput) : mediaInput;
+        if (!Array.isArray(rawMedia)) return [];
+        return rawMedia
+            .map((item, index) => {
+                if (item && typeof item === 'object') {
+                    const type = String(item.type || 'image').toLowerCase();
+                    const url = String(item.url || '').trim();
+                    if (!url) return null;
+                    if (type === 'youtube' || type === 'instagram') {
+                        const embedUrl = type === 'instagram' ? buildInstagramEmbedUrl(url) : buildYoutubeEmbedUrl(url);
+                        if (!embedUrl) return null;
+                        const youtubeVideoId = embedUrl.split('/embed/')[1]?.split('?')[0] || '';
+                        const thumbnailUrl = type === 'youtube'
+                            ? (youtubeVideoId ? `https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg` : '')
+                            : buildInstagramThumbnailUrl(url);
+                        return {
+                            id: `video-${index}-${type}`,
+                            kind: 'video',
+                            videoType: type,
+                            url,
+                            embedUrl,
+                            videoId: type === 'youtube' ? parseYoutubeInfo(url).videoId : '',
+                            isPortrait: type === 'youtube' ? isYoutubePortraitInput(url) : true,
+                            permalink: type === 'instagram' ? buildInstagramPermalink(url) : '',
+                            thumbnailUrl
+                        };
+                    }
+                    return { id: `image-${index}`, kind: 'image', url };
+                }
+                const fallbackUrl = String(item || '').trim();
+                if (!fallbackUrl) return null;
+                return { id: `image-${index}`, kind: 'image', url: fallbackUrl };
+            })
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+};
 
 export default function ProductPage() {
     const { id } = useParams();
@@ -51,6 +197,8 @@ export default function ProductPage() {
     // const [activeVariant, setActiveVariant] = useState(null);
     const [activeVariantId, setActiveVariantId] = useState(null);
     const [selectedImage, setSelectedImage] = useState(null);
+    const [videoModal, setVideoModal] = useState({ open: false, item: null });
+    const [youtubeAspectCache, setYoutubeAspectCache] = useState({});
     const [loading, setLoading] = useState(true);
     const [zoomStyle, setZoomStyle] = useState({ display: 'none' });
     const [activeAccordion, setActiveAccordion] = useState(null);
@@ -61,6 +209,8 @@ export default function ProductPage() {
     const shareRef = useRef(null);
     const cartFeedbackTimerRef = useRef(null);
     const relatedReloadTimerRef = useRef(null);
+    const liveRefreshTimerRef = useRef(null);
+    const youtubeAspectInFlightRef = useRef({});
     const cartPressTimerRef = useRef(null);
     const heartPressTimerRef = useRef(null);
     const selectedCartEntries = useMemo(() => {
@@ -113,28 +263,11 @@ export default function ProductPage() {
 
       // --- Safe Data Parsing ---
     
-    // 1. Media List (Images) - Extract URLs from objects if necessary
-    const mediaList = useMemo(() => {
-        if (!product?.media) return [];
-        try {
-            const rawMedia = typeof product.media === 'string' ? JSON.parse(product.media) : product.media;
-            
-            if (Array.isArray(rawMedia)) {
-                return rawMedia.map(item => {
-                    // Handle case: { type: 'image', url: '/path/to/img' }
-                    if (typeof item === 'object' && item !== null && item.url) {
-                        return item.url;
-                    }
-                    // Handle case: "/path/to/img" (Legacy/Simple)
-                    return item;
-                }).filter(Boolean); // Remove nulls/undefined
-            }
-            return [];
-        } catch (e) {
-            console.error("Error parsing media:", e);
-            return [];
-        }
-    }, [product]);
+    const orderedMedia = useMemo(() => parseProductMedia(product?.media), [product?.media]);
+    const mediaList = useMemo(
+        () => orderedMedia.filter((item) => item.kind === 'image').map((item) => item.url),
+        [orderedMedia]
+    );
 
     // 2. Additional Info (Accordion)
     const parsedAdditionalInfo = useMemo(() => {
@@ -261,6 +394,18 @@ export default function ProductPage() {
             loadRelatedProducts(data);
         }, 180);
     };
+    const scheduleLiveProductRefresh = (delay = 220) => {
+        if (!id) return;
+        if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+        liveRefreshTimerRef.current = setTimeout(async () => {
+            try {
+                const latest = await productService.getProduct(id);
+                setProduct(latest);
+            } catch {
+                // Silent fallback: socket payload has already updated optimistic state.
+            }
+        }, delay);
+    };
 
     const handleAddToCart = async () => {
         if (!product) return;
@@ -328,14 +473,9 @@ export default function ProductPage() {
                 const data = await productService.getProduct(id);
                 setProduct(data);
 
-                // [FIX] Extract plain URLs from media (Handle Object vs String)
-                let images = [];
-                try {
-                    const raw = typeof data.media === 'string' ? JSON.parse(data.media) : data.media;
-                    if (Array.isArray(raw)) {
-                        images = raw.map(m => (typeof m === 'object' && m?.url) ? m.url : m).filter(Boolean);
-                    }
-                } catch (e) { console.error("Media parse error", e); }
+                const images = parseProductMedia(data.media)
+                    .filter((item) => item.kind === 'image')
+                    .map((item) => item.url);
                 
                 // Initialize Variant (Newest first strategy)
                 if (data.variants && data.variants.length > 0) {
@@ -344,15 +484,9 @@ export default function ProductPage() {
                     const firstVar = sorted[0];
 
                     setActiveVariantId(firstVar.id);
-                    let extractedImages = [];
-                    try {
-                        const raw = typeof data.media === 'string' ? JSON.parse(data.media) : data.media;
-                        if (Array.isArray(raw)) extractedImages = raw.map(m => (typeof m === 'object' && m?.url) ? m.url : m).filter(Boolean);
-                    } catch(e) {}
-                    
                     // Set initial image
                     const vImg = data.variants[0].image_url;
-                    setSelectedImage(vImg || (extractedImages.length > 0 ? extractedImages[0] : null));
+                    setSelectedImage(vImg || (images.length > 0 ? images[0] : null));
                 } else {
                     setSelectedImage(images.length > 0 ? images[0] : null);
                 }
@@ -459,6 +593,7 @@ export default function ProductPage() {
 
                 const completeData = { ...(productRef.current || {}), ...updatedProduct };
                 scheduleRelatedReload(completeData);
+                scheduleLiveProductRefresh();
             } 
             
             // [SCENARIO 2] Update Related Cards
@@ -540,6 +675,10 @@ export default function ProductPage() {
                 clearTimeout(relatedReloadTimerRef.current);
                 relatedReloadTimerRef.current = null;
             }
+            if (liveRefreshTimerRef.current) {
+                clearTimeout(liveRefreshTimerRef.current);
+                liveRefreshTimerRef.current = null;
+            }
         };
     }, [socket, id, toast]);
     
@@ -620,6 +759,35 @@ export default function ProductPage() {
         if (cartPressTimerRef.current) clearTimeout(cartPressTimerRef.current);
         if (heartPressTimerRef.current) clearTimeout(heartPressTimerRef.current);
     }, []);
+    useEffect(() => {
+        if (!videoModal.open || !videoModal.item || videoModal.item.videoType !== 'instagram') return;
+        ensureInstagramEmbedScript().then(() => {
+            if (window.instgrm?.Embeds?.process) {
+                window.instgrm.Embeds.process();
+            }
+        });
+    }, [videoModal]);
+    useEffect(() => {
+        if (!videoModal.open || !videoModal.item || videoModal.item.videoType !== 'youtube') return;
+        const key = String(videoModal.item.videoId || videoModal.item.url || '').trim();
+        if (!key || youtubeAspectCache[key] || youtubeAspectInFlightRef.current[key]) return;
+
+        youtubeAspectInFlightRef.current[key] = true;
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(videoModal.item.url)}&format=json`;
+        fetch(oembedUrl)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                const width = Number(data?.width || 0);
+                const height = Number(data?.height || 0);
+                if (width > 0 && height > 0) {
+                    setYoutubeAspectCache((prev) => ({ ...prev, [key]: { width, height } }));
+                }
+            })
+            .catch(() => {})
+            .finally(() => {
+                delete youtubeAspectInFlightRef.current[key];
+            });
+    }, [videoModal, youtubeAspectCache]);
 
     // --- Render Helpers ---
     if (loading) return <div className="h-screen flex items-center justify-center"><div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div></div>;
@@ -655,6 +823,16 @@ export default function ProductPage() {
         if (typeof cats === 'string' && cats.trim()) return cats.trim();
         return null;
     })();
+    const currentYoutubeKey = String(videoModal?.item?.videoId || videoModal?.item?.url || '').trim();
+    const youtubeAspect = currentYoutubeKey ? youtubeAspectCache[currentYoutubeKey] : null;
+    const fallbackYoutubeRatio = videoModal?.item?.isPortrait ? (9 / 16) : (16 / 9);
+    const resolvedYoutubeRatio = youtubeAspect
+        ? (Number(youtubeAspect.width || 0) / Number(youtubeAspect.height || 1))
+        : fallbackYoutubeRatio;
+    const isYoutubePortrait = resolvedYoutubeRatio < 1;
+    const youtubeAspectStyle = youtubeAspect
+        ? `${Number(youtubeAspect.width)} / ${Number(youtubeAspect.height)}`
+        : (videoModal?.item?.isPortrait ? '9 / 16' : '16 / 9');
 
     return (
         <div className="bg-secondary min-h-screen pb-20">
@@ -683,20 +861,20 @@ export default function ProductPage() {
                     {/* --- LEFT: MEDIA GALLERY --- */}
                     <div className="space-y-4">
                         {/* Main Image with Zoom */}
-                        <div 
-                            className={`relative aspect-square bg-white rounded-2xl overflow-hidden border shadow-sm group 
+                        <div
+                            className={`relative aspect-square bg-white rounded-2xl overflow-hidden border shadow-sm group
                             ${isOutOfStock ? 'grayscale opacity-75 cursor-not-allowed' : 'cursor-crosshair'}`}
                             onMouseMove={handleMouseMove}
                             onMouseLeave={() => setZoomStyle({ display: 'none' })}
                         >
-                            <img 
+                            <img
                                 ref={mainImageRef}
-                                src={getImgUrl(selectedImage)} 
-                                alt={product.title} 
+                                src={getImgUrl(selectedImage)}
+                                alt={product.title}
                                 className="w-full h-full object-cover"
                             />
                             {/* Zoom Lens / Overlay */}
-                            <div 
+                            <div
                                 className="absolute inset-0 z-10 pointer-events-none bg-no-repeat transition-opacity duration-200"
                                 style={{
                                     ...zoomStyle,
@@ -713,17 +891,55 @@ export default function ProductPage() {
 
                         {/* Thumbnails */}
                         <div className="grid grid-cols-5 gap-2 md:gap-4">
-                            {mediaList.map((img, idx) => (
-                                <button 
-                                    key={idx} 
-                                    onClick={() => setSelectedImage(img)}
-                                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-all 
-                                    ${isOutOfStock ? 'grayscale opacity-60' : ''} 
-                                    ${selectedImage === img ? 'border-primary' : 'border-transparent hover:border-gray-300'}`}
-                                >
-                                    <img src={getImgUrl(img)} className="w-full h-full object-cover" alt={`thumb-${idx}`} />
-                                </button>
-                            ))}
+                            {orderedMedia.map((item, idx) => {
+                                const isActive = item.kind === 'image'
+                                    ? selectedImage === item.url
+                                    : (videoModal.open && videoModal.item?.embedUrl === item.embedUrl);
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => {
+                                            if (item.kind === 'image') {
+                                                setSelectedImage(item.url);
+                                                return;
+                                            }
+                                            setVideoModal({ open: true, item });
+                                        }}
+                                        className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all
+                                        ${isOutOfStock ? 'grayscale opacity-60' : ''}
+                                        ${isActive ? 'border-primary' : 'border-transparent hover:border-gray-300'}`}
+                                        aria-label={item.kind === 'video'
+                                            ? `Play ${item.videoType === 'instagram' ? 'Instagram' : 'YouTube'} video ${idx + 1}`
+                                            : `View image ${idx + 1}`
+                                        }
+                                    >
+                                        {item.kind === 'image' ? (
+                                            <img src={getImgUrl(item.url)} className="w-full h-full object-cover" alt={`thumb-${idx}`} />
+                                        ) : (
+                                            <>
+                                                <div className={`absolute inset-0 flex items-center justify-center ${item.videoType === 'instagram' ? 'bg-gradient-to-br from-pink-500 via-rose-500 to-orange-400' : 'bg-gray-900'}`}>
+                                                    {item.videoType === 'instagram' ? <Instagram size={24} className="text-white" /> : <Youtube size={24} className="text-white" />}
+                                                </div>
+                                                {item.thumbnailUrl ? (
+                                                    <img
+                                                        src={item.thumbnailUrl}
+                                                        className="absolute inset-0 w-full h-full object-cover"
+                                                        alt={`video-thumb-${idx}`}
+                                                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                    />
+                                                ) : null}
+                                                <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
+                                                    <PlayCircle size={26} className="text-white drop-shadow-sm" />
+                                                </div>
+                                                <div className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                                                    {item.videoType === 'instagram' ? 'IG' : 'YT'}
+                                                </div>
+                                            </>
+                                        )}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 
@@ -809,7 +1025,6 @@ export default function ProductPage() {
                         <p className="text-gray-600 leading-relaxed mb-8 border-b border-gray-100 pb-8">
                             {product.description}
                         </p>
-
                         {/* Variants Selection (Dropdown) */}
                         {product.variants && product.variants.length > 0 && (
                             <div className="mb-8">
@@ -963,6 +1178,63 @@ export default function ProductPage() {
                     </div>
                 )}
             </div>
+            {videoModal.open && videoModal.item && (
+                <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div
+                        className={`bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-hidden flex flex-col ${
+                            videoModal.item.videoType === 'instagram'
+                                ? 'max-w-[350px]'
+                                : (isYoutubePortrait ? 'max-w-[420px]' : 'max-w-3xl')
+                        }`}
+                    >
+                        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
+                            <h3 className="text-sm font-semibold text-gray-800">
+                                {videoModal.item.videoType === 'instagram' ? 'Instagram Video' : 'YouTube Video'}
+                            </h3>
+                            <button
+                                type="button"
+                                onClick={() => setVideoModal({ open: false, item: null })}
+                                className="p-1 rounded-md hover:bg-gray-100 text-gray-500"
+                                aria-label="Close video"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        {videoModal.item.videoType === 'instagram' && videoModal.item.permalink ? (
+                            <div className="flex-1 p-2 bg-[#f6f6f6] overflow-hidden">
+                                <div className="mx-auto h-full flex items-center justify-center">
+                                    <blockquote
+                                        className="instagram-media"
+                                        data-instgrm-permalink={videoModal.item.permalink}
+                                        data-instgrm-version="14"
+                                        style={{
+                                            background: '#FFF',
+                                            border: 0,
+                                            borderRadius: '3px',
+                                            boxShadow: '0 0 1px 0 rgba(0,0,0,0.5),0 1px 10px 0 rgba(0,0,0,0.15)',
+                                            margin: '0 auto',
+                                            maxWidth: '320px',
+                                            minWidth: 0,
+                                            padding: 0,
+                                            width: '100%'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-black max-h-[78vh] w-full" style={{ aspectRatio: youtubeAspectStyle }}>
+                                <iframe
+                                    src={videoModal.item.embedUrl}
+                                    title={videoModal.item.videoType === 'instagram' ? 'Instagram Video' : 'YouTube Video'}
+                                    className="w-full h-full"
+                                    allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                                    allowFullScreen
+                                />
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

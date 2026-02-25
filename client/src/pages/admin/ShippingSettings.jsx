@@ -79,7 +79,7 @@ export default function ShippingSettings() {
         if (existing) {
             await shippingService.updateZone(draftZone.id, draftZone);
         } else {
-            const { id, ...payload } = draftZone;
+            const { id: _id, ...payload } = draftZone;
             await shippingService.createZone(payload);
         }
         loadZones();
@@ -210,7 +210,8 @@ export default function ShippingSettings() {
                         </button>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                        <Truck size={70} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
                         <div className="grid grid-cols-4 gap-2 px-6 py-4 text-xs uppercase tracking-widest text-gray-400 font-semibold bg-gray-50 border-b border-gray-200">
                             <span className="col-span-1">Shipping zone</span>
                             <span className="col-span-2">States</span>
@@ -259,7 +260,8 @@ export default function ShippingSettings() {
                         </button>
                     </div>
 
-                    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm">
+                    <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                        <Truck size={70} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
                         <div className="p-6 border-b border-gray-100">
                             <h2 className="text-xl font-bold text-gray-800">Shipping zone</h2>
                             <p className="text-sm text-gray-500 mt-1">

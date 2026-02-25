@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, ShoppingBag, Sparkles, Ticket, TrendingUp, UserRound } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, CreditCard, Edit3, Home, Mail, Phone, ShoppingBag, Sparkles, Ticket, TrendingUp, UserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
@@ -15,6 +15,7 @@ import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
+import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -52,6 +53,16 @@ const hasCompleteAddress = (address = null) => {
         && String(value?.zip || '').trim()
     );
 };
+
+const isValidEmailInput = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
+};
+
+const isValidMobileInput = (value = '') => /^\d{10,14}$/.test(String(value || '').replace(/\D/g, ''));
+
+const isValidZipInput = (value = '') => /^[0-9A-Za-z\-\s]{3,12}$/.test(String(value || '').trim());
 
 const normalizeStateKey = (value) => String(value || '')
     .trim()
@@ -110,6 +121,13 @@ const TIER_THEME = {
     gold: { card: 'from-amber-900 via-amber-800 to-amber-900', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', title: 'text-amber-50', body: 'text-amber-100', caption: 'text-amber-200', track: 'bg-amber-200/40', fill: 'bg-white', tag: 'bg-amber-200/20 border-amber-200/40 text-amber-50' },
     platinum: { card: 'from-sky-800 via-blue-700 to-sky-800', chip: 'bg-sky-100 text-sky-800 border-sky-200', title: 'text-white', body: 'text-sky-100', caption: 'text-sky-200', track: 'bg-white/22', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' }
 };
+const EXTRA_DISCOUNT_BY_TIER = {
+    regular: 0,
+    bronze: 1,
+    silver: 2,
+    gold: 3,
+    platinum: 5
+};
 
 export default function Checkout() {
     const { user, loading, updateUser } = useAuth();
@@ -145,6 +163,7 @@ export default function Checkout() {
         address: { ...emptyAddress },
         billingAddress: { ...emptyAddress }
     });
+    const [attemptedPay, setAttemptedPay] = useState(false);
     const couponFromQuery = useMemo(() => {
         const raw = new URLSearchParams(location.search).get('coupon');
         return String(raw || '').trim().toUpperCase();
@@ -238,48 +257,90 @@ export default function Checkout() {
         });
     }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount]);
 
+    const applyLoyaltyStatus = useCallback((status) => {
+        setLoyaltyStatus(status || null);
+        const prevTier = String(lastTierSeenRef.current || 'regular').toLowerCase();
+        const nextTier = String(status?.tier || prevTier).toLowerCase();
+        if (status?.profile) {
+            const currentUserTier = String(user?.loyaltyTier || 'regular').toLowerCase();
+            const currentProfileLabel = String(user?.loyaltyProfile?.label || '').trim().toLowerCase();
+            const nextProfileLabel = String(status?.profile?.label || '').trim().toLowerCase();
+            if (currentUserTier !== nextTier || currentProfileLabel !== nextProfileLabel) {
+                updateUser({
+                    loyaltyTier: nextTier,
+                    loyaltyProfile: status.profile
+                });
+            }
+        }
+        if (!loyaltyHydratedRef.current) {
+            loyaltyHydratedRef.current = true;
+            lastTierSeenRef.current = nextTier;
+            return;
+        }
+        if (prevTier !== nextTier) {
+            lastTierSeenRef.current = nextTier;
+            if (['bronze', 'silver', 'gold', 'platinum'].includes(nextTier)) {
+                burstConfetti();
+                playCue(successDing);
+                toast.success(`Membership upgraded to ${formatTierLabel(status?.profile?.label || nextTier)}!`);
+            }
+        }
+    }, [toast, updateUser, user?.loyaltyTier, user?.loyaltyProfile?.label]);
+
+    useEffect(() => {
+        if (!user) {
+            setLoyaltyStatus(null);
+            return;
+        }
+        let cancelled = false;
+        authService.getLoyaltyStatus()
+            .then((data) => {
+                if (cancelled) return;
+                applyLoyaltyStatus(data?.status || null);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [user, applyLoyaltyStatus]);
+
     useEffect(() => {
         if (!user || itemCount <= 0) {
             setCheckoutSummary(null);
             return;
         }
+        let cancelled = false;
         const timer = setTimeout(async () => {
             setIsSummaryLoading(true);
-            try {
-                const [summaryRes, loyaltyRes] = await Promise.all([
-                    orderService.getCheckoutSummary({
-                        shippingAddress: form.address,
-                        couponCode: appliedCoupon?.code || null
-                    }),
-                    authService.getLoyaltyStatus()
-                ]);
-                const summary = summaryRes?.summary || null;
-                const status = loyaltyRes?.status || null;
-                setCheckoutSummary(summary);
-                setLoyaltyStatus(status);
+            const [summaryResult, loyaltyResult] = await Promise.allSettled([
+                orderService.getCheckoutSummary({
+                    shippingAddress: hasCompleteAddress(form.address) ? form.address : null,
+                    couponCode: appliedCoupon?.code || null
+                }),
+                authService.getLoyaltyStatus()
+            ]);
 
-                const prevTier = String(lastTierSeenRef.current || 'regular').toLowerCase();
-                const nextTier = String(status?.tier || prevTier).toLowerCase();
-                if (!loyaltyHydratedRef.current) {
-                    // First hydration after page load/profile change: sync baseline without celebratory toast.
-                    loyaltyHydratedRef.current = true;
-                    lastTierSeenRef.current = nextTier;
-                } else if (prevTier !== nextTier) {
-                    lastTierSeenRef.current = nextTier;
-                    if (['bronze', 'silver', 'gold', 'platinum'].includes(nextTier)) {
-                        burstConfetti();
-                        playCue(successDing);
-                        toast.success(`Membership upgraded to ${status?.profile?.label || nextTier}!`);
-                    }
-                }
-            } catch {
+            if (cancelled) return;
+
+            if (summaryResult.status === 'fulfilled') {
+                setCheckoutSummary(summaryResult.value?.summary || null);
+            } else {
                 setCheckoutSummary(null);
-            } finally {
+            }
+
+            if (loyaltyResult.status === 'fulfilled' && loyaltyResult.value?.status) {
+                applyLoyaltyStatus(loyaltyResult.value.status);
+            }
+
+            if (!cancelled) {
                 setIsSummaryLoading(false);
             }
         }, 280);
-        return () => clearTimeout(timer);
-    }, [user, itemCount, form.address, appliedCoupon?.code, toast]);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [user, itemCount, form.address, appliedCoupon?.code, applyLoyaltyStatus]);
 
     useEffect(() => {
         refreshAvailableCoupons();
@@ -311,13 +372,21 @@ export default function Checkout() {
 
     const handleFieldChange = (e) => {
         const { name, value } = e.target;
-        setForm((prev) => ({ ...prev, [name]: value }));
+        let nextValue = value;
+        if (name === 'mobile') {
+            nextValue = String(value || '').replace(/\D/g, '').slice(0, 14);
+        }
+        setForm((prev) => ({ ...prev, [name]: nextValue }));
     };
 
     const handleAddressChange = (section, field, value) => {
+        let nextValue = value;
+        if (field === 'zip') {
+            nextValue = String(value || '').replace(/[^0-9A-Za-z\-\s]/g, '').slice(0, 12);
+        }
         setForm((prev) => ({
             ...prev,
-            [section]: { ...prev[section], [field]: value }
+            [section]: { ...prev[section], [field]: nextValue }
         }));
     };
 
@@ -396,7 +465,7 @@ export default function Checkout() {
         if (appliedCoupon?.code === normalizedCode) return;
         setIsApplyingCoupon(true);
         orderService.validateRecoveryCoupon({
-            code,
+            code: normalizedCode,
             shippingAddress: form.address
         }).then((data) => {
             setAppliedCoupon({
@@ -472,14 +541,43 @@ export default function Checkout() {
         () => Number(checkoutSummary?.couponDiscountTotal ?? appliedCoupon?.discountTotal ?? 0),
         [checkoutSummary?.couponDiscountTotal, appliedCoupon?.discountTotal]
     );
+    const estimatedLoyaltyDiscount = useMemo(() => {
+        const tierKey = String(loyaltyStatus?.tier || user?.loyaltyTier || 'regular').toLowerCase();
+        const memberPct = Number(
+            loyaltyStatus?.profile?.extraDiscountPct
+            ?? user?.loyaltyProfile?.extraDiscountPct
+            ?? EXTRA_DISCOUNT_BY_TIER[tierKey]
+            ?? 0
+        );
+        const eligibleBase = Math.max(0, Number(subtotal || 0) - Number(couponDiscount || 0));
+        return Math.max(0, Number(((eligibleBase * memberPct) / 100).toFixed(2)));
+    }, [loyaltyStatus?.tier, loyaltyStatus?.profile?.extraDiscountPct, user?.loyaltyTier, user?.loyaltyProfile?.extraDiscountPct, subtotal, couponDiscount]);
+    const estimatedLoyaltyShippingDiscount = useMemo(() => {
+        const shippingPct = Number(
+            loyaltyStatus?.profile?.shippingDiscountPct
+            ?? user?.loyaltyProfile?.shippingDiscountPct
+            ?? 0
+        );
+        return Math.max(0, Number(((Number(shippingFee || 0) * shippingPct) / 100).toFixed(2)));
+    }, [loyaltyStatus?.profile?.shippingDiscountPct, user?.loyaltyProfile?.shippingDiscountPct, shippingFee]);
     const loyaltyDiscount = useMemo(
-        () => Number(checkoutSummary?.loyaltyDiscountTotal ?? 0),
-        [checkoutSummary?.loyaltyDiscountTotal]
+        () => Number(checkoutSummary?.loyaltyDiscountTotal ?? estimatedLoyaltyDiscount ?? 0),
+        [checkoutSummary?.loyaltyDiscountTotal, estimatedLoyaltyDiscount]
     );
     const loyaltyShippingDiscount = useMemo(
-        () => Number(checkoutSummary?.loyaltyShippingDiscountTotal ?? 0),
-        [checkoutSummary?.loyaltyShippingDiscountTotal]
+        () => Number(checkoutSummary?.loyaltyShippingDiscountTotal ?? estimatedLoyaltyShippingDiscount ?? 0),
+        [checkoutSummary?.loyaltyShippingDiscountTotal, estimatedLoyaltyShippingDiscount]
     );
+    const hasServerLoyaltyDiscount = useMemo(
+        () => Boolean(checkoutSummary && Object.prototype.hasOwnProperty.call(checkoutSummary, 'loyaltyDiscountTotal')),
+        [checkoutSummary]
+    );
+    const hasServerLoyaltyShippingDiscount = useMemo(
+        () => Boolean(checkoutSummary && Object.prototype.hasOwnProperty.call(checkoutSummary, 'loyaltyShippingDiscountTotal')),
+        [checkoutSummary]
+    );
+    const isEstimatedLoyaltyDiscount = loyaltyDiscount > 0 && !hasServerLoyaltyDiscount;
+    const isEstimatedLoyaltyShippingDiscount = loyaltyShippingDiscount > 0 && !hasServerLoyaltyShippingDiscount;
     const totalSavings = useMemo(
         () => Number(productMrpSavings || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0),
         [productMrpSavings, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
@@ -496,6 +594,23 @@ export default function Checkout() {
         lineItems.some((item) => String(item?.status || '').toLowerCase() !== 'active' || Boolean(item?.isOutOfStock))
     ), [lineItems]);
     const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment) && !hasUnavailableItems;
+    const fieldErrors = useMemo(() => {
+        const errors = {};
+        if (!String(form.name || '').trim()) errors.name = 'Name is required';
+        if (!isValidEmailInput(form.email)) errors.email = 'Enter a valid email';
+        if (!isValidMobileInput(form.mobile)) errors.mobile = 'Enter a valid mobile number';
+
+        ['address', 'billingAddress'].forEach((section) => {
+            const prefix = section === 'address' ? 'shipping' : 'billing';
+            const source = form[section] || {};
+            if (!String(source.line1 || '').trim()) errors[`${prefix}Line1`] = 'Street address is required';
+            if (!String(source.city || '').trim()) errors[`${prefix}City`] = 'City is required';
+            if (!String(source.state || '').trim()) errors[`${prefix}State`] = 'State is required';
+            if (!isValidZipInput(source.zip)) errors[`${prefix}Zip`] = 'Enter a valid zip code';
+        });
+        return errors;
+    }, [form]);
+    const hasFormValidationErrors = Object.keys(fieldErrors).length > 0;
     const selectedCouponForInput = useMemo(
         () => availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(coupon || '').trim().toUpperCase()) || null,
         [availableCoupons, coupon]
@@ -516,9 +631,11 @@ export default function Checkout() {
     );
 
     const handlePayNow = async () => {
+        setAttemptedPay(true);
         if (lineItems.length === 0) return toast.error('Your cart is empty');
         if (isPlacingOrder) return;
         if (hasUnavailableItems) return toast.error('Some items are unavailable. Please review your cart before payment.');
+        if (hasFormValidationErrors) return toast.error('Please correct highlighted fields before payment');
         if (isMobileMissingOnProfile && !hasMobileForPayment) return toast.error('Please add mobile number before payment');
         if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
         if (!hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
@@ -543,6 +660,16 @@ export default function Checkout() {
                     toast.success('Address saved to profile');
                 }
             }
+
+            // Hard preflight: refuse payment flow if server summary cannot be computed.
+            const preflight = await orderService.getCheckoutSummary({
+                shippingAddress: form.address,
+                couponCode: appliedCoupon?.code || null
+            });
+            if (!preflight?.summary || preflight.summary.total == null) {
+                throw new Error('Unable to validate order summary on server. Please retry.');
+            }
+            setCheckoutSummary(preflight.summary);
 
             const scriptLoaded = await ensureRazorpayScript();
             if (!scriptLoaded || !window.Razorpay) {
@@ -648,8 +775,27 @@ export default function Checkout() {
     if (!user) return null;
     const tier = String(loyaltyStatus?.tier || checkoutSummary?.loyaltyTier || user?.loyaltyTier || 'regular').toLowerCase();
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
-    const progressPct = Number(loyaltyStatus?.progress?.progressPct || 0);
-    const nextTierLabel = loyaltyStatus?.nextTierProfile?.label || loyaltyStatus?.progress?.nextTier || '';
+    const tierLabel = formatTierLabel(loyaltyStatus?.profile?.label || tier);
+    const progress = loyaltyStatus?.progress || checkoutSummary?.loyaltyMeta?.progress || {};
+    const progressPct = Number(progress?.progressPct || 0);
+    const nextTierKey = progress?.nextTier || getNextTierFromCurrent(tier);
+    const nextTierLabel = nextTierKey
+        ? formatTierLabel(loyaltyStatus?.nextTierProfile?.label || nextTierKey)
+        : '';
+    const spends = loyaltyStatus?.spends || checkoutSummary?.loyaltyMeta?.spends || {};
+    const spendKey = getTierSpendKey(tier);
+    const currentSpend = Number(spends?.[spendKey] || 0);
+    const neededToNext = Number(progress?.needed || 0);
+    const progressMessage = String(progress?.message || '').trim();
+    const isProgressMessageDuplicated = Boolean(
+        nextTierLabel
+        && neededToNext > 0
+        && /spend/i.test(progressMessage)
+        && /unlock/i.test(progressMessage)
+    );
+    const membershipMessage = (!isProgressMessageDuplicated && progressMessage)
+        ? progressMessage
+        : 'Keep shopping to unlock higher tier benefits.';
 
     return (
         <div className="min-h-screen bg-secondary">
@@ -716,9 +862,15 @@ export default function Checkout() {
                                         <div className="flex items-start justify-between gap-4">
                                             <div>
                                                 <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
-                                                <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{loyaltyStatus?.profile?.label || tier} Tier</p>
+                                                <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{getMembershipLabel(tierLabel)}</p>
                                                 <p className={`text-sm mt-2 ${tierTheme.body}`}>
-                                                    {loyaltyStatus?.progress?.message || 'Keep shopping to unlock higher tier benefits.'}
+                                                    {membershipMessage}
+                                                </p>
+                                                <p className={`text-xs mt-2 ${tierTheme.caption}`}>
+                                                    Spent: ₹{currentSpend.toLocaleString('en-IN')}
+                                                </p>
+                                                <p className={`text-xs mt-1 ${tierTheme.caption}`}>
+                                                    {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
                                                 </p>
                                             </div>
                                             <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
@@ -731,7 +883,7 @@ export default function Checkout() {
                                             </div>
                                             <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
                                                 <span>{progressPct}% to next tier</span>
-                                                <span>{nextTierLabel ? `Next: ${nextTierLabel}` : 'Highest tier reached'}</span>
+                                                <span>{nextTierLabel ? `Next: ${getMembershipLabel(nextTierLabel)}` : 'Highest tier reached'}</span>
                                             </div>
                                         </div>
                                     </>
@@ -768,10 +920,11 @@ export default function Checkout() {
                                                 value={form.name}
                                                 onChange={handleFieldChange}
                                                 disabled={!editing}
-                                                className="input-field pl-10 disabled:bg-gray-50"
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.name ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
-                                            <CheckCircle2 size={16} className="absolute left-3 top-3.5 text-gray-400" />
+                                            <UserRound size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
+                                        {attemptedPay && fieldErrors.name && <p className="text-[11px] text-red-600">{fieldErrors.name}</p>}
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Email</label>
@@ -781,10 +934,11 @@ export default function Checkout() {
                                                 value={form.email}
                                                 onChange={handleFieldChange}
                                                 disabled={!editing}
-                                                className="input-field pl-10 disabled:bg-gray-50"
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.email ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <Mail size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
+                                        {attemptedPay && fieldErrors.email && <p className="text-[11px] text-red-600">{fieldErrors.email}</p>}
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Phone</label>
@@ -794,13 +948,11 @@ export default function Checkout() {
                                                 value={form.mobile}
                                                 onChange={handleFieldChange}
                                                 disabled={!editing}
-                                                className="input-field pl-10 disabled:bg-gray-50"
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.mobile ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
-                                        {isMobileMissingOnProfile && !hasMobileForPayment && (
-                                            <p className="text-[11px] text-amber-700">Mobile is required to place this order.</p>
-                                        )}
+                                        {attemptedPay && fieldErrors.mobile && <p className="text-[11px] text-red-600">{fieldErrors.mobile}</p>}
                                     </div>
                                 </div>
 
@@ -815,7 +967,7 @@ export default function Checkout() {
                                                 onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
                                                 disabled={!editing}
                                                 placeholder="Street Address"
-                                                className="input-field disabled:bg-gray-50"
+                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <div className="grid grid-cols-2 gap-3">
                                                 <input
@@ -823,14 +975,14 @@ export default function Checkout() {
                                                     onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
                                                     disabled={!editing}
                                                     placeholder="City"
-                                                    className="input-field disabled:bg-gray-50"
+                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
                                                 <input
                                                     value={form.billingAddress.state}
                                                     onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
                                                     disabled={!editing}
                                                     placeholder="State"
-                                                    className="input-field disabled:bg-gray-50"
+                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
                                             </div>
                                             <input
@@ -838,8 +990,11 @@ export default function Checkout() {
                                                 onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
                                                 disabled={!editing}
                                                 placeholder="Zip"
-                                                className="input-field disabled:bg-gray-50"
+                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
+                                            {attemptedPay && (fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip) && (
+                                                <p className="text-[11px] text-red-600">{fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
@@ -852,7 +1007,7 @@ export default function Checkout() {
                                                 onChange={(e) => handleAddressChange('address', 'line1', e.target.value)}
                                                 disabled={!editing}
                                                 placeholder="Street Address"
-                                                className="input-field disabled:bg-gray-50"
+                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <div className="grid grid-cols-2 gap-3">
                                                 <input
@@ -860,14 +1015,14 @@ export default function Checkout() {
                                                     onChange={(e) => handleAddressChange('address', 'city', e.target.value)}
                                                     disabled={!editing}
                                                     placeholder="City"
-                                                    className="input-field disabled:bg-gray-50"
+                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
                                                 <input
                                                     value={form.address.state}
                                                     onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
                                                     disabled={!editing}
                                                     placeholder="State"
-                                                    className="input-field disabled:bg-gray-50"
+                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingState ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
                                             </div>
                                             <input
@@ -875,8 +1030,11 @@ export default function Checkout() {
                                                 onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
                                                 disabled={!editing}
                                                 placeholder="Zip"
-                                                className="input-field disabled:bg-gray-50"
+                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
+                                            {attemptedPay && (fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip) && (
+                                                <p className="text-[11px] text-red-600">{fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip}</p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -972,8 +1130,9 @@ export default function Checkout() {
                                     </div>
                                 )}
                                 {lineItems.length > 0 && (
-                                    <div className="mt-5 space-y-4">
-                                        {lineItems.map(item => {
+                                    <div className="mt-5">
+                                        <div className={`space-y-4 ${lineItems.length > 10 ? 'max-h-[680px] overflow-y-auto pr-1' : ''}`}>
+                                        {lineItems.map((item) => {
                                             const price = Number(item.price || 0);
                                             const mrp = Number(item.compareAt || 0);
                                             const hasDiscount = mrp > price;
@@ -1012,6 +1171,12 @@ export default function Checkout() {
                                                 </div>
                                             );
                                         })}
+                                        </div>
+                                        {lineItems.length > 10 && (
+                                            <p className="text-[11px] text-gray-400 mt-3">
+                                                Showing {lineItems.length} products. Scroll to view all items.
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 
@@ -1043,13 +1208,13 @@ export default function Checkout() {
                                     )}
                                     {loyaltyDiscount > 0 && (
                                         <div className="flex items-center justify-between text-blue-700">
-                                            <span>Member Discount ({loyaltyStatus?.profile?.label || tier})</span>
+                                            <span>{isEstimatedLoyaltyDiscount ? 'Estimated Member Discount' : 'Member Discount'} ({formatTierLabel(loyaltyStatus?.profile?.label || tier)})</span>
                                             <span className="font-semibold">- ₹{Number(loyaltyDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {loyaltyShippingDiscount > 0 && (
                                         <div className="flex items-center justify-between text-blue-700">
-                                            <span>Member Shipping Benefit</span>
+                                            <span>{isEstimatedLoyaltyShippingDiscount ? 'Estimated Member Shipping Benefit' : 'Member Shipping Benefit'}</span>
                                             <span className="font-semibold">- ₹{Number(loyaltyShippingDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
@@ -1096,6 +1261,11 @@ export default function Checkout() {
                                 {hasUnavailableItems && (
                                     <p className="text-[11px] text-red-700 text-center mt-2">
                                         Some cart items are inactive or out of stock. Remove them to continue.
+                                    </p>
+                                )}
+                                {attemptedPay && hasFormValidationErrors && (
+                                    <p className="text-[11px] text-red-700 text-center mt-2 inline-flex items-center justify-center gap-1">
+                                        <AlertCircle size={12} /> Fix highlighted fields before payment.
                                     </p>
                                 )}
                                 <p className="text-[11px] text-gray-400 text-center mt-2">
@@ -1194,12 +1364,12 @@ export default function Checkout() {
                                     <span className="font-semibold text-emerald-700">-₹{Number(orderResult.discountTotal || orderResult.discount_total || 0).toLocaleString()}</span>
                                 </div>
                             )}
-                            {Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0) > 0 && (
-                                <div className="flex items-center justify-between text-sm mt-2">
-                                    <span className="text-gray-500">Member Discount ({String(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular').toLowerCase() === 'regular' ? 'BASIC' : String(orderResult.loyalty_tier || orderResult.loyaltyTier || '').toUpperCase()})</span>
-                                    <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0).toLocaleString()}</span>
-                                </div>
-                            )}
+                                {Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0) > 0 && (
+                                    <div className="flex items-center justify-between text-sm mt-2">
+                                        <span className="text-gray-500">Member Discount ({formatTierLabel(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular')})</span>
+                                        <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0).toLocaleString()}</span>
+                                    </div>
+                                )}
                             {Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0) > 0 && (
                                 <div className="flex items-center justify-between text-sm mt-2">
                                     <span className="text-gray-500">Member Shipping Discount</span>

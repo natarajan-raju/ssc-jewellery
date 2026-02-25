@@ -362,18 +362,24 @@ const removeAdminEntityFromCache = ({ id, entityType = 'order' } = {}) => {
 
 export const orderService = {
     getCheckoutSummary: async ({ shippingAddress, couponCode } = {}) => {
+        const payload = { shippingAddress };
+        const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
+        if (normalizedCoupon) payload.couponCode = normalizedCoupon;
         const res = await fetch(`${API_URL}/summary`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify({ shippingAddress, couponCode })
+            body: JSON.stringify(payload)
         });
         return handleResponse(res);
     },
     createRazorpayOrder: async ({ billingAddress, shippingAddress, notes, couponCode } = {}) => {
+        const payload = { billingAddress, shippingAddress, notes };
+        const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
+        if (normalizedCoupon) payload.couponCode = normalizedCoupon;
         const res = await fetch(`${API_URL}/razorpay/order`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify({ billingAddress, shippingAddress, notes, couponCode })
+            body: JSON.stringify(payload)
         });
         return handleResponse(res);
     },

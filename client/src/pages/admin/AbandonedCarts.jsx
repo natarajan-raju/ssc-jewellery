@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Filter, RefreshCw, Search, Settings2, X } from 'lucide-react';
+import { Download, Filter, RefreshCw, Search, Settings2, ShoppingCart, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
@@ -193,10 +193,10 @@ export default function AbandonedCarts() {
         const effectiveInsights = sharedInsights || insights;
         const totals = effectiveInsights?.totals || {};
         return [
-            { label: 'Total Journeys', value: Number(totals.totalJourneys || 0) },
-            { label: 'Recovered', value: Number(totals.recoveredJourneys || 0) },
-            { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%` },
-            { label: 'Recovered Value', value: inr(totals.recoveredValue || 0) }
+            { label: 'Total Journeys', value: Number(totals.totalJourneys || 0), cardBg: 'bg-gradient-to-br from-blue-50 to-white' },
+            { label: 'Recovered', value: Number(totals.recoveredJourneys || 0), cardBg: 'bg-gradient-to-br from-emerald-50 to-white' },
+            { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%`, cardBg: 'bg-gradient-to-br from-amber-50 to-white' },
+            { label: 'Recovered Value', value: inr(totals.recoveredValue || 0), cardBg: 'bg-gradient-to-br from-violet-50 to-white' }
         ];
     }, [insights, sharedInsights]);
 
@@ -690,7 +690,8 @@ export default function AbandonedCarts() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 {cards.map((card) => (
-                    <div key={card.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <div key={card.label} className={`relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 ${card.cardBg || 'bg-white'}`}>
+                        <ShoppingCart size={54} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
                         <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{card.label}</p>
                         <p className="text-xl font-bold text-gray-800 mt-1">{card.value}</p>
                     </div>

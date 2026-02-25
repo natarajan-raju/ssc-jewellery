@@ -48,16 +48,9 @@ const hashText = (text = '') => {
 const getSlides = async (req, res) => {
     try {
         const isAdmin = req.query.admin === 'true';
-        let query = 'SELECT * FROM hero_slides';
-        
-        // If public, only show active
-        if (!isAdmin) {
-            query += " WHERE status = 'active'";
-        }
-        
-        query += ' ORDER BY display_order ASC';
-        
-        const [slides] = await db.execute(query);
+        const [slides] = isAdmin
+            ? await db.execute('SELECT * FROM hero_slides ORDER BY display_order ASC')
+            : await db.execute("SELECT * FROM hero_slides WHERE status = 'active' ORDER BY display_order ASC");
         res.json(slides);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch slides' });
@@ -68,12 +61,9 @@ const getSlides = async (req, res) => {
 const getHeroTexts = async (req, res) => {
     try {
         const isAdmin = req.query.admin === 'true';
-        let query = 'SELECT * FROM hero_texts';
-        if (!isAdmin) {
-            query += " WHERE status = 'active'";
-        }
-        query += ' ORDER BY display_order ASC';
-        const [rows] = await db.execute(query);
+        const [rows] = isAdmin
+            ? await db.execute('SELECT * FROM hero_texts ORDER BY display_order ASC')
+            : await db.execute("SELECT * FROM hero_texts WHERE status = 'active' ORDER BY display_order ASC");
         res.json(rows);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch hero texts' });
@@ -233,7 +223,21 @@ const updateAutopilotConfig = async (req, res) => {
 const getCompanyInfo = async (_req, res) => {
     try {
         const profile = await CompanyProfile.get();
-        res.json({ company: profile });
+        res.json({
+            company: {
+                displayName: profile.displayName,
+                contactNumber: profile.contactNumber,
+                supportEmail: profile.supportEmail,
+                address: profile.address,
+                instagramUrl: profile.instagramUrl,
+                youtubeUrl: profile.youtubeUrl,
+                facebookUrl: profile.facebookUrl,
+                whatsappNumber: profile.whatsappNumber,
+                razorpayKeyId: profile.razorpayKeyId || '',
+                razorpayEmiMinAmount: Number(profile.razorpayEmiMinAmount || 3000),
+                razorpayStartingTenureMonths: Number(profile.razorpayStartingTenureMonths || 12)
+            }
+        });
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch company info' });
     }

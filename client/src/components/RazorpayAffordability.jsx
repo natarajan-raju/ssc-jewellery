@@ -4,6 +4,9 @@ const AFFORDABILITY_SCRIPT_ID = 'razorpay-affordability-js';
 const AFFORDABILITY_SCRIPT_SRC = 'https://cdn.razorpay.com/widgets/affordability/affordability.js';
 const DEFAULT_MIN_ELIGIBLE_RUPEES = 3000;
 const DEFAULT_STARTING_TENURE_MONTHS = 12;
+const CMS_API_URL = import.meta.env.PROD
+    ? '/api/cms'
+    : 'http://localhost:5000/api/cms';
 
 let affordabilityScriptPromise = null;
 
@@ -46,15 +49,43 @@ export default function RazorpayAffordability({
 }) {
     const widgetContainerRef = useRef(null);
     const [widgetReady, setWidgetReady] = useState(false);
+    const [razorpayConfig, setRazorpayConfig] = useState({
+        keyId: String(import.meta.env.VITE_RAZORPAY_KEY_ID || '').trim(),
+        minEligibleRupees: asPositiveNumber(import.meta.env.VITE_RAZORPAY_EMI_MIN_AMOUNT, DEFAULT_MIN_ELIGIBLE_RUPEES),
+        startingTenureMonths: asPositiveNumber(import.meta.env.VITE_RAZORPAY_STARTING_TENURE_MONTHS, DEFAULT_STARTING_TENURE_MONTHS)
+    });
 
-    const keyId = useMemo(() => String(import.meta.env.VITE_RAZORPAY_KEY_ID || '').trim(), []);
+    useEffect(() => {
+        let cancelled = false;
+        fetch(`${CMS_API_URL}/company-info`)
+            .then(async (res) => {
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.message || 'Failed to load Razorpay settings');
+                return data;
+            })
+            .then((data) => {
+                if (cancelled) return;
+                const company = data?.company || {};
+                setRazorpayConfig((prev) => ({
+                    keyId: String(company.razorpayKeyId || prev.keyId || '').trim(),
+                    minEligibleRupees: asPositiveNumber(company.razorpayEmiMinAmount, prev.minEligibleRupees || DEFAULT_MIN_ELIGIBLE_RUPEES),
+                    startingTenureMonths: asPositiveNumber(company.razorpayStartingTenureMonths, prev.startingTenureMonths || DEFAULT_STARTING_TENURE_MONTHS)
+                }));
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const keyId = useMemo(() => String(razorpayConfig.keyId || '').trim(), [razorpayConfig.keyId]);
     const minEligibleRupees = useMemo(
-        () => asPositiveNumber(import.meta.env.VITE_RAZORPAY_EMI_MIN_AMOUNT, DEFAULT_MIN_ELIGIBLE_RUPEES),
-        []
+        () => asPositiveNumber(razorpayConfig.minEligibleRupees, DEFAULT_MIN_ELIGIBLE_RUPEES),
+        [razorpayConfig.minEligibleRupees]
     );
     const startingTenureMonths = useMemo(
-        () => asPositiveNumber(import.meta.env.VITE_RAZORPAY_STARTING_TENURE_MONTHS, DEFAULT_STARTING_TENURE_MONTHS),
-        []
+        () => asPositiveNumber(razorpayConfig.startingTenureMonths, DEFAULT_STARTING_TENURE_MONTHS),
+        [razorpayConfig.startingTenureMonths]
     );
 
     const amount = Math.max(0, Number(amountRupees || 0));

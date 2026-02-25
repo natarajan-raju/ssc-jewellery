@@ -1,16 +1,31 @@
-let RazorpayLib = null;
+const CompanyProfile = require('../models/CompanyProfile');
 
-const createRazorpayClient = () => {
-    const keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
-    const keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+let RazorpayLib = null;
+let cachedConfig = null;
+let cachedAt = 0;
+const CACHE_TTL_MS = 30 * 1000;
+
+const getRazorpayConfig = async ({ force = false } = {}) => {
+    const now = Date.now();
+    if (!force && cachedConfig && (now - cachedAt) < CACHE_TTL_MS) {
+        return cachedConfig;
+    }
+    const config = await CompanyProfile.getRazorpayConfig();
+    cachedConfig = config;
+    cachedAt = now;
+    return config;
+};
+
+const createRazorpayClient = async () => {
+    const config = await getRazorpayConfig();
+    const keyId = String(config?.keyId || '').trim();
+    const keySecret = String(config?.keySecret || '').trim();
 
     if (!keyId || !keySecret) {
-        throw new Error('Razorpay API keys are missing in server environment');
+        throw new Error('Razorpay API keys are missing in settings');
     }
 
     if (!RazorpayLib) {
-        // Lazy require keeps boot working even before dependency install.
-        // Endpoint will still fail with a clear error if package is missing.
         // eslint-disable-next-line global-require
         RazorpayLib = require('razorpay');
     }
@@ -21,4 +36,7 @@ const createRazorpayClient = () => {
     });
 };
 
-module.exports = { createRazorpayClient };
+module.exports = {
+    createRazorpayClient,
+    getRazorpayConfig
+};

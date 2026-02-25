@@ -962,11 +962,25 @@ export default function LoyaltySettings({ onBack }) {
                                 <label className="text-sm text-gray-600 md:col-span-2">Audio URL<input className="input-field mt-1" value={popupForm.audioUrl} onChange={(e) => setPopupForm((prev) => ({ ...prev, audioUrl: e.target.value }))} /></label>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                                <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                                <label
+                                    className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50"
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        handlePopupImageUpload(e.dataTransfer?.files?.[0]);
+                                    }}
+                                >
                                     {popupImageUploading ? 'Uploading image...' : 'Upload Popup Image'}
                                     <input type="file" accept="image/*" className="hidden" onChange={(e) => handlePopupImageUpload(e.target.files?.[0])} />
                                 </label>
-                                <label className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50">
+                                <label
+                                    className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 cursor-pointer hover:bg-gray-50"
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        handlePopupAudioUpload(e.dataTransfer?.files?.[0]);
+                                    }}
+                                >
                                     {popupAudioUploading ? 'Uploading audio...' : 'Upload Popup Audio'}
                                     <input type="file" accept="audio/*" className="hidden" onChange={(e) => handlePopupAudioUpload(e.target.files?.[0])} />
                                 </label>

@@ -12,6 +12,7 @@ import {
     Sparkles,
     TicketPercent,
     Trash2,
+    Users,
     X
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
@@ -20,6 +21,7 @@ import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate } from '../../utils/dateFormat';
+import { formatTierLabel } from '../../utils/tierFormat';
 import customerIllustration from '../../assets/customer.svg';
 
 const CUSTOMER_PAGE_SIZE = 20;
@@ -79,7 +81,7 @@ const isBirthdayToday = (dob) => {
     return Number(month) === now.getMonth() + 1 && Number(day) === now.getDate();
 };
 
-const tierLabel = (tier = 'regular') => (String(tier).toLowerCase() === 'regular' ? 'Basic' : String(tier));
+const tierLabel = (tier = 'regular') => formatTierLabel(tier);
 const formatLongDate = (value) => {
     if (!value) return 'No expiry';
     const date = new Date(value);
@@ -586,7 +588,7 @@ export default function Customers({
                             <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
                             <p className="text-sm text-gray-500 mt-1">{selectedUser.email || '—'}</p>
                             <p className="text-sm text-gray-500">{selectedUser.mobile || '—'}</p>
-                            <p className="text-xs text-gray-400 mt-2">Tier: {tierLabel(selectedUser.loyaltyTier || 'regular').toUpperCase()}</p>
+                            <p className="text-xs text-gray-400 mt-2">Tier: {tierLabel(selectedUser.loyaltyTier || 'regular')}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="p-4 rounded-xl border border-gray-200 bg-white"><p className="text-xs text-gray-400 font-bold uppercase">Overall Volume</p><p className="text-lg font-bold text-gray-800 mt-1">₹{Number(selectedUser.totalSpend || 0).toLocaleString('en-IN')}</p></div>
@@ -680,7 +682,8 @@ export default function Customers({
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
             ) : (
                 <>
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        <Users size={72} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
                             <button onClick={() => setAddModalRole('customer')} className="w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95">
@@ -713,7 +716,7 @@ export default function Customers({
                                                 {isBasicTier ? (
                                                     <span className="text-xs text-gray-400">-</span>
                                                 ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 uppercase">{String(user.loyaltyTier || 'regular')}</span>
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">{tierLabel(user.loyaltyTier || 'regular')}</span>
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
@@ -777,7 +780,7 @@ export default function Customers({
                                                 <p className="text-[11px] text-gray-500 mt-2 line-clamp-1">{user.mobile || '—'}</p>
                                                 <p className="text-[11px] text-gray-500 line-clamp-1">{user.email || '—'}</p>
                                                 <div className="mt-2">
-                                                    {isBasicTier ? <span className="text-[11px] text-gray-400">Tier: -</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 uppercase">{String(user.loyaltyTier || '').toUpperCase()}</span>}
+                                                    {isBasicTier ? <span className="text-[11px] text-gray-400">Tier: -</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700">{tierLabel(user.loyaltyTier || '')}</span>}
                                                 </div>
                                                 <div className="mt-3 flex items-center justify-end gap-1">
                                                     <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 p-1.5 rounded-md transition-all" title="Issue Coupon">

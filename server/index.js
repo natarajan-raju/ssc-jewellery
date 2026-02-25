@@ -64,6 +64,7 @@ const {
 } = require('./services/abandonedCartRecoveryService');
 const { runMonthlyLoyaltyReassessment, ensureLoyaltyConfigLoaded, issueBirthdayCouponsForEligibleUsersToday } = require('./services/loyaltyService');
 const { runDashboardAlertsJob, refreshDashboardDailyAggregates } = require('./controllers/adminController');
+const sanitizeRequest = require('./middleware/sanitizeRequest');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
@@ -107,6 +108,7 @@ app.use(express.json({
         }
     }
 }));
+app.use(sanitizeRequest);
 
 // Routes
 app.use('/api/auth', authRoutes);

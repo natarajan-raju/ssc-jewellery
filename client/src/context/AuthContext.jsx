@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/authService';
 import { productService } from '../services/productService';
@@ -10,22 +11,66 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    // 3. Centralized Logout Function
+    const performLogout = async () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        try { await signOut(auth); } catch (e) { console.error(e); }
+        setUser(null); // Updates Navbar instantly!
+        productService.clearCache();
+    };
+
     // 1. Check Session on Mount (The "Auto-Login" Logic)
     useEffect(() => {
+        let cancelled = false;
         const initAuth = async () => {
             const token = localStorage.getItem('token');
             const storedUser = localStorage.getItem('user');
+            let parsedStoredUser = null;
+            try {
+                parsedStoredUser = storedUser ? JSON.parse(storedUser) : null;
+            } catch {
+                parsedStoredUser = null;
+            }
 
             // [FIX] Strict check to ensure token is not the string "undefined" or "null"
             if (token && token !== "undefined" && token !== "null") {
                 try {
                     if (!authService.isTokenExpired(token)) {
-                        // Validate session and fetch latest user (role included) from server.
-                        const data = await authService.getProfile();
-                        if (data?.user) {
-                            localStorage.setItem('user', JSON.stringify(data.user));
-                            setUser(data.user);
-                        } else {
+                        // Hydrate immediately from cache so navbar tier/profile render instantly.
+                        if (parsedStoredUser && typeof parsedStoredUser === 'object') {
+                            if (!cancelled) setUser(parsedStoredUser);
+                            if (!cancelled) setLoading(false);
+                        }
+
+                        // Refresh latest profile + loyalty in background and merge into auth state.
+                        const [profileResult, loyaltyResult] = await Promise.allSettled([
+                            authService.getProfile(),
+                            authService.getLoyaltyStatus()
+                        ]);
+
+                        if (cancelled) return;
+
+                        const profileUser = (
+                            profileResult.status === 'fulfilled'
+                                ? profileResult.value?.user || null
+                                : null
+                        );
+                        const loyaltyStatus = (
+                            loyaltyResult.status === 'fulfilled'
+                                ? loyaltyResult.value?.status || null
+                                : null
+                        );
+
+                        if (profileUser) {
+                            const mergedUser = {
+                                ...profileUser,
+                                ...(loyaltyStatus?.tier ? { loyaltyTier: String(loyaltyStatus.tier).toLowerCase() } : {}),
+                                ...(loyaltyStatus?.profile ? { loyaltyProfile: loyaltyStatus.profile } : {})
+                            };
+                            localStorage.setItem('user', JSON.stringify(mergedUser));
+                            setUser(mergedUser);
+                        } else if (!parsedStoredUser) {
                             await performLogout();
                         }
                     } else {
@@ -40,9 +85,12 @@ export const AuthProvider = ({ children }) => {
                     await performLogout();
                 }
             }
-            setLoading(false);
+            if (!cancelled) setLoading(false);
         };
         initAuth();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // 2. Centralized Login Function
@@ -61,15 +109,6 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('user', JSON.stringify(next));
             return next;
         });
-    };
-
-    // 3. Centralized Logout Function
-    const performLogout = async () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        try { await signOut(auth); } catch (e) { console.error(e); }
-        setUser(null); // Updates Navbar instantly!
-        productService.clearCache();
     };
 
     return (

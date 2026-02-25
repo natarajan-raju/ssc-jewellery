@@ -1086,10 +1086,34 @@ export default function Orders({
         return selectedStatusCount;
     }, [effectiveMetrics?.confirmedOrders, selectedStatusCount, statusFilter]);
     const cards = useMemo(() => ([
-        { label: 'Total Orders', value: effectiveMetrics?.totalOrders || 0, icon: Package, color: 'text-blue-600 bg-blue-50 border-blue-100' },
-        { label: 'Total Revenue', value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`, icon: IndianRupee, color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
-        { label: 'Pending', value: effectiveMetrics?.pendingOrders || 0, icon: Clock3, color: 'text-amber-600 bg-amber-50 border-amber-100' },
-        { label: dynamicStatusLabel, value: dynamicStatusValue, icon: CheckCircle2, color: 'text-purple-600 bg-purple-50 border-purple-100' }
+        {
+            label: 'Total Orders',
+            value: effectiveMetrics?.totalOrders || 0,
+            icon: Package,
+            color: 'text-blue-700 bg-blue-50/80 border-blue-100',
+            cardBg: 'bg-gradient-to-br from-blue-50 to-white'
+        },
+        {
+            label: 'Total Revenue',
+            value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`,
+            icon: IndianRupee,
+            color: 'text-emerald-700 bg-emerald-50/80 border-emerald-100',
+            cardBg: 'bg-gradient-to-br from-emerald-50 to-white'
+        },
+        {
+            label: 'Pending',
+            value: effectiveMetrics?.pendingOrders || 0,
+            icon: Clock3,
+            color: 'text-amber-700 bg-amber-50/80 border-amber-100',
+            cardBg: 'bg-gradient-to-br from-amber-50 to-white'
+        },
+        {
+            label: dynamicStatusLabel,
+            value: dynamicStatusValue,
+            icon: CheckCircle2,
+            color: 'text-violet-700 bg-violet-50/80 border-violet-100',
+            cardBg: 'bg-gradient-to-br from-violet-50 to-white'
+        }
     ]), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
 
     return (
@@ -1180,7 +1204,8 @@ export default function Orders({
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                 {cards.map((card) => (
-                    <div key={card.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+                    <div key={card.label} className={`relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 ${card.cardBg}`}>
+                        <card.icon size={56} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${card.color}`}>
                             <card.icon size={20} />
                         </div>

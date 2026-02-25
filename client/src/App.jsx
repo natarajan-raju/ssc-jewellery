@@ -19,6 +19,7 @@ import Footer from './components/Footer';
 import FloatingWhatsApp from './components/FloatingWhatsApp';
 import CustomerCouponPopup from './components/CustomerCouponPopup';
 import GuestGoogleOneTap from './components/GuestGoogleOneTap';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -84,6 +85,7 @@ function App() {
                     <WishlistProvider>
                     <CartProvider>
                   <GuestGoogleOneTap />
+                  <PwaInstallPrompt />
                   <Routes>
               
               {/* Public Routes */}

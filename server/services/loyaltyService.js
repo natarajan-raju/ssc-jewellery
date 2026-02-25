@@ -286,7 +286,13 @@ const getUserLoyaltyStatus = async (userId) => {
         };
     }
     const spends = await getUserSpendWindows(userId);
-    const tier = computeTierFromSpends(spends);
+    const [storedRows] = await db.execute(
+        'SELECT tier FROM user_loyalty WHERE user_id = ? LIMIT 1',
+        [userId]
+    );
+    const storedTier = String(storedRows[0]?.tier || '').toLowerCase();
+    const computedTier = computeTierFromSpends(spends);
+    const tier = TIER_ORDER.includes(storedTier) ? storedTier : computedTier;
     const progress = buildProgress({
         tier,
         spend30: spends.spend30,
@@ -298,6 +304,7 @@ const getUserLoyaltyStatus = async (userId) => {
         tier,
         profile: getLoyaltyProfileByTier(tier),
         spends,
+        computedTier,
         progress,
         nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null
     };
@@ -549,7 +556,23 @@ const buildLoyaltyMailTemplate = ({
 };
 
 const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendNotifications = false } = {}) => {
-    const status = await getUserLoyaltyStatus(userId);
+    await ensureLoyaltyConfigLoaded();
+    const spends = await getUserSpendWindows(userId);
+    const nextTierComputed = computeTierFromSpends(spends);
+    const progress = buildProgress({
+        tier: nextTierComputed,
+        spend30: spends.spend30,
+        spend60: spends.spend60,
+        spend90: spends.spend90,
+        spend365: spends.spend365
+    });
+    const status = {
+        tier: nextTierComputed,
+        profile: getLoyaltyProfileByTier(nextTierComputed),
+        spends,
+        progress,
+        nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null
+    };
     const [existingRows] = await db.execute(
         'SELECT tier FROM user_loyalty WHERE user_id = ? LIMIT 1',
         [userId]

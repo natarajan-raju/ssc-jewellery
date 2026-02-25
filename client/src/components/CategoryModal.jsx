@@ -6,6 +6,7 @@ export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, i
     const [name, setName] = useState('');
     const [selectedImage, setSelectedImage] = useState(null); // Preview URL
     const [imageFile, setImageFile] = useState(null); // Actual File
+    const [isDropActive, setIsDropActive] = useState(false);
 
     // Reset or Pre-fill state when opening
     useEffect(() => {
@@ -29,6 +30,14 @@ export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, i
             setImageFile(file);
             setSelectedImage(URL.createObjectURL(file)); // Create local preview
         }
+    };
+    const handleDrop = (e) => {
+        e.preventDefault();
+        setIsDropActive(false);
+        const file = e.dataTransfer?.files?.[0];
+        if (!file || !String(file.type || '').startsWith('image/')) return;
+        setImageFile(file);
+        setSelectedImage(URL.createObjectURL(file));
     };
 
     const handleSubmit = () => {
@@ -82,7 +91,24 @@ export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, i
                                     onChange={handleImageChange}
                                     className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
                                 />
-                                <div className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all ${selectedImage ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary hover:bg-gray-50'}`}>
+                                <div
+                                    onDragOver={(e) => {
+                                        e.preventDefault();
+                                        setIsDropActive(true);
+                                    }}
+                                    onDragLeave={(e) => {
+                                        e.preventDefault();
+                                        setIsDropActive(false);
+                                    }}
+                                    onDrop={handleDrop}
+                                    className={`border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center transition-all ${
+                                        isDropActive
+                                            ? 'border-primary bg-primary/10'
+                                            : selectedImage
+                                                ? 'border-primary bg-primary/5'
+                                                : 'border-gray-300 hover:border-primary hover:bg-gray-50'
+                                    }`}
+                                >
                                     {selectedImage ? (
                                         <div className="relative w-full h-32 rounded-lg overflow-hidden shadow-sm">
                                             <img src={selectedImage} alt="Preview" className="w-full h-full object-cover" />

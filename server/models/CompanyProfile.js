@@ -8,7 +8,17 @@ const DEFAULT_COMPANY_PROFILE = {
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
-    whatsappNumber: ''
+    whatsappNumber: '',
+    razorpayKeyId: '',
+    razorpayEmiMinAmount: 3000,
+    razorpayStartingTenureMonths: 12
+};
+
+const maskSecret = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.length <= 6) return `${raw.slice(0, 1)}***${raw.slice(-1)}`;
+    return `${raw.slice(0, 3)}${'*'.repeat(Math.max(3, raw.length - 6))}${raw.slice(-3)}`;
 };
 
 const normalizeRow = (row) => {
@@ -24,6 +34,13 @@ const normalizeRow = (row) => {
         youtubeUrl: row.youtube_url || '',
         facebookUrl: row.facebook_url || '',
         whatsappNumber: row.whatsapp_number || '',
+        razorpayKeyId: row.razorpay_key_id || '',
+        razorpayEmiMinAmount: Math.max(1, Number(row.razorpay_emi_min_amount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
+        razorpayStartingTenureMonths: Math.max(1, Number(row.razorpay_starting_tenure_months || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
+        hasRazorpayKeySecret: Boolean(String(row.razorpay_key_secret || '').trim()),
+        hasRazorpayWebhookSecret: Boolean(String(row.razorpay_webhook_secret || '').trim()),
+        razorpayKeySecretMask: maskSecret(row.razorpay_key_secret || ''),
+        razorpayWebhookSecretMask: maskSecret(row.razorpay_webhook_secret || ''),
         updatedAt: row.updated_at || null
     };
 };
@@ -32,8 +49,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -43,7 +60,12 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.instagramUrl,
                 DEFAULT_COMPANY_PROFILE.youtubeUrl,
                 DEFAULT_COMPANY_PROFILE.facebookUrl,
-                DEFAULT_COMPANY_PROFILE.whatsappNumber
+                DEFAULT_COMPANY_PROFILE.whatsappNumber,
+                DEFAULT_COMPANY_PROFILE.razorpayKeyId,
+                '',
+                '',
+                DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount,
+                DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths
             ]
         );
     }
@@ -55,6 +77,18 @@ class CompanyProfile {
     }
 
     static async update(payload = {}) {
+        const [existingRows] = await db.execute('SELECT * FROM company_profile WHERE id = 1 LIMIT 1');
+        const existing = existingRows[0] || null;
+        const existingRawKeySecret = String(existing?.razorpay_key_secret || '').trim();
+        const existingRawWebhookSecret = String(existing?.razorpay_webhook_secret || '').trim();
+
+        const incomingKeySecret = typeof payload.razorpayKeySecret === 'string'
+            ? String(payload.razorpayKeySecret || '').trim()
+            : null;
+        const incomingWebhookSecret = typeof payload.razorpayWebhookSecret === 'string'
+            ? String(payload.razorpayWebhookSecret || '').trim()
+            : null;
+
         const next = {
             displayName: String(payload.displayName || '').trim() || DEFAULT_COMPANY_PROFILE.displayName,
             contactNumber: String(payload.contactNumber || '').trim(),
@@ -63,13 +97,18 @@ class CompanyProfile {
             instagramUrl: String(payload.instagramUrl || '').trim(),
             youtubeUrl: String(payload.youtubeUrl || '').trim(),
             facebookUrl: String(payload.facebookUrl || '').trim(),
-            whatsappNumber: String(payload.whatsappNumber || '').trim()
+            whatsappNumber: String(payload.whatsappNumber || '').trim(),
+            razorpayKeyId: String(payload.razorpayKeyId || '').trim(),
+            razorpayKeySecret: incomingKeySecret !== null ? incomingKeySecret : existingRawKeySecret,
+            razorpayWebhookSecret: incomingWebhookSecret !== null ? incomingWebhookSecret : existingRawWebhookSecret,
+            razorpayEmiMinAmount: Math.max(1, Number(payload.razorpayEmiMinAmount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
+            razorpayStartingTenureMonths: Math.max(1, Number(payload.razorpayStartingTenureMonths || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths))
         };
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 contact_number = VALUES(contact_number),
@@ -79,6 +118,11 @@ class CompanyProfile {
                 youtube_url = VALUES(youtube_url),
                 facebook_url = VALUES(facebook_url),
                 whatsapp_number = VALUES(whatsapp_number),
+                razorpay_key_id = VALUES(razorpay_key_id),
+                razorpay_key_secret = VALUES(razorpay_key_secret),
+                razorpay_webhook_secret = VALUES(razorpay_webhook_secret),
+                razorpay_emi_min_amount = VALUES(razorpay_emi_min_amount),
+                razorpay_starting_tenure_months = VALUES(razorpay_starting_tenure_months),
                 updated_at = CURRENT_TIMESTAMP`,
             [
                 next.displayName,
@@ -88,11 +132,40 @@ class CompanyProfile {
                 next.instagramUrl,
                 next.youtubeUrl,
                 next.facebookUrl,
-                next.whatsappNumber
+                next.whatsappNumber,
+                next.razorpayKeyId,
+                next.razorpayKeySecret,
+                next.razorpayWebhookSecret,
+                next.razorpayEmiMinAmount,
+                next.razorpayStartingTenureMonths
             ]
         );
 
         return CompanyProfile.get();
+    }
+
+    static async getRazorpayConfig() {
+        await CompanyProfile.ensureSeed();
+        const [rows] = await db.execute(
+            `SELECT razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months
+             FROM company_profile
+             WHERE id = 1
+             LIMIT 1`
+        );
+        const row = rows[0] || {};
+        return {
+            keyId: String(row.razorpay_key_id || '').trim() || String(process.env.RAZORPAY_KEY_ID || '').trim(),
+            keySecret: String(row.razorpay_key_secret || '').trim() || String(process.env.RAZORPAY_KEY_SECRET || '').trim(),
+            webhookSecret: String(row.razorpay_webhook_secret || '').trim() || String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim(),
+            emiMinAmount: Math.max(
+                1,
+                Number(row.razorpay_emi_min_amount || process.env.RAZORPAY_EMI_MIN_AMOUNT || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)
+            ),
+            startingTenureMonths: Math.max(
+                1,
+                Number(row.razorpay_starting_tenure_months || process.env.RAZORPAY_STARTING_TENURE_MONTHS || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)
+            )
+        };
     }
 
     static sanitizeForSnapshot(profile = null) {
@@ -106,6 +179,9 @@ class CompanyProfile {
             youtubeUrl: String(source.youtubeUrl || ''),
             facebookUrl: String(source.facebookUrl || ''),
             whatsappNumber: String(source.whatsappNumber || ''),
+            razorpayKeyId: String(source.razorpayKeyId || ''),
+            razorpayEmiMinAmount: Math.max(1, Number(source.razorpayEmiMinAmount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
+            razorpayStartingTenureMonths: Math.max(1, Number(source.razorpayStartingTenureMonths || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
             capturedAt: new Date().toISOString()
         };
     }

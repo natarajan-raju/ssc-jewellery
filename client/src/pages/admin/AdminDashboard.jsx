@@ -383,7 +383,7 @@ export default function AdminDashboard() {
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
                     <NavItem icon={Truck} label="Shipping" id="shipping" />
                     <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" />
-                    <NavItem icon={Settings} label="Company Info" id="companyInfo" />
+                    <NavItem icon={Settings} label="Settings" id="companyInfo" />
                     <div className="pt-2 mt-2 border-t border-white/10">
                         <NavItem icon={Images} label="CMS" id="cms" />
                     </div>

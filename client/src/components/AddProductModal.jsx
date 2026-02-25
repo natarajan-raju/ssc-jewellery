@@ -1,10 +1,54 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Youtube, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChevronLeft, ChevronRight} from 'lucide-react';
+import { X, Upload, Youtube, Instagram, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { productService } from '../services/productService';
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null }) {
+    const getYoutubeVideoId = (value = '') => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        try {
+            const url = new URL(raw);
+            const host = String(url.hostname || '').toLowerCase();
+            if (host.includes('youtu.be')) return url.pathname.split('/').filter(Boolean)[0] || '';
+            if (host.includes('youtube.com')) {
+                if (url.pathname.startsWith('/shorts/')) return url.pathname.split('/')[2] || '';
+                if (url.pathname.startsWith('/embed/')) return url.pathname.split('/')[2] || '';
+                return url.searchParams.get('v') || '';
+            }
+            return '';
+        } catch {
+            return '';
+        }
+    };
+    const getInstagramThumb = (value = '') => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        try {
+            const url = new URL(raw);
+            const host = String(url.hostname || '').toLowerCase();
+            if (!host.includes('instagram.com')) return '';
+            const parts = url.pathname.split('/').filter(Boolean);
+            const type = parts[0];
+            const id = parts[1] || '';
+            if (!id || !['p', 'reel', 'tv'].includes(type)) return '';
+            return `https://www.instagram.com/${type}/${id}/media/?size=m`;
+        } catch {
+            return '';
+        }
+    };
+    const getVideoThumbnail = (item = {}) => {
+        const type = String(item?.type || '').toLowerCase();
+        const url = String(item?.url || '').trim();
+        if (!url) return '';
+        if (type === 'youtube') {
+            const videoId = getYoutubeVideoId(url);
+            return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : '';
+        }
+        if (type === 'instagram') return getInstagramThumb(url);
+        return '';
+    };
     // --- 1. HOOKS FIRST ---
     const [activeTab, setActiveTab] = useState('details');
     const [isLoading, setIsLoading] = useState(false);
@@ -35,10 +79,11 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const [draggedValueIndex, setDraggedValueIndex] = useState(null);
 
     // Media & Variant Images State
-    const [showYoutubeInput, setShowYoutubeInput] = useState(false);
-    const [youtubeUrl, setYoutubeUrl] = useState('');
+    const [showVideoInput, setShowVideoInput] = useState(false);
+    const [videoUrl, setVideoUrl] = useState('');
     const fileInputRef = useRef(null);
     const [draggedItemIndex, setDraggedItemIndex] = useState(null);
+    const [isDropzoneActive, setIsDropzoneActive] = useState(false);
     const [isImagePickerOpen, setIsImagePickerOpen] = useState(false);
     const [currentVariantIndex, setCurrentVariantIndex] = useState(null);
 
@@ -280,18 +325,58 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
 
     const handleImageUpload = (e) => {
         const files = Array.from(e.target.files);
+        if (!files.length) return;
         setMediaItems(prev => [...prev, ...files.map(file => ({
             id: Math.random().toString(36), type: 'image', file, url: URL.createObjectURL(file), isNew: true
         }))]);
     };
 
-    const handleAddYoutube = () => {
-        if (!youtubeUrl) return;
-        setMediaItems(prev => [...prev, { id: Math.random().toString(36), type: 'youtube', url: youtubeUrl, isNew: true }]);
-        setYoutubeUrl(''); setShowYoutubeInput(false);
+    const detectVideoType = (value = '') => {
+        const raw = String(value || '').trim().toLowerCase();
+        if (!raw) return '';
+        if (raw.includes('youtube.com') || raw.includes('youtu.be')) return 'youtube';
+        if (raw.includes('instagram.com')) return 'instagram';
+        return '';
     };
 
-    const handleDragStart = (index) => setDraggedItemIndex(index);
+    const handleAddVideo = () => {
+        const normalized = String(videoUrl || '').trim();
+        const detectedType = detectVideoType(normalized);
+        if (!normalized || !detectedType) {
+            toast.error('Enter a valid YouTube or Instagram URL');
+            return;
+        }
+        setMediaItems(prev => [...prev, { id: Math.random().toString(36), type: detectedType, url: normalized, isNew: true }]);
+        setVideoUrl('');
+        setShowVideoInput(false);
+    };
+
+    const addDroppedImages = (files = []) => {
+        const imageFiles = Array.from(files || []).filter((file) => String(file?.type || '').startsWith('image/'));
+        if (!imageFiles.length) return;
+        setMediaItems(prev => [...prev, ...imageFiles.map((file) => ({
+            id: Math.random().toString(36),
+            type: 'image',
+            file,
+            url: URL.createObjectURL(file),
+            isNew: true
+        }))]);
+    };
+
+    const handleDropzoneDragOver = (e) => {
+        e.preventDefault();
+        setIsDropzoneActive(true);
+    };
+    const handleDropzoneDragLeave = (e) => {
+        e.preventDefault();
+        setIsDropzoneActive(false);
+    };
+    const handleDropzoneDrop = (e) => {
+        e.preventDefault();
+        setIsDropzoneActive(false);
+        addDroppedImages(e.dataTransfer?.files || []);
+    };
+
     const handleDragOver = (e, index) => {
         e.preventDefault();
         if (draggedItemIndex === null || draggedItemIndex === index) return;
@@ -397,8 +482,10 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             mediaItems.forEach(item => {
                 if (item.isNew && item.type === 'image' && item.file) payload.append('images', item.file);
             });
-            const newYoutube = mediaItems.filter(m => m.isNew && m.type === 'youtube').map(m => m.url);
-            payload.append('youtubeLinks', JSON.stringify(newYoutube));
+            const newVideoLinks = mediaItems
+                .filter(m => m.isNew && (m.type === 'youtube' || m.type === 'instagram'))
+                .map((m) => ({ type: m.type, url: m.url }));
+            payload.append('videoLinks', JSON.stringify(newVideoLinks));
             const existing = mediaItems.filter(m => m.isExisting).map(m => ({ type: m.type, url: m.url }));
             payload.append('existingMedia', JSON.stringify(existing));
 
@@ -810,16 +897,27 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                 </button>
                                 <input type="file" ref={fileInputRef} hidden multiple accept="image/*" onChange={handleImageUpload} />
 
-                                <button onClick={() => setShowYoutubeInput(true)} className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-red-500 hover:bg-red-50 transition-colors">
+                                <button onClick={() => setShowVideoInput(true)} className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-2xl hover:border-red-500 hover:bg-red-50 transition-colors">
                                     <Youtube className="text-red-500 w-8 h-8 mb-2" />
-                                    <span className="text-sm font-bold">Add Video</span>
+                                    <span className="text-sm font-bold">Add Video URL</span>
                                 </button>
                             </div>
-                            
-                            {showYoutubeInput && (
+
+                            <div
+                                onDragOver={handleDropzoneDragOver}
+                                onDragLeave={handleDropzoneDragLeave}
+                                onDrop={handleDropzoneDrop}
+                                className={`rounded-2xl border-2 border-dashed p-4 text-sm text-center transition-colors ${
+                                    isDropzoneActive ? 'border-primary bg-primary/5 text-primary' : 'border-gray-300 text-gray-500'
+                                }`}
+                            >
+                                Drag and drop images here from your desktop, or use “Add Images”.
+                            </div>
+
+                            {showVideoInput && (
                                 <div className="p-4 bg-white border rounded-xl flex gap-2">
-                                    <input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="YouTube URL..." className="flex-1 p-2 border rounded-lg" autoFocus />
-                                    <button onClick={handleAddYoutube} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold">Add</button>
+                                    <input value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)} placeholder="YouTube or Instagram URL..." className="flex-1 p-2 border rounded-lg" autoFocus />
+                                    <button onClick={handleAddVideo} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold">Add</button>
                                 </div>
                             )}
 
@@ -844,7 +942,25 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                             )}
                                         </div>
 
-                                        {item.type === 'image' ? <img src={item.url} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-black flex items-center justify-center"><Youtube className="text-white"/></div>}
+                                        {item.type === 'image'
+                                            ? <img src={item.url} className="w-full h-full object-cover"/>
+                                            : (
+                                                <div className="relative w-full h-full bg-black">
+                                                    <div className={`absolute inset-0 flex items-center justify-center ${item.type === 'instagram' ? 'bg-gradient-to-br from-pink-500 via-rose-500 to-orange-400' : 'bg-gray-900'}`}>
+                                                        {item.type === 'instagram' ? <Instagram className="text-white"/> : <Youtube className="text-white"/>}
+                                                    </div>
+                                                    {getVideoThumbnail(item) ? (
+                                                        <img
+                                                            src={getVideoThumbnail(item)}
+                                                            className="absolute inset-0 w-full h-full object-cover"
+                                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                        />
+                                                    ) : null}
+                                                    <div className="absolute inset-0 bg-black/35 flex items-center justify-center">
+                                                        {item.type === 'instagram' ? <Instagram className="text-white"/> : <Youtube className="text-white"/>}
+                                                    </div>
+                                                </div>
+                                            )}
                                     </div>
                                 ))}
                             </div>

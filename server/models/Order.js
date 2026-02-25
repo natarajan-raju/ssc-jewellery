@@ -348,7 +348,8 @@ class Order {
                 loyaltyProfile: loyaltyStatus?.profile || null,
                 loyaltyMeta: {
                     profile: loyaltyAdjustments.profile || null,
-                    progress: loyaltyStatus?.progress || null
+                    progress: loyaltyStatus?.progress || null,
+                    spends: loyaltyStatus?.spends || null
                 }
             };
         } finally {

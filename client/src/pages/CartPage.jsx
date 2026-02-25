@@ -9,6 +9,15 @@ import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { vibrateTap } from '../utils/haptics';
 import RazorpayAffordability from '../components/RazorpayAffordability';
+import { formatTierLabel } from '../utils/tierFormat';
+
+const EXTRA_DISCOUNT_BY_TIER = {
+    regular: 0,
+    bronze: 1,
+    silver: 2,
+    gold: 3,
+    platinum: 5
+};
 
 export default function CartPage() {
     const { items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
@@ -74,10 +83,24 @@ export default function CartPage() {
         return { fee, freeThreshold };
     }, [zones, user?.address?.state, subtotal, totalWeightKg]);
 
-    const cartTotal = useMemo(() => {
+    const cartTotalBeforeMemberPerks = useMemo(() => {
         if (!shippingPreview) return subtotal;
         return Number(subtotal || 0) + Number(shippingPreview.fee || 0);
     }, [subtotal, shippingPreview]);
+    const loyaltyTier = String(user?.loyaltyTier || 'regular').toLowerCase();
+    const memberDiscountPct = Number(user?.loyaltyProfile?.extraDiscountPct ?? EXTRA_DISCOUNT_BY_TIER[loyaltyTier] ?? 0);
+    const memberShippingDiscountPct = Number(user?.loyaltyProfile?.shippingDiscountPct ?? 0);
+    const estimatedMemberDiscount = useMemo(
+        () => Math.max(0, Number(((Number(subtotal || 0) * memberDiscountPct) / 100).toFixed(2))),
+        [subtotal, memberDiscountPct]
+    );
+    const estimatedMemberShippingBenefit = useMemo(() => {
+        const shippingFee = Number(shippingPreview?.fee || 0);
+        return Math.max(0, Number(((shippingFee * memberShippingDiscountPct) / 100).toFixed(2)));
+    }, [shippingPreview?.fee, memberShippingDiscountPct]);
+    const cartTotal = useMemo(() => {
+        return Math.max(0, Number(cartTotalBeforeMemberPerks || 0) - estimatedMemberDiscount - estimatedMemberShippingBenefit);
+    }, [cartTotalBeforeMemberPerks, estimatedMemberDiscount, estimatedMemberShippingBenefit]);
     const totalSavings = useMemo(() => {
         return items.reduce((sum, item) => {
             const mrp = Number(item.compareAt || 0);
@@ -93,7 +116,7 @@ export default function CartPage() {
         const pct = Math.min(100, (subtotal / shippingPreview.freeThreshold) * 100);
         const remaining = Math.max(0, shippingPreview.freeThreshold - subtotal);
         return { pct, remaining };
-    }, [shippingPreview?.freeThreshold, subtotal]);
+    }, [shippingPreview, subtotal]);
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
 
@@ -113,8 +136,10 @@ export default function CartPage() {
 
         if (user && subtotalIncreased && justUnlockedFree) {
             const previousShippingFee = Number(prevShippingFeeRef.current || 0);
-            if (previousShippingFee > 0) setStruckShippingFee(previousShippingFee);
-            setShowFreeShippingFx(true);
+            if (previousShippingFee > 0) {
+                requestAnimationFrame(() => setStruckShippingFee(previousShippingFee));
+            }
+            requestAnimationFrame(() => setShowFreeShippingFx(true));
 
             const colors = ['#10b981', '#0ea5e9', '#f59e0b', '#ef4444', '#8b5cf6', '#22c55e'];
             for (let i = 0; i < 32; i += 1) {
@@ -357,6 +382,18 @@ export default function CartPage() {
                                         <span className="font-semibold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
                                     )}
                                 </div>
+                                {estimatedMemberDiscount > 0 && (
+                                    <div className="flex items-center justify-between text-blue-700">
+                                        <span>Estimated Member Discount ({formatTierLabel(loyaltyTier)})</span>
+                                        <span className="font-semibold">- ₹{estimatedMemberDiscount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                )}
+                                {estimatedMemberShippingBenefit > 0 && (
+                                    <div className="flex items-center justify-between text-blue-700">
+                                        <span>Estimated Member Shipping Benefit</span>
+                                        <span className="font-semibold">- ₹{estimatedMemberShippingBenefit.toLocaleString('en-IN')}</span>
+                                    </div>
+                                )}
                                 {freeProgress && (
                                     <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="flex items-center justify-between text-xs text-gray-500 mt-2">

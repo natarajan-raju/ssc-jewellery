@@ -4,7 +4,7 @@ const User = require('../models/User');
 const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { getUserLoyaltyStatus, reassessUserTier, issueBirthdayCouponForUser } = require('../services/loyaltyService');
+const { getUserLoyaltyStatus, issueBirthdayCouponForUser } = require('../services/loyaltyService');
 const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
@@ -403,6 +403,12 @@ exports.login = async (req, res) => {
             if (!isValidOtp) return res.status(400).json({ message: 'Invalid OTP' });
         }
 
+        try {
+            const loyalty = await getUserLoyaltyStatus(user.id);
+            if (loyalty?.tier) user.loyaltyTier = String(loyalty.tier).toLowerCase();
+            if (loyalty?.profile) user.loyaltyProfile = loyalty.profile;
+        } catch {}
+
         const token = generateToken(user);
         res.json({ message: 'Login successful', token, user });
     } catch (error) {
@@ -492,7 +498,6 @@ exports.getProfile = async (req, res) => {
 exports.getLoyaltyStatus = async (req, res) => {
     try {
         const userId = req.user.id;
-        await reassessUserTier(userId, { reason: 'on_demand_read', sendNotifications: false }).catch(() => {});
         const status = await getUserLoyaltyStatus(userId);
         return res.json({ status });
     } catch (error) {
@@ -506,6 +511,52 @@ exports.updateProfile = async (req, res) => {
         const { name, email, mobile, password, address, billingAddress, profileImage, dob, birthdayOfferClaimedYear } = req.body;
         const safeName = sanitize(name);
         const safeEmail = email ? sanitize(email).toLowerCase() : '';
+        const normalizeAddress = (value) => {
+            if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+            return {
+                line1: String(value.line1 || '').trim(),
+                city: String(value.city || '').trim(),
+                state: String(value.state || '').trim(),
+                zip: String(value.zip || '').trim()
+            };
+        };
+
+        if (name !== undefined && typeof name !== 'string') {
+            return res.status(400).json({ message: 'Name must be a string' });
+        }
+        if (email !== undefined && typeof email !== 'string') {
+            return res.status(400).json({ message: 'Email must be a string' });
+        }
+        if (mobile !== undefined && typeof mobile !== 'string') {
+            return res.status(400).json({ message: 'Mobile must be a string' });
+        }
+        if (password !== undefined && typeof password !== 'string') {
+            return res.status(400).json({ message: 'Password must be a string' });
+        }
+        if (profileImage !== undefined && typeof profileImage !== 'string' && profileImage !== null) {
+            return res.status(400).json({ message: 'Profile image must be a string URL or null' });
+        }
+        if (birthdayOfferClaimedYear !== undefined && !Number.isInteger(Number(birthdayOfferClaimedYear))) {
+            return res.status(400).json({ message: 'Birthday claim year must be a number' });
+        }
+        if (safeEmail && !isEmail(safeEmail)) {
+            return res.status(400).json({ message: 'Invalid email format' });
+        }
+        if (mobile && !/^\d{10,14}$/.test(String(mobile).trim())) {
+            return res.status(400).json({ message: 'Mobile must contain 10-14 digits' });
+        }
+        if (password && String(password).length < 6) {
+            return res.status(400).json({ message: 'Password too short (min 6 chars).' });
+        }
+
+        const normalizedAddress = address === undefined ? undefined : normalizeAddress(address);
+        if (address !== undefined && normalizedAddress === null) {
+            return res.status(400).json({ message: 'Address must be an object' });
+        }
+        const normalizedBillingAddress = billingAddress === undefined ? undefined : normalizeAddress(billingAddress);
+        if (billingAddress !== undefined && normalizedBillingAddress === null) {
+            return res.status(400).json({ message: 'Billing address must be an object' });
+        }
 
         // 1. Check if mobile is already taken by ANOTHER user
         if (mobile) {
@@ -571,8 +622,8 @@ exports.updateProfile = async (req, res) => {
             name: safeName || undefined,
             email: safeEmail || undefined,
             mobile,
-            address,
-            billingAddress,
+            address: normalizedAddress,
+            billingAddress: normalizedBillingAddress,
             profileImage,
             dob: dob === '' ? null : dob,
             dobLocked: dobLockedUpdate,

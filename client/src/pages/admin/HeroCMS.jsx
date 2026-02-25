@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
 import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -6,6 +6,64 @@ import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import { productService } from '../../services/productService';
+
+function AccordionSection({
+    id,
+    title,
+    subtitle = '',
+    icon: Icon = ImageIcon,
+    openCmsSection,
+    setOpenCmsSection,
+    isAutopilotEnabled = false,
+    sectionHasContent,
+    children
+}) {
+    const isOpen = openCmsSection === id;
+    const hasContent = sectionHasContent(id);
+    const toggleSection = () => {
+        const currentY = window.scrollY;
+        setOpenCmsSection((prev) => (prev === id ? '' : id));
+        requestAnimationFrame(() => {
+            window.scrollTo({ top: currentY, behavior: 'auto' });
+        });
+    };
+
+    return (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <button
+                type="button"
+                onClick={toggleSection}
+                className="w-full px-6 py-4 flex items-center justify-between gap-4 text-left"
+            >
+                <div>
+                    <h3 className="font-bold text-gray-700 flex items-center gap-2">
+                        <span>{title}</span>
+                        {id === 'featured-category' && isAutopilotEnabled && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-green-100 text-green-700 border border-green-200">
+                                Auto
+                            </span>
+                        )}
+                    </h3>
+                    {!!subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+                </div>
+                <div className="flex items-center gap-3">
+                    {hasContent ? (
+                        <CheckCircle2 size={20} className="text-green-500" />
+                    ) : (
+                        <AlertTriangle size={20} className="text-amber-500" />
+                    )}
+                    <Icon size={32} className="text-slate-200" />
+                    <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </div>
+            </button>
+            {isOpen && (
+                <div className="px-6 pb-6 border-t border-gray-100 pt-4">
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function HeroCMS() {
     const [slides, setSlides] = useState([]);
@@ -51,6 +109,10 @@ export default function HeroCMS() {
     const [isHeroTextLoading, setIsHeroTextLoading] = useState(false);
     const [draggedTextIndex, setDraggedTextIndex] = useState(null);
     const [openCmsSection, setOpenCmsSection] = useState('hero-carousel');
+    const bannerLinkDirtyRef = useRef(false);
+    const secondaryBannerLinkDirtyRef = useRef(false);
+    const tertiaryBannerLinkDirtyRef = useRef(false);
+    const featuredDraftDirtyRef = useRef(false);
 const [modalConfig, setModalConfig] = useState({ 
     isOpen: false, type: 'delete', title: '', message: '', targetId: null 
     });
@@ -89,7 +151,9 @@ const [modalConfig, setModalConfig] = useState({
         try {
             const data = await getBanner(true);
             setBannerData(data);
-            setBannerLink(data?.link || '');
+            if (!bannerLinkDirtyRef.current) {
+                setBannerLink(data?.link || '');
+            }
             setBannerPreview(data?.image_url || null);
         } catch (error) {
             toast.error("Failed to load banner");
@@ -100,7 +164,9 @@ const [modalConfig, setModalConfig] = useState({
         try {
             const data = await getSecondaryBanner(true);
             setSecondaryBannerData(data);
-            setSecondaryBannerLink(data?.link || '');
+            if (!secondaryBannerLinkDirtyRef.current) {
+                setSecondaryBannerLink(data?.link || '');
+            }
             setSecondaryBannerPreview(data?.image_url || null);
         } catch (error) {
             toast.error("Failed to load secondary banner");
@@ -111,7 +177,9 @@ const [modalConfig, setModalConfig] = useState({
         try {
             const data = await getTertiaryBanner(true);
             setTertiaryBannerData(data);
-            setTertiaryBannerLink(data?.link || '');
+            if (!tertiaryBannerLinkDirtyRef.current) {
+                setTertiaryBannerLink(data?.link || '');
+            }
             setTertiaryBannerPreview(data?.image_url || null);
         } catch (error) {
             toast.error("Failed to load home banner 3");
@@ -131,9 +199,11 @@ const [modalConfig, setModalConfig] = useState({
         try {
             const data = await getFeaturedCategory(true);
             setFeaturedConfig(data);
-            setFeaturedCategoryId(data?.category_id ? String(data.category_id) : '');
-            setFeaturedTitle(data?.title || '');
-            setFeaturedSubtitle(data?.subtitle || '');
+            if (!featuredDraftDirtyRef.current) {
+                setFeaturedCategoryId(data?.category_id ? String(data.category_id) : '');
+                setFeaturedTitle(data?.title || '');
+                setFeaturedSubtitle(data?.subtitle || '');
+            }
         } catch (error) {
             toast.error("Failed to load featured category");
         }
@@ -175,6 +245,16 @@ const [modalConfig, setModalConfig] = useState({
             setSelectedFile(file);
             setPreviewUrl(URL.createObjectURL(file));
         }
+    };
+    const handleImageDrop = (event, fileSetter, previewSetter) => {
+        event.preventDefault();
+        const file = event.dataTransfer?.files?.[0];
+        if (!file || !String(file.type || '').startsWith('image/')) {
+            toast.error('Please drop an image file');
+            return;
+        }
+        fileSetter(file);
+        previewSetter(URL.createObjectURL(file));
     };
 
     const handleBannerFileChange = (e) => {
@@ -240,6 +320,7 @@ const [modalConfig, setModalConfig] = useState({
             await updateBanner(formData);
             toast.success("Banner updated");
             setBannerFile(null);
+            bannerLinkDirtyRef.current = false;
             await loadBanner();
         } catch (error) {
             toast.error("Banner update failed");
@@ -260,6 +341,7 @@ const [modalConfig, setModalConfig] = useState({
             await updateSecondaryBanner(formData);
             toast.success("Secondary banner updated");
             setSecondaryBannerFile(null);
+            secondaryBannerLinkDirtyRef.current = false;
             await loadSecondaryBanner();
         } catch (error) {
             toast.error("Secondary banner update failed");
@@ -280,6 +362,7 @@ const [modalConfig, setModalConfig] = useState({
             await updateTertiaryBanner(formData);
             toast.success("Home banner 3 updated");
             setTertiaryBannerFile(null);
+            tertiaryBannerLinkDirtyRef.current = false;
             await loadTertiaryBanner();
         } catch (error) {
             toast.error("Home banner 3 update failed");
@@ -297,6 +380,7 @@ const [modalConfig, setModalConfig] = useState({
             setBannerFile(null);
             setBannerPreview(null);
             toast.success('Banner image removed');
+            bannerLinkDirtyRef.current = false;
             await loadBanner();
         } catch (error) {
             toast.error('Failed to remove banner image');
@@ -315,6 +399,7 @@ const [modalConfig, setModalConfig] = useState({
             setSecondaryBannerFile(null);
             setSecondaryBannerPreview(null);
             toast.success('Secondary banner image removed');
+            secondaryBannerLinkDirtyRef.current = false;
             await loadSecondaryBanner();
         } catch (error) {
             toast.error('Failed to remove secondary banner image');
@@ -333,6 +418,7 @@ const [modalConfig, setModalConfig] = useState({
             setTertiaryBannerFile(null);
             setTertiaryBannerPreview(null);
             toast.success('Home banner 3 image removed');
+            tertiaryBannerLinkDirtyRef.current = false;
             await loadTertiaryBanner();
         } catch (error) {
             toast.error('Failed to remove home banner 3 image');
@@ -440,6 +526,7 @@ const [modalConfig, setModalConfig] = useState({
                 subtitle: featuredSubtitle
             });
             toast.success("Featured category updated");
+            featuredDraftDirtyRef.current = false;
             await loadFeaturedConfig();
         } catch (error) {
             toast.error("Featured category update failed");
@@ -515,53 +602,6 @@ const [modalConfig, setModalConfig] = useState({
         return false;
     };
 
-    const AccordionSection = ({ id, title, subtitle = '', icon: Icon = ImageIcon, children }) => {
-        const isOpen = openCmsSection === id;
-        const hasContent = sectionHasContent(id);
-        const toggleSection = () => {
-            const currentY = window.scrollY;
-            setOpenCmsSection((prev) => (prev === id ? '' : id));
-            requestAnimationFrame(() => {
-                window.scrollTo({ top: currentY, behavior: 'auto' });
-            });
-        };
-        return (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <button
-                    type="button"
-                    onClick={toggleSection}
-                    className="w-full px-6 py-4 flex items-center justify-between gap-4 text-left"
-                >
-                    <div>
-                        <h3 className="font-bold text-gray-700 flex items-center gap-2">
-                            <span>{title}</span>
-                            {id === 'featured-category' && isAutopilotEnabled && (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-green-100 text-green-700 border border-green-200">
-                                    Auto
-                                </span>
-                            )}
-                        </h3>
-                        {!!subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {hasContent ? (
-                            <CheckCircle2 size={20} className="text-green-500" />
-                        ) : (
-                            <AlertTriangle size={20} className="text-amber-500" />
-                        )}
-                        <Icon size={32} className="text-slate-200" />
-                        <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                    </div>
-                </button>
-                {isOpen && (
-                    <div className="px-6 pb-6 border-t border-gray-100 pt-4">
-                        {children}
-                    </div>
-                )}
-            </div>
-        );
-    };
-
     return (
         <div className="animate-fade-in space-y-8 max-w-5xl mx-auto">
             <Modal 
@@ -580,7 +620,16 @@ const [modalConfig, setModalConfig] = useState({
                 <p className="text-gray-500 text-sm mt-1">Manage homepage content blocks and promotional assets.</p>
             </div>
 
-            <AccordionSection id="hero-carousel" title="Hero Carousel" subtitle="Manage slides and their order" icon={ImageIcon}>
+            <AccordionSection
+                id="hero-carousel"
+                title="Hero Carousel"
+                subtitle="Manage slides and their order"
+                icon={ImageIcon}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+                isAutopilotEnabled={isAutopilotEnabled}
+            >
                 <div className="space-y-6">
                     <div className="bg-white p-4 rounded-xl border border-gray-200">
                         <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
@@ -588,14 +637,18 @@ const [modalConfig, setModalConfig] = useState({
                         </h3>
                         <form onSubmit={handleUpload} className="flex flex-col md:flex-row gap-6">
                             <div className="w-full md:w-1/3">
-                                <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                                <label
+                                    className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all"
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={(e) => handleImageDrop(e, setSelectedFile, setPreviewUrl)}
+                                >
                                     {previewUrl ? (
                                         <img src={previewUrl} className="w-full h-full object-cover rounded-xl" />
                                     ) : (
                                         <div className="text-center p-4">
                                             <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
                                             <span className="text-sm text-gray-500 font-medium">Click to upload image</span>
-                                            <span className="text-xs text-gray-400 block mt-1">(1920x1080 recommended)</span>
+                                            <span className="text-xs text-gray-400 block mt-1">(1920x1080 recommended, or drag & drop)</span>
                                         </div>
                                     )}
                                     <input type="file" className="hidden" accept="image/*" onChange={handleFileChange} />
@@ -683,7 +736,15 @@ const [modalConfig, setModalConfig] = useState({
             </AccordionSection>
 
             {/* HERO TEXTS SECTION */}
-            <AccordionSection id="hero-texts" title="Hero Text Carousel" subtitle="Short single-line highlights shown above the hero." icon={Sparkles}>
+            <AccordionSection
+                id="hero-texts"
+                title="Hero Text Carousel"
+                subtitle="Short single-line highlights shown above the hero."
+                icon={Sparkles}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+            >
                 <form onSubmit={handleHeroTextAdd} className="flex flex-col md:flex-row gap-3">
                     <input
                         placeholder="Add new text..."
@@ -745,17 +806,28 @@ const [modalConfig, setModalConfig] = useState({
             </AccordionSection>
 
             {/* HOME BANNER SECTION */}
-            <AccordionSection id="home-banner-1" title="Home Banner (16:9)" icon={ImageIcon}>
+            <AccordionSection
+                id="home-banner-1"
+                title="Home Banner (16:9)"
+                icon={ImageIcon}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+            >
                 <form onSubmit={handleBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
-                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                        <label
+                            className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all"
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => handleImageDrop(e, setBannerFile, setBannerPreview)}
+                        >
                             {bannerPreview ? (
                                 <img src={bannerPreview} className="w-full h-full object-cover rounded-xl" />
                             ) : (
                                 <div className="text-center p-4">
                                     <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
                                     <span className="text-sm text-gray-500 font-medium">Click to upload banner</span>
-                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended)</span>
+                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended, or drag & drop)</span>
                                 </div>
                             )}
                             <input type="file" className="hidden" accept="image/*" onChange={handleBannerFileChange} />
@@ -766,7 +838,10 @@ const [modalConfig, setModalConfig] = useState({
                             placeholder="Banner Link (e.g. /shop/best-sellers)" 
                             className="input-field"
                             value={bannerLink}
-                            onChange={e => setBannerLink(e.target.value)}
+                            onChange={e => {
+                                bannerLinkDirtyRef.current = true;
+                                setBannerLink(e.target.value);
+                            }}
                         />
                         <div className="pt-2 flex justify-end">
                             <button
@@ -794,17 +869,28 @@ const [modalConfig, setModalConfig] = useState({
             </AccordionSection>
 
             {/* SECONDARY HOME BANNER SECTION */}
-            <AccordionSection id="home-banner-2" title="Home Banner 2 (16:9)" icon={ImageIcon}>
+            <AccordionSection
+                id="home-banner-2"
+                title="Home Banner 2 (16:9)"
+                icon={ImageIcon}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+            >
                 <form onSubmit={handleSecondaryBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
-                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                        <label
+                            className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all"
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => handleImageDrop(e, setSecondaryBannerFile, setSecondaryBannerPreview)}
+                        >
                             {secondaryBannerPreview ? (
                                 <img src={secondaryBannerPreview} className="w-full h-full object-cover rounded-xl" />
                             ) : (
                                 <div className="text-center p-4">
                                     <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
                                     <span className="text-sm text-gray-500 font-medium">Click to upload banner</span>
-                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended)</span>
+                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended, or drag & drop)</span>
                                 </div>
                             )}
                             <input type="file" className="hidden" accept="image/*" onChange={handleSecondaryBannerFileChange} />
@@ -815,7 +901,10 @@ const [modalConfig, setModalConfig] = useState({
                             placeholder="Banner Link (e.g. /shop/new-arrivals)" 
                             className="input-field"
                             value={secondaryBannerLink}
-                            onChange={e => setSecondaryBannerLink(e.target.value)}
+                            onChange={e => {
+                                secondaryBannerLinkDirtyRef.current = true;
+                                setSecondaryBannerLink(e.target.value);
+                            }}
                         />
                         <div className="pt-2 flex justify-end">
                             <button
@@ -842,17 +931,28 @@ const [modalConfig, setModalConfig] = useState({
                 </form>
             </AccordionSection>
 
-            <AccordionSection id="home-banner-3" title="Home Banner 3 (16:9)" icon={ImageIcon}>
+            <AccordionSection
+                id="home-banner-3"
+                title="Home Banner 3 (16:9)"
+                icon={ImageIcon}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+            >
                 <form onSubmit={handleTertiaryBannerUpdate} className="flex flex-col md:flex-row gap-6">
                     <div className="w-full md:w-1/3">
-                        <label className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all">
+                        <label
+                            className="cursor-pointer group relative flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl hover:bg-gray-50 hover:border-primary transition-all"
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => handleImageDrop(e, setTertiaryBannerFile, setTertiaryBannerPreview)}
+                        >
                             {tertiaryBannerPreview ? (
                                 <img src={tertiaryBannerPreview} className="w-full h-full object-cover rounded-xl" />
                             ) : (
                                 <div className="text-center p-4">
                                     <UploadCloud className="w-10 h-10 text-gray-400 mb-2 mx-auto group-hover:text-primary" />
                                     <span className="text-sm text-gray-500 font-medium">Click to upload banner</span>
-                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended)</span>
+                                    <span className="text-xs text-gray-400 block mt-1">(16:9 recommended, or drag & drop)</span>
                                 </div>
                             )}
                             <input type="file" className="hidden" accept="image/*" onChange={handleTertiaryBannerFileChange} />
@@ -863,7 +963,10 @@ const [modalConfig, setModalConfig] = useState({
                             placeholder="Banner Link (e.g. /shop/offers)"
                             className="input-field"
                             value={tertiaryBannerLink}
-                            onChange={e => setTertiaryBannerLink(e.target.value)}
+                            onChange={e => {
+                                tertiaryBannerLinkDirtyRef.current = true;
+                                setTertiaryBannerLink(e.target.value);
+                            }}
                         />
                         <div className="pt-2 flex justify-end">
                             <button
@@ -891,7 +994,15 @@ const [modalConfig, setModalConfig] = useState({
             </AccordionSection>
 
             {/* FEATURED CATEGORY SECTION */}
-            <AccordionSection id="featured-category" title="Featured Category Section" icon={Save}>
+            <AccordionSection
+                id="featured-category"
+                title="Featured Category Section"
+                icon={Save}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+                isAutopilotEnabled={isAutopilotEnabled}
+            >
                 <div className="space-y-4">
                     <label
                         className="flex items-center justify-between bg-gray-50 rounded-xl border border-gray-200 px-4 py-3"
@@ -931,6 +1042,7 @@ const [modalConfig, setModalConfig] = useState({
                                 <select
                                     value={featuredCategoryId}
                                     onChange={(e) => {
+                                        featuredDraftDirtyRef.current = true;
                                         const nextId = e.target.value;
                                         setFeaturedCategoryId(nextId);
                                         if (!featuredTitle) {
@@ -951,14 +1063,20 @@ const [modalConfig, setModalConfig] = useState({
                                     placeholder="Title (defaults to category name)"
                                     className="input-field"
                                     value={featuredTitle}
-                                    onChange={(e) => setFeaturedTitle(e.target.value)}
+                                    onChange={(e) => {
+                                        featuredDraftDirtyRef.current = true;
+                                        setFeaturedTitle(e.target.value);
+                                    }}
                                 />
                             </div>
                             <input
                                 placeholder="Subtitle"
                                 className="input-field"
                                 value={featuredSubtitle}
-                                onChange={(e) => setFeaturedSubtitle(e.target.value)}
+                                onChange={(e) => {
+                                    featuredDraftDirtyRef.current = true;
+                                    setFeaturedSubtitle(e.target.value);
+                                }}
                             />
                         </div>
                         {isAutopilotEnabled && (

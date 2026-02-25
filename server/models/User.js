@@ -109,12 +109,24 @@ class User {
 
     // --- 3. FIND HELPERS ---
     static async findByEmail(email) {
-        const [rows] = await db.execute('SELECT * FROM users WHERE email = ?', [email]);
+        const [rows] = await db.execute(
+            `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier
+             FROM users u
+             LEFT JOIN user_loyalty ul ON ul.user_id = u.id
+             WHERE u.email = ?`,
+            [email]
+        );
         return User.normalizeRow(rows[0]);
     }
 
     static async findByMobile(mobile) {
-        const [rows] = await db.execute('SELECT * FROM users WHERE mobile = ?', [mobile]);
+        const [rows] = await db.execute(
+            `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier
+             FROM users u
+             LEFT JOIN user_loyalty ul ON ul.user_id = u.id
+             WHERE u.mobile = ?`,
+            [mobile]
+        );
         return User.normalizeRow(rows[0]);
     }
 

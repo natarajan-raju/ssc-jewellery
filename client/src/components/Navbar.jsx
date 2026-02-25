@@ -6,32 +6,38 @@ import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
 import logo from '/logo.webp';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { formatTierLabel } from '../utils/tierFormat';
 
 const TIER_STYLES = {
     regular: {
         badge: 'bg-slate-100 text-slate-700 border-slate-200',
         userBtn: 'text-slate-700 bg-slate-100 hover:bg-slate-200',
-        userBtnActive: 'text-white bg-slate-700'
+        userBtnActive: 'text-white bg-slate-700',
+        profileRing: 'border-slate-300'
     },
     bronze: {
         badge: 'bg-amber-100 text-amber-800 border-amber-200',
         userBtn: 'text-amber-900 bg-amber-100 hover:bg-amber-200',
-        userBtnActive: 'text-white bg-amber-800'
+        userBtnActive: 'text-white bg-amber-800',
+        profileRing: 'border-amber-400'
     },
     silver: {
         badge: 'bg-zinc-100 text-zinc-700 border-zinc-200',
         userBtn: 'text-zinc-700 bg-zinc-100 hover:bg-zinc-200',
-        userBtnActive: 'text-white bg-zinc-700'
+        userBtnActive: 'text-white bg-zinc-700',
+        profileRing: 'border-zinc-400'
     },
     gold: {
         badge: 'bg-yellow-100 text-yellow-800 border-yellow-200',
         userBtn: 'text-yellow-900 bg-yellow-100 hover:bg-yellow-200',
-        userBtnActive: 'text-white bg-yellow-700'
+        userBtnActive: 'text-white bg-yellow-700',
+        profileRing: 'border-yellow-400'
     },
     platinum: {
         badge: 'bg-sky-100 text-sky-800 border-sky-200',
         userBtn: 'text-sky-900 bg-sky-100 hover:bg-sky-200',
-        userBtnActive: 'text-white bg-sky-700'
+        userBtnActive: 'text-white bg-sky-700',
+        profileRing: 'border-sky-400'
     }
 };
 
@@ -166,10 +172,18 @@ export default function Navbar() {
 
     const isActive = (path) => location.pathname === path;
     const isShopActive = () => location.pathname === '/shop' || location.pathname.startsWith('/shop/');
-    const tier = String(user?.loyaltyTier || 'regular').toLowerCase();
+    const cachedUser = (() => {
+        try {
+            return JSON.parse(localStorage.getItem('user') || 'null');
+        } catch {
+            return null;
+        }
+    })();
+    const tier = String(user?.loyaltyTier || cachedUser?.loyaltyTier || 'regular').toLowerCase();
     const tierStyle = TIER_STYLES[tier] || TIER_STYLES.regular;
-    const tierLabel = String(user?.loyaltyProfile?.label || (tier === 'regular' ? 'Basic' : tier)).toUpperCase();
-    const showTierBadge = user && tier !== 'regular';
+    const tierLabel = formatTierLabel(user?.loyaltyProfile?.label || cachedUser?.loyaltyProfile?.label || tier);
+    const showTierBadge = (user || cachedUser) && tier !== 'regular';
+    const effectiveUser = user || cachedUser;
     const handleCartClick = () => {
         setIsUserMenuOpen(false);
         setIsMegaOpen(false);
@@ -181,8 +195,7 @@ export default function Navbar() {
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`fixed top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-white/70
-        `}>
+        <nav className={`fixed top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-white/70`}>
             <div className="container mx-auto px-4 md:px-8">
                 <div className="flex justify-between items-center">
                     
@@ -314,14 +327,14 @@ export default function Navbar() {
                                 </span>
                             )}
                         </button>
-                        {user ? (
+                        {effectiveUser ? (
                             <>
                                 <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className={`p-2 rounded-full transition-colors ${isUserMenuOpen ? tierStyle.userBtnActive : tierStyle.userBtn}`}>
-                                    {user.profileImage ? (
+                                    {effectiveUser.profileImage ? (
                                         <img
-                                            src={user.profileImage}
-                                            alt={user.name || 'Profile'}
-                                            className="w-6 h-6 rounded-full object-cover"
+                                            src={effectiveUser.profileImage}
+                                            alt={effectiveUser.name || 'Profile'}
+                                            className={`w-6 h-6 rounded-full object-cover border-2 ${tierStyle.profileRing}`}
                                         />
                                     ) : (
                                         <User size={22} strokeWidth={2} />
@@ -330,7 +343,7 @@ export default function Navbar() {
                                 {isUserMenuOpen && (
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                                         <div className="px-4 py-2 border-b border-gray-50">
-                                            <p className="text-xs text-gray-500 font-bold uppercase">Hi, {user.name}</p>
+                                            <p className="text-xs text-gray-500 font-bold uppercase">Hi, {effectiveUser.name}</p>
                                         </div>
                                         <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Profile</Link>
                                         <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Wishlist</Link>
@@ -399,7 +412,7 @@ export default function Navbar() {
                             {link.name}
                         </Link>
                     ))}
-                    {user ? (
+                    {effectiveUser ? (
                         <>
                             <Link
                                 to="/profile"

@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Facebook, Instagram, Key, Plus, Save, ShieldCheck, Trash2, UserCog, Youtube } from 'lucide-react';
+import {
+    Building2,
+    CreditCard,
+    Facebook,
+    Instagram,
+    Key,
+    Plus,
+    Save,
+    ShieldCheck,
+    Trash2,
+    UserCog,
+    Youtube
+} from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
@@ -16,7 +28,26 @@ const DEFAULT_FORM = {
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
-    whatsappNumber: ''
+    whatsappNumber: '',
+    razorpayKeyId: '',
+    razorpayKeySecret: '',
+    razorpayWebhookSecret: '',
+    razorpayEmiMinAmount: 3000,
+    razorpayStartingTenureMonths: 12
+};
+
+const isValidEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+const isValidContact = (value = '') => /^[0-9+\-\s()]{7,20}$/.test(String(value || '').trim());
+const isValidWhatsApp = (value = '') => /^\d{10,14}$/.test(String(value || '').trim());
+const isValidUrl = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return true;
+    try {
+        const parsed = new URL(raw);
+        return ['http:', 'https:'].includes(parsed.protocol);
+    } catch {
+        return false;
+    }
 };
 
 export default function CompanyInfo() {
@@ -46,10 +77,15 @@ export default function CompanyInfo() {
             setIsLoading(true);
             try {
                 const data = await adminService.getCompanyInfo();
-                setForm({ ...DEFAULT_FORM, ...(data?.company || {}) });
+                setForm({
+                    ...DEFAULT_FORM,
+                    ...(data?.company || {}),
+                    razorpayKeySecret: '',
+                    razorpayWebhookSecret: ''
+                });
                 await refreshUsers(false);
             } catch (error) {
-                toast.error(error.message || 'Failed to load company info');
+                toast.error(error.message || 'Failed to load settings');
             } finally {
                 setIsLoading(false);
             }
@@ -60,9 +96,52 @@ export default function CompanyInfo() {
     useAdminCrudSync({
         'company:info_update': ({ company } = {}) => {
             if (!company || typeof company !== 'object') return;
-            setForm((prev) => ({ ...prev, ...DEFAULT_FORM, ...company }));
+            setForm((prev) => ({
+                ...prev,
+                ...DEFAULT_FORM,
+                ...company,
+                razorpayKeySecret: '',
+                razorpayWebhookSecret: ''
+            }));
         }
     });
+
+    const formErrors = useMemo(() => {
+        const errors = {};
+        if (!String(form.displayName || '').trim()) {
+            errors.displayName = 'Company name is required';
+        }
+        if (!String(form.contactNumber || '').trim()) {
+            errors.contactNumber = 'Contact number is required';
+        } else if (!isValidContact(form.contactNumber)) {
+            errors.contactNumber = 'Contact number format is invalid';
+        }
+        if (!String(form.supportEmail || '').trim()) {
+            errors.supportEmail = 'Support email is required';
+        } else if (!isValidEmail(form.supportEmail)) {
+            errors.supportEmail = 'Support email is invalid';
+        }
+        if (!String(form.whatsappNumber || '').trim()) {
+            errors.whatsappNumber = 'WhatsApp number is required';
+        } else if (!isValidWhatsApp(form.whatsappNumber)) {
+            errors.whatsappNumber = 'WhatsApp number must be 10-14 digits';
+        }
+        if (!String(form.razorpayKeyId || '').trim()) {
+            errors.razorpayKeyId = 'Razorpay Key ID is required';
+        } else if (!/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(String(form.razorpayKeyId || '').trim())) {
+            errors.razorpayKeyId = 'Razorpay Key ID format is invalid';
+        }
+        if (!Number.isFinite(Number(form.razorpayEmiMinAmount)) || Number(form.razorpayEmiMinAmount) < 1) {
+            errors.razorpayEmiMinAmount = 'Minimum EMI amount must be greater than 0';
+        }
+        if (!Number.isFinite(Number(form.razorpayStartingTenureMonths)) || Number(form.razorpayStartingTenureMonths) < 1) {
+            errors.razorpayStartingTenureMonths = 'Starting tenure must be greater than 0';
+        }
+        if (!isValidUrl(form.instagramUrl) || !isValidUrl(form.youtubeUrl) || !isValidUrl(form.facebookUrl)) {
+            errors.socialUrl = 'One or more social URLs are invalid';
+        }
+        return errors;
+    }, [form]);
 
     const canResetPassword = (targetUser) => {
         if (!currentUser) return false;
@@ -83,13 +162,27 @@ export default function CompanyInfo() {
 
     const handleSave = async (e) => {
         e.preventDefault();
+        const firstError = Object.values(formErrors)[0];
+        if (firstError) {
+            toast.error(firstError);
+            return;
+        }
         setIsSaving(true);
         try {
-            const data = await adminService.updateCompanyInfo(form);
-            setForm({ ...DEFAULT_FORM, ...(data?.company || {}) });
-            toast.success('Company info updated');
+            const data = await adminService.updateCompanyInfo({
+                ...form,
+                razorpayEmiMinAmount: Number(form.razorpayEmiMinAmount || 0),
+                razorpayStartingTenureMonths: Number(form.razorpayStartingTenureMonths || 0)
+            });
+            setForm({
+                ...DEFAULT_FORM,
+                ...(data?.company || {}),
+                razorpayKeySecret: '',
+                razorpayWebhookSecret: ''
+            });
+            toast.success('Settings updated');
         } catch (error) {
-            toast.error(error.message || 'Failed to update company info');
+            toast.error(error.message || 'Failed to update settings');
         } finally {
             setIsSaving(false);
         }
@@ -157,7 +250,7 @@ export default function CompanyInfo() {
     };
 
     if (isLoading) {
-        return <div className="py-16 text-center text-gray-400">Loading company information...</div>;
+        return <div className="py-16 text-center text-gray-400">Loading settings...</div>;
     }
 
     return (
@@ -180,12 +273,13 @@ export default function CompanyInfo() {
             />
 
             <div className="mb-6">
-                <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Company Info</h1>
-                <p className="text-gray-500 text-sm mt-1">These values are used for invoices and public footer details.</p>
+                <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Settings</h1>
+                <p className="text-gray-500 text-sm mt-1">Manage company profile and payment gateway configuration.</p>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+            <div className="relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                <Building2 size={70} className="absolute right-3 bottom-2 text-gray-100 pointer-events-none" />
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3 relative z-10">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Admins & Staff</h3>
                     {currentUser?.role === 'admin' && (
                         <button
@@ -196,7 +290,7 @@ export default function CompanyInfo() {
                         </button>
                     )}
                 </div>
-                <table className="hidden md:table w-full text-left">
+                <table className="hidden md:table w-full text-left relative z-10">
                     <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
                             <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">User</th>
@@ -250,70 +344,31 @@ export default function CompanyInfo() {
                         ))}
                     </tbody>
                 </table>
-                <div className="md:hidden divide-y divide-gray-100">
-                    {staffAndAdmins.map((user) => (
-                        <div key={`m-${user.id}`} className="px-4 py-4">
-                            <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${user.role === 'admin' ? 'bg-accent text-primary' : 'bg-blue-100 text-blue-700'}`}>
-                                        {user.role === 'admin' ? <ShieldCheck size={14} /> : <UserCog size={14} />}
-                                    </div>
-                                    <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
-                                </div>
-                                <div className="flex justify-end gap-1">
-                                    {canResetPassword(user) && (
-                                        <button
-                                            onClick={() => openResetModal(user)}
-                                            className="text-gray-400 hover:text-accent-deep hover:bg-amber-50 p-1.5 rounded-md transition-all"
-                                            title="Reset Password"
-                                        >
-                                            <Key size={16} />
-                                        </button>
-                                    )}
-                                    {canDeleteUser(user) && (
-                                        <button
-                                            onClick={() => openDeleteModal(user)}
-                                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-md transition-all"
-                                            title="Delete User"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="mt-3 grid grid-cols-2 gap-4">
-                                <div>
-                                    <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Contact</p>
-                                    <p className="text-xs text-gray-700 mt-1 break-all">{user.email || '—'}</p>
-                                    <p className="text-xs text-gray-500 mt-1">{user.mobile || '—'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Role</p>
-                                    <div className="mt-1">
-                                        {user.role === 'admin' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-primary text-accent">ADMIN</span>}
-                                        {user.role === 'staff' && <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-blue-100 text-blue-700">STAFF</span>}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
             </div>
 
             <form onSubmit={handleSave} className="grid grid-cols-1 gap-5">
-                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                    <Building2 size={72} className="absolute right-3 bottom-2 text-gray-100 pointer-events-none" />
+                    <div className="relative z-10">
+                        <h3 className="text-sm font-semibold text-gray-800">Company Info</h3>
+                        <p className="text-xs text-gray-500 mt-1">Mandatory fields are highlighted in red if invalid.</p>
+                    </div>
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field
                             label="Company Display Name"
                             value={form.displayName}
                             onChange={(value) => handleChange('displayName', value)}
                             placeholder="SSC Jewellery"
+                            required
+                            error={formErrors.displayName}
                         />
                         <Field
                             label="Contact Number"
                             value={form.contactNumber}
                             onChange={(value) => handleChange('contactNumber', value)}
                             placeholder="+91 95009 41350"
+                            required
+                            error={formErrors.contactNumber}
                         />
                         <Field
                             label="Support Email"
@@ -321,16 +376,20 @@ export default function CompanyInfo() {
                             onChange={(value) => handleChange('supportEmail', value)}
                             placeholder="support@example.com"
                             type="email"
+                            required
+                            error={formErrors.supportEmail}
                         />
                         <Field
                             label="WhatsApp Number"
                             value={form.whatsappNumber}
-                            onChange={(value) => handleChange('whatsappNumber', value)}
+                            onChange={(value) => handleChange('whatsappNumber', String(value || '').replace(/\D/g, '').slice(0, 14))}
                             placeholder="919500941350"
+                            required
+                            error={formErrors.whatsappNumber}
                         />
                     </div>
 
-                    <label className="block">
+                    <label className="relative z-10 block">
                         <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Address</span>
                         <textarea
                             value={form.address}
@@ -341,7 +400,7 @@ export default function CompanyInfo() {
                         />
                     </label>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field
                             label="Instagram URL"
                             value={form.instagramUrl}
@@ -367,27 +426,89 @@ export default function CompanyInfo() {
                             iconClassName="text-blue-600"
                         />
                     </div>
+                    {formErrors.socialUrl && <p className="relative z-10 text-xs text-red-600">{formErrors.socialUrl}</p>}
+                </div>
 
-                    <div className="pt-2 flex justify-end">
-                        <button
-                            type="submit"
-                            disabled={isSaving}
-                            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
-                        >
-                            <Save size={16} />
-                            {isSaving ? 'Saving...' : 'Save Company Info'}
-                        </button>
+                <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                    <CreditCard size={72} className="absolute right-3 bottom-2 text-gray-100 pointer-events-none" />
+                    <div className="relative z-10">
+                        <h3 className="text-sm font-semibold text-gray-800">Razorpay Settings</h3>
+                        <p className="text-xs text-gray-500 mt-1">Stored in database and used by checkout/webhooks.</p>
                     </div>
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Field
+                            label="Razorpay Key ID"
+                            value={form.razorpayKeyId}
+                            onChange={(value) => handleChange('razorpayKeyId', value.trim())}
+                            placeholder="rzp_live_xxxxx"
+                            required
+                            error={formErrors.razorpayKeyId}
+                        />
+                        <Field
+                            label="Razorpay Key Secret"
+                            value={form.razorpayKeySecret}
+                            onChange={(value) => handleChange('razorpayKeySecret', value)}
+                            placeholder={form.hasRazorpayKeySecret ? `Saved (${form.razorpayKeySecretMask || '******'}) - enter to replace` : 'Enter key secret'}
+                            type="password"
+                        />
+                        <Field
+                            label="Webhook Secret"
+                            value={form.razorpayWebhookSecret}
+                            onChange={(value) => handleChange('razorpayWebhookSecret', value)}
+                            placeholder={form.hasRazorpayWebhookSecret ? `Saved (${form.razorpayWebhookSecretMask || '******'}) - enter to replace` : 'Enter webhook secret'}
+                            type="password"
+                        />
+                        <Field
+                            label="EMI Min Amount (INR)"
+                            value={form.razorpayEmiMinAmount}
+                            onChange={(value) => handleChange('razorpayEmiMinAmount', String(value || '').replace(/[^0-9]/g, ''))}
+                            type="number"
+                            required
+                            error={formErrors.razorpayEmiMinAmount}
+                        />
+                        <Field
+                            label="Starting Tenure (Months)"
+                            value={form.razorpayStartingTenureMonths}
+                            onChange={(value) => handleChange('razorpayStartingTenureMonths', String(value || '').replace(/[^0-9]/g, ''))}
+                            type="number"
+                            required
+                            error={formErrors.razorpayStartingTenureMonths}
+                        />
+                    </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                    <button
+                        type="submit"
+                        disabled={isSaving}
+                        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
+                    >
+                        <Save size={16} />
+                        {isSaving ? 'Saving...' : 'Save Settings'}
+                    </button>
                 </div>
             </form>
         </div>
     );
 }
 
-function Field({ label, value, onChange, placeholder, type = 'text', icon: Icon = null, iconClassName = 'text-gray-400' }) {
+function Field({
+    label,
+    value,
+    onChange,
+    placeholder,
+    type = 'text',
+    icon: Icon = null,
+    iconClassName = 'text-gray-400',
+    required = false,
+    error = ''
+}) {
     return (
         <label className="block">
-            <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{label}</span>
+            <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+                {label}
+                {required ? <span className="text-red-500"> *</span> : null}
+            </span>
             <div className="relative mt-2">
                 {Icon && <Icon size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${iconClassName}`} />}
                 <input
@@ -395,9 +516,10 @@ function Field({ label, value, onChange, placeholder, type = 'text', icon: Icon 
                     value={value || ''}
                     onChange={(e) => onChange(e.target.value)}
                     placeholder={placeholder}
-                    className={`w-full rounded-xl border border-gray-200 py-3 text-sm text-gray-700 focus:border-accent outline-none ${Icon ? 'pl-10 pr-4' : 'px-4'}`}
+                    className={`w-full rounded-xl border py-3 text-sm text-gray-700 focus:border-accent outline-none ${Icon ? 'pl-10 pr-4' : 'px-4'} ${error ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}
                 />
             </div>
+            {error ? <p className="mt-1 text-[11px] text-red-600">{error}</p> : null}
         </label>
     );
 }

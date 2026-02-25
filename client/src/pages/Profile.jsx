@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
 import { useMyOrders } from '../context/OrderContext';
+import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -259,9 +260,23 @@ export default function Profile() {
     const dobLocked = !!user.dobLocked;
     const tier = String(loyaltyStatus?.tier || user?.loyaltyTier || 'regular').toLowerCase();
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
-    const rawTierLabel = String(loyaltyStatus?.profile?.label || (tier === 'regular' ? 'Basic' : tier));
-    const tierLabel = rawTierLabel.toLowerCase() === 'regular' ? 'Basic' : rawTierLabel;
+    const tierLabel = formatTierLabel(loyaltyStatus?.profile?.label || tier);
     const progressPct = Number(loyaltyStatus?.progress?.progressPct || 0);
+    const spendKey = getTierSpendKey(tier);
+    const currentSpend = Number(loyaltyStatus?.spends?.[spendKey] || 0);
+    const neededToNext = Number(loyaltyStatus?.progress?.needed || 0);
+    const nextTierKey = loyaltyStatus?.progress?.nextTier || getNextTierFromCurrent(tier);
+    const nextTierLabel = nextTierKey ? formatTierLabel(loyaltyStatus?.nextTierProfile?.label || nextTierKey) : '';
+    const progressMessage = String(loyaltyStatus?.progress?.message || '').trim();
+    const isProgressMessageDuplicated = Boolean(
+        nextTierLabel
+        && neededToNext > 0
+        && /spend/i.test(progressMessage)
+        && /unlock/i.test(progressMessage)
+    );
+    const membershipMessage = (!isProgressMessageDuplicated && progressMessage)
+        ? progressMessage
+        : 'Keep your profile updated to receive curated offers.';
 
     return (
         <div className="bg-secondary min-h-screen">
@@ -270,7 +285,7 @@ export default function Profile() {
                     <div className="lg:w-1/3 space-y-6">
                         <div className={`relative bg-white rounded-2xl shadow-xl border-2 ${tierTheme.profileBorder} p-6 overflow-hidden`}>
                             {tier !== 'regular' && (
-                                <span className={`absolute top-0 right-0 px-3 py-1 text-[10px] md:text-xs font-bold uppercase tracking-[0.2em] rounded-bl-xl ${tierTheme.profileRibbon}`}>
+                                <span className={`absolute top-0 right-0 px-3 py-1 text-[10px] md:text-xs font-bold tracking-[0.12em] rounded-bl-xl ${tierTheme.profileRibbon}`}>
                                     {tierLabel}
                                 </span>
                             )}
@@ -309,22 +324,28 @@ export default function Profile() {
                             </div>
                         </div>
 
-                        <div className={`bg-gradient-to-br ${tierTheme.card} rounded-2xl p-6 shadow-xl`}>
+                        <div className={`relative overflow-hidden bg-gradient-to-br ${tierTheme.card} rounded-2xl p-6 shadow-xl`}>
                             <div className="flex items-center gap-3">
                                 <Sparkles size={18} className="text-accent" />
                                 <p className={`!mb-0 text-xs uppercase tracking-[0.3em] font-semibold ${tierTheme.caption}`}>Member Perks</p>
                             </div>
                             <p className={`!mb-0 text-lg font-semibold mt-3 ${tierTheme.title}`}>
-                                {tierLabel} tier active.
+                                {getMembershipLabel(tierLabel)} active.
                             </p>
                             <p className={`!mb-0 text-sm mt-2 ${tierTheme.body}`}>
-                                {loyaltyStatus?.progress?.message || 'Keep your profile updated to receive curated offers.'}
+                                {membershipMessage}
                             </p>
+                            <div className={`mt-3 text-xs ${tierTheme.caption}`}>
+                                Spent: ₹{currentSpend.toLocaleString('en-IN')}
+                            </div>
+                            <div className={`mt-1 text-xs ${tierTheme.caption}`}>
+                                {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
+                            </div>
                             <div className="mt-4 h-2 rounded-full bg-white/30 overflow-hidden">
                                 <div className="h-full bg-white rounded-full" style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
                             </div>
                             <div className={`mt-2 text-xs ${tierTheme.caption}`}>
-                                {progressPct}% to {loyaltyStatus?.nextTierProfile?.label || 'next tier'}
+                                {progressPct}% to {nextTierLabel ? getMembershipLabel(nextTierLabel) : 'next tier'}
                             </div>
                             <Link to="/shop" className={`inline-flex items-center justify-center mt-5 px-4 py-2 rounded-lg transition-colors text-sm font-semibold ${tierTheme.button}`}>
                                 Explore Collections
@@ -385,7 +406,7 @@ export default function Profile() {
                                                 <p className="text-sm font-semibold text-gray-800">Current Benefits</p>
                                                 {tier !== 'regular' && (
                                                     <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.chip}`}>
-                                                        {tierLabel.toUpperCase()}
+                                                        {tierLabel}
                                                     </span>
                                                 )}
                                             </div>

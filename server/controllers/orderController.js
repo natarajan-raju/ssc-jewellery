@@ -3,7 +3,7 @@ const db = require('../config/db');
 const crypto = require('crypto');
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const WebhookEvent = require('../models/WebhookEvent');
-const { createRazorpayClient } = require('../services/razorpayService');
+const { createRazorpayClient, getRazorpayConfig } = require('../services/razorpayService');
 const { markRecoveredByOrder } = require('../services/abandonedCartRecoveryService');
 const AbandonedCart = require('../models/AbandonedCart');
 const Coupon = require('../models/Coupon');
@@ -99,6 +99,23 @@ const parseAddressObject = (value) => {
     } catch {
         return null;
     }
+};
+
+const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${fieldLabel} must be an object`);
+    }
+    const line1 = String(value.line1 || '').trim();
+    const city = String(value.city || '').trim();
+    const state = String(value.state || '').trim();
+    const zip = String(value.zip || '').trim();
+    if (!line1 || !city || !state || !zip) {
+        throw new Error(`${fieldLabel} fields are required`);
+    }
+    if (!/^[0-9A-Za-z\\-\\s]{3,12}$/.test(zip)) {
+        throw new Error(`${fieldLabel} zip code is invalid`);
+    }
+    return { line1, city, state, zip };
 };
 
 const parseCategoryScopeIds = (coupon = null) => {
@@ -289,10 +306,18 @@ const createRazorpayOrder = async (req, res) => {
     try {
         const userId = req.user.id;
         const { billingAddress, shippingAddress, notes, couponCode } = req.body || {};
+        const safeShippingAddress = normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
+        const safeBillingAddress = normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' });
+        if (notes !== undefined && (typeof notes !== 'object' || Array.isArray(notes))) {
+            return res.status(400).json({ message: 'Notes must be an object' });
+        }
+        if (couponCode !== undefined && typeof couponCode !== 'string') {
+            return res.status(400).json({ message: 'Coupon code must be a string' });
+        }
 
         const normalizedCouponCode = String(couponCode || '').trim().toUpperCase() || null;
         const summary = await Order.getCheckoutSummary(userId, {
-            shippingAddress,
+            shippingAddress: safeShippingAddress,
             couponCode: normalizedCouponCode
         });
         const amount = toSubunit(summary.total);
@@ -301,7 +326,8 @@ const createRazorpayOrder = async (req, res) => {
             return res.status(400).json({ message: 'Order amount should be at least INR 1.00' });
         }
 
-        const razorpay = createRazorpayClient();
+        const razorpay = await createRazorpayClient();
+        const razorpayConfig = await getRazorpayConfig();
         const expiresAt = getAttemptExpiryDate();
         const razorpayOrder = await razorpay.orders.create({
             amount,
@@ -320,8 +346,8 @@ const createRazorpayOrder = async (req, res) => {
             razorpayOrderId: razorpayOrder.id,
             amountSubunits: amount,
             currency: summary.currency || 'INR',
-            billingAddress,
-            shippingAddress,
+            billingAddress: safeBillingAddress,
+            shippingAddress: safeShippingAddress,
             notes: {
                 ...(notes && typeof notes === 'object' ? notes : {}),
                 ...(normalizedCouponCode ? { couponCode: normalizedCouponCode } : {})
@@ -345,7 +371,7 @@ const createRazorpayOrder = async (req, res) => {
 
         return res.status(201).json({
             order: razorpayOrder,
-            keyId: process.env.RAZORPAY_KEY_ID,
+            keyId: razorpayConfig?.keyId || '',
             summary,
             attempt: {
                 id: attempt.id,
@@ -404,7 +430,8 @@ const verifyRazorpayPayment = async (req, res) => {
             return res.status(410).json({ message: 'Payment session expired. Please retry payment.' });
         }
 
-        const secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+        const razorpayConfig = await getRazorpayConfig();
+        const secret = String(razorpayConfig?.keySecret || '').trim();
         if (!secret) {
             return res.status(500).json({ message: 'Razorpay is not configured on server' });
         }
@@ -455,7 +482,7 @@ const verifyRazorpayPayment = async (req, res) => {
         lockedPaymentId = razorpayPaymentId;
         lockedSignature = razorpaySignature;
 
-        const razorpay = createRazorpayClient();
+        const razorpay = await createRazorpayClient();
         const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
 
         if (!paymentDetails || String(paymentDetails.order_id) !== String(attempt.razorpay_order_id)) {
@@ -633,7 +660,8 @@ const retryRazorpayPayment = async (req, res) => {
 const handleRazorpayWebhook = async (req, res) => {
     let webhookEventId = null;
     try {
-        const secret = (process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+        const razorpayConfig = await getRazorpayConfig();
+        const secret = String(razorpayConfig?.webhookSecret || '').trim();
         if (!secret) {
             return res.status(500).json({ message: 'Webhook secret not configured' });
         }
@@ -948,8 +976,9 @@ const validateRecoveryCoupon = async (req, res) => {
             return res.status(400).json({ message: 'Coupon code is required' });
         }
         const { shippingAddress = null } = req.body || {};
+        const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
         const summary = await Order.getCheckoutSummary(userId, {
-            shippingAddress,
+            shippingAddress: safeShippingAddress,
             couponCode: code
         });
         return res.json({
@@ -1148,10 +1177,14 @@ const getPublicPopupData = async (req, res) => {
 const getCheckoutSummary = async (req, res) => {
     try {
         const userId = req.user.id;
+        if (req.body?.couponCode !== undefined && typeof req.body?.couponCode !== 'string') {
+            return res.status(400).json({ message: 'Coupon code must be a string' });
+        }
         const code = String(req.body?.couponCode || '').trim().toUpperCase() || null;
         const { shippingAddress = null } = req.body || {};
+        const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
         const summary = await Order.getCheckoutSummary(userId, {
-            shippingAddress,
+            shippingAddress: safeShippingAddress,
             couponCode: code
         });
         return res.json({ summary });
@@ -1358,7 +1391,7 @@ const updateOrderStatus = async (req, res) => {
                 if (!Number.isFinite(amountSubunits) || amountSubunits <= 0) {
                     return res.status(400).json({ message: 'Refundable amount is zero after excluding shipping charges' });
                 }
-                const razorpay = createRazorpayClient();
+                const razorpay = await createRazorpayClient();
                 const paymentId = String(existingOrder.razorpay_payment_id).trim();
                 const payload = {
                     speed: 'optimum',
@@ -1451,7 +1484,7 @@ const updateOrderStatus = async (req, res) => {
             String(existingOrder?.payment_status || '').toLowerCase() === PAYMENT_STATUS.PAID &&
             String(existingOrder?.razorpay_payment_id || '').trim()
         ) {
-            const razorpay = createRazorpayClient();
+            const razorpay = await createRazorpayClient();
             const paymentId = String(existingOrder.razorpay_payment_id).trim();
             const amountSubunits = Math.round(Math.max(0, refundableBaseAmount) * 100);
             const payload = {
@@ -1640,7 +1673,8 @@ const deleteAdminPaymentAttempt = async (req, res) => {
 
 const fetchAdminPaymentStatus = async (req, res) => {
     try {
-        const isRazorpayTestMode = String(process.env.RAZORPAY_KEY_ID || '').trim().toLowerCase().startsWith('rzp_test_');
+        const razorpayConfig = await getRazorpayConfig();
+        const isRazorpayTestMode = String(razorpayConfig?.keyId || '').trim().toLowerCase().startsWith('rzp_test_');
         const {
             orderId = null,
             attemptId = null,
@@ -1675,7 +1709,7 @@ const fetchAdminPaymentStatus = async (req, res) => {
             return res.status(400).json({ message: 'Razorpay order or payment reference is required' });
         }
 
-        const razorpay = createRazorpayClient();
+        const razorpay = await createRazorpayClient();
         let razorpayOrder = null;
         let paymentDetails = null;
 

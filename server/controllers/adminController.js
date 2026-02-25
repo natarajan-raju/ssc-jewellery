@@ -1612,9 +1612,67 @@ const getCompanyInfo = async (_req, res) => {
     }
 };
 
+const isValidEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+const isValidUrl = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return true;
+    try {
+        // Accept only http(s) URLs
+        const parsed = new URL(raw);
+        return ['http:', 'https:'].includes(parsed.protocol);
+    } catch {
+        return false;
+    }
+};
+
 const updateCompanyInfo = async (req, res) => {
     try {
         const payload = req.body || {};
+        const displayName = String(payload.displayName || '').trim();
+        const contactNumber = String(payload.contactNumber || '').trim();
+        const supportEmail = String(payload.supportEmail || '').trim();
+        const whatsappNumber = String(payload.whatsappNumber || '').trim();
+        const razorpayKeyId = String(payload.razorpayKeyId || '').trim();
+        const razorpayKeySecret = typeof payload.razorpayKeySecret === 'string'
+            ? String(payload.razorpayKeySecret || '').trim()
+            : null;
+        const razorpayWebhookSecret = typeof payload.razorpayWebhookSecret === 'string'
+            ? String(payload.razorpayWebhookSecret || '').trim()
+            : null;
+        const emiMinAmount = Number(payload.razorpayEmiMinAmount || 0);
+        const startingTenure = Number(payload.razorpayStartingTenureMonths || 0);
+
+        if (!displayName) {
+            return res.status(400).json({ message: 'Company display name is required' });
+        }
+        if (supportEmail && !isValidEmail(supportEmail)) {
+            return res.status(400).json({ message: 'Support email is invalid' });
+        }
+        if (contactNumber && !/^[0-9+\-\s()]{7,20}$/.test(contactNumber)) {
+            return res.status(400).json({ message: 'Contact number format is invalid' });
+        }
+        if (whatsappNumber && !/^\d{10,14}$/.test(whatsappNumber)) {
+            return res.status(400).json({ message: 'WhatsApp number must be 10-14 digits' });
+        }
+        if (!isValidUrl(payload.instagramUrl) || !isValidUrl(payload.youtubeUrl) || !isValidUrl(payload.facebookUrl)) {
+            return res.status(400).json({ message: 'One or more social links are invalid URLs' });
+        }
+        if (razorpayKeyId && !/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(razorpayKeyId)) {
+            return res.status(400).json({ message: 'Razorpay Key ID format is invalid' });
+        }
+        if (razorpayKeySecret !== null && razorpayKeySecret && !/^([a-zA-Z0-9_\-]{8,})$/.test(razorpayKeySecret)) {
+            return res.status(400).json({ message: 'Razorpay Key Secret format is invalid' });
+        }
+        if (razorpayWebhookSecret !== null && razorpayWebhookSecret && String(razorpayWebhookSecret).length < 8) {
+            return res.status(400).json({ message: 'Razorpay Webhook Secret must be at least 8 characters' });
+        }
+        if (!Number.isFinite(emiMinAmount) || emiMinAmount < 1 || emiMinAmount > 10000000) {
+            return res.status(400).json({ message: 'EMI minimum amount must be between 1 and 10000000' });
+        }
+        if (!Number.isFinite(startingTenure) || startingTenure < 1 || startingTenure > 120) {
+            return res.status(400).json({ message: 'Starting tenure must be between 1 and 120 months' });
+        }
+
         const company = await CompanyProfile.update(payload);
         const io = req.app.get('io');
         if (io) {

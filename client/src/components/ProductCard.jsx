@@ -5,6 +5,7 @@ import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
 import { vibrateTap } from '../utils/haptics';
 import { useAuth } from '../context/AuthContext';
+import { formatTierLabel } from '../utils/tierFormat';
 
 const EXTRA_DISCOUNT_BY_TIER = {
     regular: 0,
@@ -345,7 +346,7 @@ export default function ProductCard({ product }) {
                 </div>
                 {memberPct > 0 && (
                     <p className="text-[11px] text-blue-700 mt-1">
-                        {(loyaltyTier === 'regular' ? 'BASIC' : loyaltyTier.toUpperCase())} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
+                        {formatTierLabel(loyaltyTier)} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
                     </p>
                 )}
                 <div className="md:hidden">
