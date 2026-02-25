@@ -10,6 +10,7 @@ import {
     ShieldCheck,
     Trash2,
     UserCog,
+    Upload,
     Youtube
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
@@ -19,6 +20,7 @@ import { useCustomers } from '../../context/CustomerContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import Modal from '../../components/Modal';
+import fallbackContactImage from '../../assets/contact.jpg';
 
 const DEFAULT_FORM = {
     displayName: '',
@@ -29,6 +31,7 @@ const DEFAULT_FORM = {
     youtubeUrl: '',
     facebookUrl: '',
     whatsappNumber: '',
+    contactJumbotronImageUrl: '/assets/contact.jpg',
     razorpayKeyId: '',
     razorpayKeySecret: '',
     razorpayWebhookSecret: '',
@@ -57,6 +60,7 @@ export default function CompanyInfo() {
     const [form, setForm] = useState(DEFAULT_FORM);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isJumbotronUploading, setIsJumbotronUploading] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
     const [modalConfig, setModalConfig] = useState({
@@ -140,6 +144,10 @@ export default function CompanyInfo() {
         if (!isValidUrl(form.instagramUrl) || !isValidUrl(form.youtubeUrl) || !isValidUrl(form.facebookUrl)) {
             errors.socialUrl = 'One or more social URLs are invalid';
         }
+        const jumbotron = String(form.contactJumbotronImageUrl || '').trim();
+        if (jumbotron && !isValidUrl(jumbotron) && !jumbotron.startsWith('/')) {
+            errors.contactJumbotronImageUrl = 'Contact jumbotron image must be a valid URL or an absolute asset path';
+        }
         return errors;
     }, [form]);
 
@@ -158,6 +166,22 @@ export default function CompanyInfo() {
 
     const handleChange = (key, value) => {
         setForm((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const handleContactJumbotronUpload = async (file) => {
+        if (!file) return;
+        setIsJumbotronUploading(true);
+        try {
+            const data = await adminService.uploadContactJumbotronImage(file);
+            const imageUrl = String(data?.url || '').trim();
+            if (!imageUrl) throw new Error('Upload did not return an image URL');
+            setForm((prev) => ({ ...prev, contactJumbotronImageUrl: imageUrl }));
+            toast.success('Contact jumbotron image uploaded');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to upload contact jumbotron image');
+        } finally {
+            setIsJumbotronUploading(false);
+        }
     };
 
     const handleSave = async (e) => {
@@ -425,6 +449,40 @@ export default function CompanyInfo() {
                             icon={Facebook}
                             iconClassName="text-blue-600"
                         />
+                        <Field
+                            label="Contact Jumbotron Image URL"
+                            value={form.contactJumbotronImageUrl}
+                            onChange={(value) => handleChange('contactJumbotronImageUrl', value)}
+                            placeholder="/assets/contact.jpg"
+                            error={formErrors.contactJumbotronImageUrl}
+                        />
+                    </div>
+                    <div className="relative z-10">
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                            <Upload size={14} />
+                            {isJumbotronUploading ? 'Uploading image...' : 'Browse & Upload Jumbotron'}
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isJumbotronUploading}
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    handleContactJumbotronUpload(file);
+                                    e.target.value = '';
+                                }}
+                            />
+                        </label>
+                        {form.contactJumbotronImageUrl && (
+                            <div className="mt-3 h-28 w-full max-w-sm overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                <img
+                                    src={form.contactJumbotronImageUrl}
+                                    alt="Contact jumbotron preview"
+                                    className="h-full w-full object-cover"
+                                    onError={(e) => { e.currentTarget.src = fallbackContactImage; }}
+                                />
+                            </div>
+                        )}
                     </div>
                     {formErrors.socialUrl && <p className="relative z-10 text-xs text-red-600">{formErrors.socialUrl}</p>}
                 </div>

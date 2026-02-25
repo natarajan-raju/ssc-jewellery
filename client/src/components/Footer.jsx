@@ -124,6 +124,7 @@ export default function Footer() {
                                 <>
                                     <Link to="/profile" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><User size={14} className="text-white/40" />My Profile</Link>
                                     <Link to="/orders" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Package size={14} className="text-white/40" />My Orders</Link>
+                                    <Link to="/track-order" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Package size={14} className="text-white/40" />Track Order</Link>
                                 </>
                             ) : (
                                 <>
@@ -131,7 +132,6 @@ export default function Footer() {
                                     <Link to="/register" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><User size={14} className="text-white/40" />Create Account</Link>
                                 </>
                             )}
-                            <Link to="/track-order" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Package size={14} className="text-white/40" />Track Order</Link>
                             <Link to="/support" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><HelpCircle size={14} className="text-white/40" />Customer Support</Link>
                         </div>
                     </div>

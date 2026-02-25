@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
-import logo from '/logo.webp';
+import logo from '../assets/logo.webp';
+import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { formatTierLabel } from '../utils/tierFormat';
 
@@ -41,6 +42,41 @@ const TIER_STYLES = {
     }
 };
 
+const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
+const MAX_SEARCH_RESULTS = 8;
+
+const readSeedCache = () => {
+    try {
+        const raw = localStorage.getItem(NAV_SEARCH_SEED_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+};
+
+const writeSeedCache = (products = []) => {
+    try {
+        localStorage.setItem(NAV_SEARCH_SEED_KEY, JSON.stringify(products));
+    } catch {
+        // ignore storage errors
+    }
+};
+
+const getMediaThumbnail = (product = {}) => {
+    const mediaList = Array.isArray(product?.media) ? product.media : [];
+    const image = mediaList.find((entry) => entry?.type === 'image' && entry?.url);
+    return image?.url || placeholderImg;
+};
+
+const getPriceLabel = (product = {}) => {
+    const discount = Number(product?.discount_price || 0);
+    const mrp = Number(product?.mrp || 0);
+    if (discount > 0 && mrp > 0 && discount < mrp) return `₹${discount.toLocaleString('en-IN')}`;
+    if (mrp > 0) return `₹${mrp.toLocaleString('en-IN')}`;
+    return 'View Product';
+};
+
 export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
@@ -60,6 +96,16 @@ export default function Navbar() {
     const megaMenuRef = useRef(null);
     const megaTriggerRef = useRef(null);
     const refreshTimerRef = useRef(null);
+    const desktopSearchRef = useRef(null);
+    const mobileSearchRef = useRef(null);
+    const searchDebounceRef = useRef(null);
+    const searchAbortRef = useRef(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [seedProducts, setSeedProducts] = useState([]);
+    const seedProductsRef = useRef([]);
+    const [searchResults, setSearchResults] = useState([]);
+    const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [isSearchLoading, setIsSearchLoading] = useState(false);
 
    
 
@@ -68,6 +114,11 @@ export default function Navbar() {
         const handleClickOutside = (event) => {
             if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
                 setIsUserMenuOpen(false);
+            }
+            const clickedInsideDesktop = desktopSearchRef.current?.contains(event.target);
+            const clickedInsideMobile = mobileSearchRef.current?.contains(event.target);
+            if (!clickedInsideDesktop && !clickedInsideMobile) {
+                setIsSearchOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -89,6 +140,7 @@ export default function Navbar() {
         setIsUserMenuOpen(false);
         setIsMegaOpen(false);
         setIsOpen(false);
+        setIsSearchOpen(false);
     }, [location.pathname]);
 
     useEffect(() => {
@@ -155,8 +207,135 @@ export default function Navbar() {
                 clearTimeout(refreshTimerRef.current);
                 refreshTimerRef.current = null;
             }
+            if (searchDebounceRef.current) {
+                clearTimeout(searchDebounceRef.current);
+                searchDebounceRef.current = null;
+            }
+            if (searchAbortRef.current) {
+                searchAbortRef.current.abort();
+                searchAbortRef.current = null;
+            }
         };
     }, []);
+
+    const runLocalSearch = useCallback((query, source) => {
+        const q = String(query || '').trim().toLowerCase();
+        if (!q) return [];
+        return (Array.isArray(source) ? source : [])
+            .filter((product) => {
+                const haystack = [
+                    product?.title,
+                    product?.subtitle,
+                    product?.sku
+                ].map((value) => String(value || '').toLowerCase()).join(' ');
+                return haystack.includes(q);
+            })
+            .slice(0, MAX_SEARCH_RESULTS);
+    }, []);
+
+    useEffect(() => {
+        const seeded = readSeedCache();
+        if (seeded.length > 0) {
+            setSeedProducts(seeded);
+        }
+        const warmSeed = async () => {
+            try {
+                const data = await productService.getProducts(1, 'all', 'active', 'newest', 160);
+                const list = Array.isArray(data?.products) ? data.products : [];
+                if (list.length > 0) {
+                    setSeedProducts(list);
+                    writeSeedCache(list);
+                }
+            } catch {
+                // no-op
+            }
+        };
+        warmSeed();
+    }, []);
+
+    useEffect(() => {
+        seedProductsRef.current = Array.isArray(seedProducts) ? seedProducts : [];
+    }, [seedProducts]);
+
+    useEffect(() => {
+        const q = String(searchQuery || '').trim();
+        if (!q) {
+            setSearchResults([]);
+            setIsSearchLoading(false);
+            if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            return;
+        }
+
+        const localMatches = runLocalSearch(q, seedProductsRef.current);
+        setSearchResults(localMatches);
+        setIsSearchOpen(true);
+
+        if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = setTimeout(async () => {
+            if (searchAbortRef.current) searchAbortRef.current.abort();
+            const controller = new AbortController();
+            searchAbortRef.current = controller;
+            setIsSearchLoading(true);
+            try {
+                const data = await productService.searchProducts(
+                    {
+                        query: q,
+                        page: 1,
+                        limit: MAX_SEARCH_RESULTS,
+                        status: 'active',
+                        sort: 'relevance'
+                    },
+                    { signal: controller.signal }
+                );
+                const remote = Array.isArray(data?.products) ? data.products : [];
+                setSearchResults((prev) => {
+                    const merged = [...(Array.isArray(prev) ? prev : []), ...remote];
+                    const seen = new Set();
+                    const deduped = [];
+                    merged.forEach((item) => {
+                        const id = String(item?.id || '').trim();
+                        if (!id || seen.has(id)) return;
+                        seen.add(id);
+                        deduped.push(item);
+                    });
+                    return deduped.slice(0, MAX_SEARCH_RESULTS);
+                });
+                if (remote.length > 0) {
+                    setSeedProducts((prev) => {
+                        const merged = [...remote, ...(Array.isArray(prev) ? prev : [])];
+                        const seen = new Set();
+                        const deduped = [];
+                        merged.forEach((item) => {
+                            const id = String(item?.id || '').trim();
+                            if (!id || seen.has(id)) return;
+                            seen.add(id);
+                            deduped.push(item);
+                        });
+                        const limited = deduped.slice(0, 250);
+                        writeSeedCache(limited);
+                        return limited;
+                    });
+                }
+            } catch (error) {
+                if (error?.name !== 'AbortError') {
+                    console.error('Navbar search failed:', error);
+                }
+            } finally {
+                if (searchAbortRef.current === controller) searchAbortRef.current = null;
+                setIsSearchLoading(false);
+            }
+        }, 120);
+    }, [runLocalSearch, searchQuery]);
+
+    const handleSearchSelect = (productId) => {
+        const id = String(productId || '').trim();
+        if (!id) return;
+        setIsSearchOpen(false);
+        setSearchQuery('');
+        setIsOpen(false);
+        navigate(`/product/${encodeURIComponent(id)}`);
+    };
 
     const handleLogout = async () => {
         await logout();
@@ -308,6 +487,55 @@ export default function Navbar() {
                         ))}
                     </div>
 
+                    <div className="hidden lg:block flex-1 max-w-md mx-6" ref={desktopSearchRef}>
+                        <div className="relative">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="search"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => {
+                                    if (String(searchQuery || '').trim()) setIsSearchOpen(true);
+                                }}
+                                placeholder="Search products..."
+                                className="w-full rounded-xl border border-gray-200 bg-white px-10 py-2.5 text-sm text-gray-700 outline-none focus:border-accent"
+                            />
+                            {isSearchOpen && (
+                                <div className="absolute top-full mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden z-[90]">
+                                    {searchResults.length === 0 && !isSearchLoading && (
+                                        <p className="px-4 py-3 text-sm text-gray-500">No products found.</p>
+                                    )}
+                                    <div className="max-h-80 overflow-y-auto">
+                                        {searchResults.map((product) => (
+                                            <button
+                                                key={`nav-search-${product.id}`}
+                                                type="button"
+                                                onClick={() => handleSearchSelect(product.id)}
+                                                className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b last:border-b-0 border-gray-100"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <img
+                                                        src={getMediaThumbnail(product)}
+                                                        alt={product?.title || 'Product'}
+                                                        className="w-10 h-10 rounded-lg object-cover border border-gray-100"
+                                                        onError={(e) => { e.currentTarget.src = placeholderImg; }}
+                                                    />
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-medium text-gray-800 truncate">{product?.title || 'Untitled Product'}</p>
+                                                        <p className="text-xs text-gray-500 truncate">{getPriceLabel(product)}</p>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {isSearchLoading && (
+                                        <p className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100">Searching...</p>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     {/* Actions */}
                     <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
                         {showTierBadge && (
@@ -348,6 +576,7 @@ export default function Navbar() {
                                         <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Profile</Link>
                                         <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Wishlist</Link>
                                         <Link to="/orders" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Orders</Link>
+                                        <Link to="/track-order" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">Track Order</Link>
                                         <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors flex items-center gap-2 border-t border-gray-100 mt-1">
                                             <LogOut size={16} /> Logout
                                         </button>
@@ -395,6 +624,53 @@ export default function Navbar() {
                 isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
             }`}>
                 <div className="flex flex-col p-6 space-y-4 text-center">
+                    <div className="relative text-left" ref={mobileSearchRef}>
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onFocus={() => {
+                                if (String(searchQuery || '').trim()) setIsSearchOpen(true);
+                            }}
+                            placeholder="Search products..."
+                            className="w-full rounded-xl border border-gray-200 bg-white px-10 py-2.5 text-sm text-gray-700 outline-none focus:border-accent"
+                        />
+                        {isSearchOpen && (
+                            <div className="absolute top-full mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden z-[90]">
+                                {searchResults.length === 0 && !isSearchLoading && (
+                                    <p className="px-4 py-3 text-sm text-gray-500">No products found.</p>
+                                )}
+                                <div className="max-h-72 overflow-y-auto">
+                                    {searchResults.map((product) => (
+                                        <button
+                                            key={`nav-search-mobile-${product.id}`}
+                                            type="button"
+                                            onClick={() => handleSearchSelect(product.id)}
+                                            className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b last:border-b-0 border-gray-100"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <img
+                                                    src={getMediaThumbnail(product)}
+                                                    alt={product?.title || 'Product'}
+                                                    className="w-10 h-10 rounded-lg object-cover border border-gray-100"
+                                                    onError={(e) => { e.currentTarget.src = placeholderImg; }}
+                                                />
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-gray-800 truncate">{product?.title || 'Untitled Product'}</p>
+                                                    <p className="text-xs text-gray-500 truncate">{getPriceLabel(product)}</p>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                                {isSearchLoading && (
+                                    <p className="px-4 py-2 text-xs text-gray-400 border-t border-gray-100">Searching...</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     <Link 
                         to="/shop"
                         className={`text-lg font-medium py-2 border-b border-gray-100 ${isShopActive() ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
@@ -436,6 +712,13 @@ export default function Navbar() {
                                 onClick={() => setIsOpen(false)}
                             >
                                 <Heart size={18} /> My Wishlist
+                            </Link>
+                            <Link
+                                to="/track-order"
+                                className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                Track Order
                             </Link>
                             <button onClick={handleLogout} className="flex items-center justify-center gap-2 text-red-500 font-bold pt-4">
                                 <LogOut size={20} /> Logout

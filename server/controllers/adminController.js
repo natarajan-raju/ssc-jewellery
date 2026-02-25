@@ -1632,6 +1632,7 @@ const updateCompanyInfo = async (req, res) => {
         const contactNumber = String(payload.contactNumber || '').trim();
         const supportEmail = String(payload.supportEmail || '').trim();
         const whatsappNumber = String(payload.whatsappNumber || '').trim();
+        const contactJumbotronImageUrl = String(payload.contactJumbotronImageUrl || '').trim();
         const razorpayKeyId = String(payload.razorpayKeyId || '').trim();
         const razorpayKeySecret = typeof payload.razorpayKeySecret === 'string'
             ? String(payload.razorpayKeySecret || '').trim()
@@ -1656,6 +1657,9 @@ const updateCompanyInfo = async (req, res) => {
         }
         if (!isValidUrl(payload.instagramUrl) || !isValidUrl(payload.youtubeUrl) || !isValidUrl(payload.facebookUrl)) {
             return res.status(400).json({ message: 'One or more social links are invalid URLs' });
+        }
+        if (contactJumbotronImageUrl && !isValidUrl(contactJumbotronImageUrl) && !contactJumbotronImageUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Contact jumbotron image URL must be a valid URL or absolute asset path' });
         }
         if (razorpayKeyId && !/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(razorpayKeyId)) {
             return res.status(400).json({ message: 'Razorpay Key ID format is invalid' });

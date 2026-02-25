@@ -1,8 +1,52 @@
-import { useState } from 'react';
-import { Mail, Phone, MapPin, MessageCircle, Instagram, Send, Clock } from 'lucide-react';
-import contactImage from '../assets/contact.jpg';
+import { useEffect, useMemo, useState } from 'react';
+import { Mail, Phone, MapPin, MessageCircle, Instagram, Send } from 'lucide-react';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { useToast } from '../context/ToastContext';
+import fallbackContactImage from '../assets/contact.jpg';
+
+const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
+const DEFAULT_JUMBOTRON = fallbackContactImage;
+
+const DEFAULT_COMPANY = {
+    displayName: 'SSC Jewellery',
+    contactNumber: '',
+    supportEmail: 'support@sscimpon.com',
+    address: '',
+    instagramUrl: '',
+    whatsappNumber: '',
+    contactJumbotronImageUrl: DEFAULT_JUMBOTRON
+};
+
+const cleanPhone = (value = '') => String(value || '').replace(/\D/g, '');
+
+const InfoCard = ({ title, value, href = '', Icon, iconTint = 'text-primary' }) => {
+    if (!value) return null;
+    return (
+        <div className="group relative overflow-hidden bg-white rounded-2xl border border-gray-200 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/40">
+            <Icon size={72} className={`absolute -bottom-2 -right-2 text-gray-100 pointer-events-none`} />
+            <div className="relative z-10 flex items-start gap-4">
+                <div className={`w-11 h-11 rounded-xl bg-primary/10 ${iconTint} flex items-center justify-center`}>
+                    <Icon size={18} />
+                </div>
+                <div>
+                    <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{title}</p>
+                    {href ? (
+                        <a href={href} target={href.startsWith('http') ? '_blank' : undefined} rel={href.startsWith('http') ? 'noreferrer' : undefined} className="text-sm text-gray-700 hover:text-primary break-all">
+                            {value}
+                        </a>
+                    ) : (
+                        <p className="text-sm text-gray-700 whitespace-pre-line">{value}</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 export default function Contact() {
+    const toast = useToast();
+    const [company, setCompany] = useState(DEFAULT_COMPANY);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
         email: '',
@@ -11,35 +55,99 @@ export default function Contact() {
         message: ''
     });
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+    const loadCompanyInfo = async () => {
+        try {
+            const res = await fetch(`${CMS_API_URL}/company-info`);
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.message || 'Failed to fetch company info');
+            const payload = data?.company && typeof data.company === 'object' ? data.company : {};
+            setCompany((prev) => ({
+                ...prev,
+                ...payload,
+                contactJumbotronImageUrl: String(payload.contactJumbotronImageUrl || prev.contactJumbotronImageUrl || DEFAULT_JUMBOTRON)
+            }));
+        } catch {
+            // Keep safe defaults if API fails.
+        }
     };
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        const subject = encodeURIComponent('Contact Request - SSC Jewellery');
-        const body = encodeURIComponent(
-            `Name: ${formData.name}\nEmail: ${formData.email}\nPhone: ${formData.phone}\nOrder ID: ${formData.orderId}\n\nMessage:\n${formData.message}`
-        );
-        window.location.href = `mailto:support@sscimpon.com?subject=${subject}&body=${body}`;
+    useEffect(() => {
+        loadCompanyInfo();
+    }, []);
+
+    useAdminCrudSync({
+        'company:info_update': ({ company: nextCompany } = {}) => {
+            if (!nextCompany || typeof nextCompany !== 'object') return;
+            setCompany((prev) => ({
+                ...prev,
+                ...nextCompany,
+                contactJumbotronImageUrl: String(nextCompany.contactJumbotronImageUrl || prev.contactJumbotronImageUrl || DEFAULT_JUMBOTRON)
+            }));
+        }
+    });
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData((prev) => ({ ...prev, [name]: value }));
     };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            const res = await fetch(`${CMS_API_URL}/contact`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: formData.name,
+                    email: formData.email,
+                    phone: formData.phone,
+                    orderId: formData.orderId,
+                    message: formData.message
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.message || 'Failed to submit contact request');
+            }
+            toast.success('Message sent successfully');
+            setFormData({
+                name: '',
+                email: '',
+                phone: '',
+                orderId: '',
+                message: ''
+            });
+        } catch (error) {
+            toast.error(error?.message || 'Failed to send message');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const whatsappHref = useMemo(() => {
+        const number = cleanPhone(company.whatsappNumber);
+        return number ? `https://wa.me/${number}` : '';
+    }, [company.whatsappNumber]);
+
+    const jumbotronImage = String(company.contactJumbotronImageUrl || DEFAULT_JUMBOTRON);
 
     return (
         <div className="min-h-screen bg-secondary pb-20">
-            {/* Jumbotron */}
             <div className="relative h-64 md:h-80 bg-gray-900 w-full overflow-hidden">
-                <div className="absolute inset-0 bg-black/50 z-10"></div>
+                <div className="absolute inset-0 bg-black/35 z-10" />
                 <img
-                    src={contactImage}
+                    src={jumbotronImage}
                     alt="Contact"
                     className="absolute inset-0 w-full h-full object-cover"
+                    onError={(e) => { e.currentTarget.src = fallbackContactImage; }}
                 />
                 <div className="relative z-20 container mx-auto px-4 h-full flex flex-col justify-center items-center text-center">
-                    <span className="text-accent uppercase tracking-[0.2em] text-xs md:text-sm font-bold mb-3 animate-fade-in">
+                    <span className="text-accent uppercase tracking-[0.2em] text-xs md:text-sm font-bold mb-3">
                         Get In Touch
                     </span>
-                    <h1 className="text-4xl md:text-6xl font-serif text-white mb-4 drop-shadow-lg animate-slide-up">
+                    <h1 className="text-4xl md:text-6xl font-serif text-white mb-4 drop-shadow-lg">
                         Contact Us
                     </h1>
                 </div>
@@ -50,81 +158,25 @@ export default function Contact() {
                     <p className="text-xs font-bold uppercase tracking-[0.3em] text-gray-400">Contact</p>
                     <h1 className="text-4xl md:text-5xl font-serif text-primary mt-3">We’re Here to Help</h1>
                     <p className="text-gray-500 mt-3 max-w-2xl mx-auto">
-                        Reach out for product inquiries, order support, or custom requests. Our team will respond within 24 hours.
+                        Reach out for product inquiries, order support, or custom requests. Our team will respond as soon as possible.
                     </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-                    <div className="group bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex items-start gap-4 transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/30">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:text-[#1D4ED8] transition-colors">
-                            <Mail size={20} />
-                        </div>
-                        <div>
-                            <p className="text-sm font-bold text-gray-800">Email Us</p>
-                            <a href="mailto:support@sscimpon.com" className="text-sm text-gray-500 hover:text-primary">support@sscimpon.com</a>
-                        </div>
-                    </div>
-
-                    <div className="group bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex items-start gap-4 transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/30">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:text-[#25D366] transition-colors">
-                            <MessageCircle size={20} />
-                        </div>
-                        <div>
-                            <p className="text-sm font-bold text-gray-800">WhatsApp</p>
-                            <a href="https://wa.me/919500941350" target="_blank" rel="noreferrer" className="text-sm text-gray-500 hover:text-primary">
-                                +91 95009 41350
-                            </a>
-                        </div>
-                    </div>
-
-                    <div className="group bg-white rounded-2xl border border-gray-200 p-6 shadow-sm flex items-start gap-4 transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/30">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center group-hover:text-[#E1306C] transition-colors">
-                            <Instagram size={20} />
-                        </div>
-                        <div>
-                            <p className="text-sm font-bold text-gray-800">Instagram</p>
-                            <a href="https://www.instagram.com/sreesaiimpon_jewelery_official" target="_blank" rel="noreferrer" className="text-sm text-gray-500 hover:text-primary">
-                                @sreesaiimpon_jewelery_official
-                            </a>
-                        </div>
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
+                    <InfoCard title="Email" value={company.supportEmail} href={company.supportEmail ? `mailto:${company.supportEmail}` : ''} Icon={Mail} />
+                    <InfoCard title="WhatsApp" value={company.whatsappNumber} href={whatsappHref} Icon={MessageCircle} iconTint="text-green-600" />
+                    <InfoCard title="Instagram" value={company.instagramUrl ? '@Visit Profile' : ''} href={company.instagramUrl} Icon={Instagram} iconTint="text-pink-600" />
+                    <InfoCard title="Call" value={company.contactNumber} href={company.contactNumber ? `tel:${company.contactNumber}` : ''} Icon={Phone} iconTint="text-blue-600" />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-8">
                     <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
                         <h2 className="text-xl font-serif text-primary mb-4">Send a Message</h2>
                         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input
-                                name="name"
-                                value={formData.name}
-                                onChange={handleChange}
-                                placeholder="Full Name"
-                                className="input-field"
-                                required
-                            />
-                            <input
-                                name="email"
-                                type="email"
-                                value={formData.email}
-                                onChange={handleChange}
-                                placeholder="Email Address"
-                                className="input-field"
-                                required
-                            />
-                            <input
-                                name="phone"
-                                value={formData.phone}
-                                onChange={handleChange}
-                                placeholder="Phone Number"
-                                className="input-field"
-                            />
-                            <input
-                                name="orderId"
-                                value={formData.orderId}
-                                onChange={handleChange}
-                                placeholder="Order ID (optional)"
-                                className="input-field"
-                            />
+                            <input name="name" value={formData.name} onChange={handleChange} placeholder="Full Name" className="input-field" required />
+                            <input name="email" type="email" value={formData.email} onChange={handleChange} placeholder="Email Address" className="input-field" required />
+                            <input name="phone" value={formData.phone} onChange={handleChange} placeholder="Phone Number" className="input-field" />
+                            <input name="orderId" value={formData.orderId} onChange={handleChange} placeholder="Order ID (optional)" className="input-field" />
                             <textarea
                                 name="message"
                                 value={formData.message}
@@ -133,34 +185,15 @@ export default function Contact() {
                                 className="input-field md:col-span-2 h-32 resize-none"
                                 required
                             />
-                            <button type="submit" className="btn-primary md:col-span-2 flex items-center justify-center gap-2">
-                                <Send size={16} /> Submit
+                            <button type="submit" disabled={isSubmitting} className="btn-primary md:col-span-2 flex items-center justify-center gap-2 disabled:opacity-60">
+                                <Send size={16} /> {isSubmitting ? 'Submitting...' : 'Submit'}
                             </button>
                         </form>
                     </div>
 
                     <div className="space-y-6">
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-                            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3">Registered Address</h3>
-                            <div className="flex items-start gap-3 text-gray-600">
-                                <MapPin size={18} className="text-primary mt-1" />
-                                <p>12/4, Market Road, Sivakasi, Tamil Nadu, India</p>
-                            </div>
-                        </div>
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-                            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3">Business Hours</h3>
-                            <div className="flex items-start gap-3 text-gray-600">
-                                <Clock size={18} className="text-primary mt-1" />
-                                <p>Mon – Sat: 10:00 AM – 8:00 PM</p>
-                            </div>
-                        </div>
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
-                            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-500 mb-3">Call Us</h3>
-                            <div className="flex items-start gap-3 text-gray-600">
-                                <Phone size={18} className="text-primary mt-1" />
-                                <a href="tel:+919500941350" className="hover:text-primary">+91 95009 41350</a>
-                            </div>
-                        </div>
+                        <InfoCard title="Registered Address" value={company.address || 'Address not set'} Icon={MapPin} />
+                        <InfoCard title="Company" value={company.displayName || 'SSC Jewellery'} Icon={MapPin} />
                     </div>
                 </div>
             </div>

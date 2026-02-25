@@ -35,11 +35,17 @@ import CartPage from './pages/CartPage';
 import Orders from './pages/Orders';
 import PaymentSuccess from './pages/PaymentSuccess';
 import PaymentFailed from './pages/PaymentFailed';
+import TrackOrder from './pages/TrackOrder';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
   const { user } = useAuth();
   return (user && (user.role === 'admin' || user.role === 'staff')) ? children : <Navigate to="/admin/login" />;
+};
+
+const ClientRoute = ({ children }) => {
+  const { user } = useAuth();
+  return user ? children : <Navigate to="/login?redirect=%2Ftrack-order" replace />;
 };
 
 // [UPDATED] Public Layout
@@ -97,6 +103,14 @@ function App() {
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/wishlist" element={<Wishlist />} />
                 <Route path="/orders" element={<Orders />} />
+                <Route
+                  path="/track-order"
+                  element={
+                    <ClientRoute>
+                      <TrackOrder />
+                    </ClientRoute>
+                  }
+                />
                 <Route path="/cart" element={<CartPage />} />
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />

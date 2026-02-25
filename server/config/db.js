@@ -987,6 +987,7 @@ const initDB = async () => {
                 youtube_url VARCHAR(255),
                 facebook_url VARCHAR(255),
                 whatsapp_number VARCHAR(40),
+                contact_jumbotron_image_url TEXT,
                 razorpay_key_id VARCHAR(120),
                 razorpay_key_secret VARCHAR(160),
                 razorpay_webhook_secret VARCHAR(160),
@@ -997,6 +998,9 @@ const initDB = async () => {
         `);
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_id VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN contact_jumbotron_image_url TEXT');
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_secret VARCHAR(160)');
@@ -1066,9 +1070,9 @@ const initDB = async () => {
         if (companyRows.length === 0) {
             await connection.execute(
                 `INSERT INTO company_profile
-                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '', '', '', 3000, 12]
+                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '/assets/contact.jpg', '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

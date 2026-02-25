@@ -8,6 +8,7 @@ import { useSocket } from '../context/SocketContext';
 import ProductCard from '../components/ProductCard';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
+import logoLight from '../assets/logo_light.webp';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
@@ -864,7 +865,7 @@ export default function Home() {
                    {/* [NEW] Header with Logo & Title */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-12 animate-fade-in">
                         <img 
-                            src="../src/assets/logo_light.webp" 
+                            src={logoLight}
                             alt="Logo" 
                             // [FIX] Increased mobile size to w-24 (96px) for better visibility
                             className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"

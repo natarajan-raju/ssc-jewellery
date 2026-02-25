@@ -13,6 +13,7 @@ import logo from '../assets/logo.webp';
 import amexLogo from '../assets/amex.png';
 import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
+import waitIllustration from '../assets/wait.svg';
 import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
@@ -704,7 +705,7 @@ export default function Checkout() {
                     currency: init.order.currency || 'INR',
                     name: 'SSC Jewellery',
                     description: `Order payment (${init.summary?.itemCount || itemCount} items)`,
-                    image: '/logo.webp',
+                    image: logo,
                     order_id: init.order.id,
                     prefill: {
                         name: form.name || '',
@@ -1326,7 +1327,7 @@ export default function Checkout() {
             {isPaymentAwaitingConfirmation && !orderResult && createPortal(
                 <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
                     <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 text-center border border-gray-100">
-                        <img src="/assets/wait.svg" alt="Processing payment" className="w-32 h-32 mx-auto" />
+                        <img src={waitIllustration} alt="Processing payment" className="w-32 h-32 mx-auto" />
                         <h3 className="mt-3 text-xl font-serif text-primary">Please Wait</h3>
                         <p className="mt-2 text-sm text-gray-600">
                             Please wait while your payment for Rs. {Number(pendingPaymentAmount || 0).toLocaleString('en-IN')} is being processed.

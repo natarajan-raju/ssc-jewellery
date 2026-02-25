@@ -9,6 +9,7 @@ const DEFAULT_COMPANY_PROFILE = {
     youtubeUrl: '',
     facebookUrl: '',
     whatsappNumber: '',
+    contactJumbotronImageUrl: '/assets/contact.jpg',
     razorpayKeyId: '',
     razorpayEmiMinAmount: 3000,
     razorpayStartingTenureMonths: 12
@@ -34,6 +35,7 @@ const normalizeRow = (row) => {
         youtubeUrl: row.youtube_url || '',
         facebookUrl: row.facebook_url || '',
         whatsappNumber: row.whatsapp_number || '',
+        contactJumbotronImageUrl: row.contact_jumbotron_image_url || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
         razorpayKeyId: row.razorpay_key_id || '',
         razorpayEmiMinAmount: Math.max(1, Number(row.razorpay_emi_min_amount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
         razorpayStartingTenureMonths: Math.max(1, Number(row.razorpay_starting_tenure_months || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
@@ -49,8 +51,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -61,6 +63,7 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.youtubeUrl,
                 DEFAULT_COMPANY_PROFILE.facebookUrl,
                 DEFAULT_COMPANY_PROFILE.whatsappNumber,
+                DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
                 DEFAULT_COMPANY_PROFILE.razorpayKeyId,
                 '',
                 '',
@@ -98,6 +101,7 @@ class CompanyProfile {
             youtubeUrl: String(payload.youtubeUrl || '').trim(),
             facebookUrl: String(payload.facebookUrl || '').trim(),
             whatsappNumber: String(payload.whatsappNumber || '').trim(),
+            contactJumbotronImageUrl: String(payload.contactJumbotronImageUrl || '').trim() || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
             razorpayKeyId: String(payload.razorpayKeyId || '').trim(),
             razorpayKeySecret: incomingKeySecret !== null ? incomingKeySecret : existingRawKeySecret,
             razorpayWebhookSecret: incomingWebhookSecret !== null ? incomingWebhookSecret : existingRawWebhookSecret,
@@ -107,8 +111,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 contact_number = VALUES(contact_number),
@@ -118,6 +122,7 @@ class CompanyProfile {
                 youtube_url = VALUES(youtube_url),
                 facebook_url = VALUES(facebook_url),
                 whatsapp_number = VALUES(whatsapp_number),
+                contact_jumbotron_image_url = VALUES(contact_jumbotron_image_url),
                 razorpay_key_id = VALUES(razorpay_key_id),
                 razorpay_key_secret = VALUES(razorpay_key_secret),
                 razorpay_webhook_secret = VALUES(razorpay_webhook_secret),
@@ -133,6 +138,7 @@ class CompanyProfile {
                 next.youtubeUrl,
                 next.facebookUrl,
                 next.whatsappNumber,
+                next.contactJumbotronImageUrl,
                 next.razorpayKeyId,
                 next.razorpayKeySecret,
                 next.razorpayWebhookSecret,
@@ -179,6 +185,7 @@ class CompanyProfile {
             youtubeUrl: String(source.youtubeUrl || ''),
             facebookUrl: String(source.facebookUrl || ''),
             whatsappNumber: String(source.whatsappNumber || ''),
+            contactJumbotronImageUrl: String(source.contactJumbotronImageUrl || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl),
             razorpayKeyId: String(source.razorpayKeyId || ''),
             razorpayEmiMinAmount: Math.max(1, Number(source.razorpayEmiMinAmount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
             razorpayStartingTenureMonths: Math.max(1, Number(source.razorpayStartingTenureMonths || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),

@@ -7,13 +7,14 @@ import { orderService } from '../services/orderService';
 import { burstConfetti, playCue } from '../utils/celebration';
 import couponImageFallback from '../assets/coupon.jpg';
 import giftIllustration from '../assets/gift.svg';
+import popCue from '../assets/pop.mp3';
 
 const MEDIA_BASE_URL = import.meta.env.PROD
     ? ''
     : (typeof window !== 'undefined'
         ? `${window.location.protocol}//${window.location.hostname}:5000`
         : 'http://localhost:5000');
-const DEFAULT_POP_CUE = '/assets/pop.mp3';
+const DEFAULT_POP_CUE = popCue;
 
 const resolveMediaUrl = (value, fallback = '') => {
     const raw = String(value || '').trim();

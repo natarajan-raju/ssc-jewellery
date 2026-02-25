@@ -6,6 +6,7 @@ import { useWishlist } from '../context/WishlistContext';
 import { vibrateTap } from '../utils/haptics';
 import { useAuth } from '../context/AuthContext';
 import { formatTierLabel } from '../utils/tierFormat';
+import placeholderImg from '../assets/placeholder.jpg';
 
 const EXTRA_DISCOUNT_BY_TIER = {
     regular: 0,
@@ -118,7 +119,7 @@ export default function ProductCard({ product }) {
     // --- 3. Image Logic (Based on your JSON 'media' array) ---
     const mainImage = product.media && product.media.length > 0 
         ? product.media[0].url 
-        : '../assets/placeholder.jpg';
+        : placeholderImg;
 
     const handleWishlist = async (e) => {
         e.stopPropagation();
@@ -300,7 +301,7 @@ export default function ProductCard({ product }) {
                     src={mainImage} 
                     alt={product.title}
                     className={`w-full h-full object-cover transition-transform duration-700 ${isHovered ? 'scale-110' : 'scale-100'}`}
-                    onError={(e) => e.target.src = '../assets/placeholder.jpg'}
+                    onError={(e) => { e.target.src = placeholderImg; }}
                 />
                 {isUnavailable && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">

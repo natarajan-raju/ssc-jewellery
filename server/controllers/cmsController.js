@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 const CompanyProfile = require('../models/CompanyProfile');
+const { sendEmailCommunication } = require('../services/communications/communicationService');
 
 const notifyClients = (req, event, payload = {}) => {
     const io = req.app.get('io');
@@ -233,6 +234,7 @@ const getCompanyInfo = async (_req, res) => {
                 youtubeUrl: profile.youtubeUrl,
                 facebookUrl: profile.facebookUrl,
                 whatsappNumber: profile.whatsappNumber,
+                contactJumbotronImageUrl: profile.contactJumbotronImageUrl,
                 razorpayKeyId: profile.razorpayKeyId || '',
                 razorpayEmiMinAmount: Number(profile.razorpayEmiMinAmount || 3000),
                 razorpayStartingTenureMonths: Number(profile.razorpayStartingTenureMonths || 12)
@@ -240,6 +242,71 @@ const getCompanyInfo = async (_req, res) => {
         });
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch company info' });
+    }
+};
+
+const escapeHtml = (value = '') => String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const submitContactForm = async (req, res) => {
+    try {
+        const payload = req.body || {};
+        const name = String(payload.name || '').trim();
+        const email = String(payload.email || '').trim();
+        const phone = String(payload.phone || '').trim();
+        const orderId = String(payload.orderId || '').trim();
+        const message = String(payload.message || '').trim();
+
+        if (!name || !email || !message) {
+            return res.status(400).json({ message: 'Name, email, and message are required' });
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ message: 'Please provide a valid email address' });
+        }
+
+        const profile = await CompanyProfile.get();
+        const to = String(profile.supportEmail || '').trim();
+        if (!to) {
+            return res.status(400).json({ message: 'Support email is not configured by admin' });
+        }
+
+        const subject = `Contact Request - ${profile.displayName || 'SSC Jewellery'}`;
+        const text = [
+            `Name: ${name}`,
+            `Email: ${email}`,
+            `Phone: ${phone || 'N/A'}`,
+            `Order ID: ${orderId || 'N/A'}`,
+            '',
+            'Message:',
+            message
+        ].join('\n');
+        const html = `
+            <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.6;">
+                <h2 style="margin:0 0 12px;">New Contact Request</h2>
+                <p><strong>Name:</strong> ${escapeHtml(name)}</p>
+                <p><strong>Email:</strong> ${escapeHtml(email)}</p>
+                <p><strong>Phone:</strong> ${escapeHtml(phone || 'N/A')}</p>
+                <p><strong>Order ID:</strong> ${escapeHtml(orderId || 'N/A')}</p>
+                <p><strong>Message:</strong></p>
+                <p style="white-space:pre-line;">${escapeHtml(message)}</p>
+            </div>
+        `;
+
+        await sendEmailCommunication({
+            to,
+            subject,
+            text,
+            html,
+            replyTo: email
+        });
+
+        return res.json({ ok: true, message: 'Contact request submitted successfully' });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to submit contact request' });
     }
 };
 
@@ -483,6 +550,7 @@ module.exports = {
     getTertiaryBanner,
     getFeaturedCategory,
     getAutopilotConfig,
+    submitContactForm,
     getCompanyInfo,
     createSlide,
     updateBanner,

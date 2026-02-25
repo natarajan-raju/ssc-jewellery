@@ -71,13 +71,15 @@ const resolveLogoPath = () => resolveFirstExistingPath([
 ]);
 
 const resolvePaidStampPath = () => resolveFirstExistingPath([
+    path.join(__dirname, '../../client/public/assets/paid-stamp.png'),
+    path.join(__dirname, '../../client/public/paid-stamp.png'),
     path.join(__dirname, '../../client/src/assets/paid-stamp.png'),
-    path.join(__dirname, '../../client/public/paid-stamp.png')
 ]);
 
 const resolveCancelledStampPath = () => resolveFirstExistingPath([
+    path.join(__dirname, '../../client/public/assets/cancelled-stamp.png'),
+    path.join(__dirname, '../../client/public/cancelled-stamp.png'),
     path.join(__dirname, '../../client/src/assets/cancelled-stamp.png'),
-    path.join(__dirname, '../../client/public/cancelled-stamp.png')
 ]);
 
 const resolveUnicodeFontPath = () => resolveFirstExistingPath([

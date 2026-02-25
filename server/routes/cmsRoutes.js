@@ -12,6 +12,7 @@ const {
     getTertiaryBanner,
     getFeaturedCategory,
     getAutopilotConfig,
+    submitContactForm,
     getCompanyInfo,
     createSlide,
     updateBanner,
@@ -66,6 +67,7 @@ router.get('/banner-tertiary', getTertiaryBanner);
 router.get('/featured-category', getFeaturedCategory);
 router.get('/autopilot', getAutopilotConfig);
 router.get('/company-info', getCompanyInfo);
+router.post('/contact', submitContactForm);
 
 // Admin: Manage Slides
 router.post('/hero', protect, admin, upload.single('image'), createSlide);
