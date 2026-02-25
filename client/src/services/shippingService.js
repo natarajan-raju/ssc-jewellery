@@ -11,11 +11,16 @@ const getAuthHeader = () => {
 };
 
 const handleResponse = async (res) => {
+  const parseJsonSafely = async () => {
+    const raw = await res.text().catch(() => '');
+    if (!raw) return {};
+    try { return JSON.parse(raw); } catch { return {}; }
+  };
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+    const data = await parseJsonSafely();
     throw new Error(data.message || 'Request failed');
   }
-  return res.json();
+  return parseJsonSafely();
 };
 
 export const shippingService = {

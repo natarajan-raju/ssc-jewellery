@@ -49,12 +49,22 @@ const matchesStatus = (product, status) => {
     if (normalizeText(status) === 'all') return true;
     return normalizeText(product?.status) === normalizeText(status);
 };
+const safeLocalStorageJson = (key, fallback = {}) => {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : fallback;
+    } catch {
+        return fallback;
+    }
+};
 
 // --- AUTH HEADER HELPER ---
 const getAuthHeader = () => {
     let token = null;
-    const userObj = JSON.parse(localStorage.getItem('user') || '{}');
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    const userObj = safeLocalStorageJson('user', {});
+    const userInfo = safeLocalStorageJson('userInfo', {});
     token = userObj.token || userInfo.token || localStorage.getItem('token');
     // 1. Check if token exists and is not a "garbage" string
     if (!token || token === 'undefined' || token === 'null') {
@@ -67,15 +77,16 @@ const getAuthHeader = () => {
 };
 
 const handleResponse = async (res) => {
+    const parseJsonSafely = async () => {
+        const raw = await res.text().catch(() => '');
+        if (!raw) return {};
+        try { return JSON.parse(raw); } catch { return {}; }
+    };
     if (!res.ok) {
-        try {
-            const err = await res.json();
-            throw new Error(err.message || 'Action failed');
-        } catch (e) {
-            throw new Error(e.message || res.statusText || 'Server Error');
-        }
+        const err = await parseJsonSafely();
+        throw new Error(err.message || res.statusText || 'Server Error');
     }
-    return res.json();
+    return parseJsonSafely();
 };
 
 export const productService = {

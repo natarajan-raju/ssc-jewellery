@@ -5,11 +5,23 @@ const path = require('path');
 // --- Helper to parse JSON safely ---
 const safeParse = (data, fallback = []) => {
     try {
-        return typeof data === 'string' ? JSON.parse(data) : (data || fallback);
+        const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+        return parsed == null ? fallback : parsed;
     } catch {
         return fallback;
     }
 };
+const asArray = (value, { allowSingleString = false } = {}) => {
+    const parsed = safeParse(value, []);
+    if (Array.isArray(parsed)) return parsed;
+    if (allowSingleString && typeof parsed === 'string' && parsed.trim()) return [parsed.trim()];
+    return [];
+};
+const asObject = (value) => {
+    const parsed = safeParse(value, {});
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+};
+const asString = (value = '') => String(value || '').trim();
 const normalizeVideoType = (value = '') => {
     const raw = String(value || '').trim().toLowerCase();
     if (raw === 'youtube' || raw === 'instagram') return raw;
@@ -120,20 +132,21 @@ const getSingleProduct = async (req, res) => {
 const createProduct = async (req, res) => {
     try {
         const media = [];
-        if (req.files) {
+        if (Array.isArray(req.files)) {
             req.files.forEach(file => media.push({ type: 'image', url: `/uploads/products/${file.filename}` }));
         }
-        if (req.body.youtubeLinks) {
-            safeParse(req.body.youtubeLinks).forEach(link => media.push({ type: 'youtube', url: link }));
-        }
-        if (req.body.videoLinks) {
-            safeParse(req.body.videoLinks).forEach((entry) => {
+        asArray(req.body.youtubeLinks, { allowSingleString: true }).forEach((link) => {
+            const url = asString(link);
+            if (!url) return;
+            media.push({ type: 'youtube', url });
+        });
+        asArray(req.body.videoLinks).forEach((entry) => {
+            if (!entry || typeof entry !== 'object') return;
                 const type = normalizeVideoType(entry?.type);
-                const url = String(entry?.url || '').trim();
+                const url = asString(entry?.url);
                 if (!type || !url) return;
                 media.push({ type, url });
             });
-        }
 
         const productData = {
             ...req.body,
@@ -142,11 +155,11 @@ const createProduct = async (req, res) => {
             track_low_stock: req.body.track_low_stock === 'true' || req.body.track_low_stock === true ? 1 : 0,
             low_stock_threshold: req.body.low_stock_threshold || 0,
             media: media,
-            categories: safeParse(req.body.categories),
-            related_products: safeParse(req.body.related_products),
-            additional_info: safeParse(req.body.additional_info),
-            options: safeParse(req.body.options), // [NEW]
-            variants: safeParse(req.body.variants) // [NEW]
+            categories: asArray(req.body.categories, { allowSingleString: true }),
+            related_products: asObject(req.body.related_products),
+            additional_info: asArray(req.body.additional_info),
+            options: asArray(req.body.options),
+            variants: asArray(req.body.variants)
         };
 
         const newProduct = await Product.create(productData);
@@ -178,18 +191,30 @@ const updateProduct = async (req, res) => {
         
         // Media Logic
         const newImages = [];
-        if (req.files) {
+        if (Array.isArray(req.files)) {
             req.files.forEach(file => newImages.push({ type: 'image', url: `/uploads/products/${file.filename}` }));
         }
-        const newYoutube = safeParse(req.body.youtubeLinks).map(link => ({ type: 'youtube', url: link }));
-        const newVideoLinks = safeParse(req.body.videoLinks).reduce((acc, entry) => {
+        const newYoutube = asArray(req.body.youtubeLinks, { allowSingleString: true }).reduce((acc, link) => {
+            const url = asString(link);
+            if (!url) return acc;
+            acc.push({ type: 'youtube', url });
+            return acc;
+        }, []);
+        const newVideoLinks = asArray(req.body.videoLinks).reduce((acc, entry) => {
+            if (!entry || typeof entry !== 'object') return acc;
             const type = normalizeVideoType(entry?.type);
-            const url = String(entry?.url || '').trim();
+            const url = asString(entry?.url);
             if (!type || !url) return acc;
             acc.push({ type, url });
             return acc;
         }, []);
-        const existingMedia = safeParse(req.body.existingMedia);
+        const existingMedia = asArray(req.body.existingMedia)
+            .filter((entry) => entry && typeof entry === 'object')
+            .map((entry) => ({
+                type: normalizeVideoType(entry.type) || 'image',
+                url: asString(entry.url)
+            }))
+            .filter((entry) => entry.url);
         const finalMedia = [...existingMedia, ...newImages, ...newYoutube, ...newVideoLinks];
 
         const productData = {
@@ -209,11 +234,11 @@ const updateProduct = async (req, res) => {
             low_stock_threshold: req.body.low_stock_threshold || 0,
 
             media: finalMedia,
-            categories: safeParse(req.body.categories),
-            related_products: safeParse(req.body.related_products),
-            additional_info: safeParse(req.body.additional_info),
-            options: safeParse(req.body.options), // [NEW]
-            variants: safeParse(req.body.variants) // [NEW]
+            categories: asArray(req.body.categories, { allowSingleString: true }),
+            related_products: asObject(req.body.related_products),
+            additional_info: asArray(req.body.additional_info),
+            options: asArray(req.body.options),
+            variants: asArray(req.body.variants)
         };
 
         await Product.update(id, productData);

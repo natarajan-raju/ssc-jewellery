@@ -34,16 +34,16 @@ const ABANDONED_CACHE_TTL = 60 * 1000;
 
 // 2. ERROR HANDLER (The Fix for "Fake Success")
 const handleResponse = async (res) => {
+    const parseJsonSafely = async () => {
+        const raw = await res.text().catch(() => '');
+        if (!raw) return {};
+        try { return JSON.parse(raw); } catch { return {}; }
+    };
     if (!res.ok) {
-        try {
-            const err = await res.json();
-            throw new Error(err.message || 'Action failed');
-        } catch (e) {
-            // Pass the error message to the UI
-            throw new Error(e.message || res.statusText || 'Server Error');
-        }
+        const err = await parseJsonSafely();
+        throw new Error(err.message || res.statusText || 'Server Error');
     }
-    return res.json();
+    return parseJsonSafely();
 };
 
 export const adminService = {
