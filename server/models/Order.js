@@ -838,6 +838,224 @@ class Order {
         }
     }
 
+    static async createManualOrderFromAttempt({
+        attempt = null,
+        paymentGateway = 'manual',
+        paymentReference = '',
+        actorUserId = null
+    } = {}) {
+        if (!attempt || !attempt.id) throw new Error('Payment attempt is required');
+        if (attempt.local_order_id) throw new Error('Attempt already linked to an order');
+        const userId = String(attempt.user_id || '').trim();
+        if (!userId) throw new Error('Attempt user is missing');
+
+        const notes = parseJsonSafe(attempt.notes) || {};
+        const snapshot = notes?.attemptSnapshot && typeof notes.attemptSnapshot === 'object'
+            ? notes.attemptSnapshot
+            : null;
+        const pricing = snapshot?.pricing && typeof snapshot.pricing === 'object'
+            ? snapshot.pricing
+            : {};
+        const loyalty = snapshot?.loyalty && typeof snapshot.loyalty === 'object'
+            ? snapshot.loyalty
+            : {};
+        const coupon = snapshot?.coupon && typeof snapshot.coupon === 'object'
+            ? snapshot.coupon
+            : {};
+
+        let snapshotItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+        if (!snapshotItems.length) {
+            const [reservationRows] = await db.execute(
+                `SELECT
+                    pir.id,
+                    pir.product_id,
+                    pir.variant_id,
+                    pir.quantity,
+                    p.title as product_title,
+                    COALESCE(pv.variant_title, '') as variant_title,
+                    COALESCE(
+                        NULLIF(pv.discount_price, 0),
+                        NULLIF(pv.price, 0),
+                        NULLIF(p.discount_price, 0),
+                        NULLIF(p.mrp, 0),
+                        0
+                    ) as unit_price,
+                    COALESCE(
+                        NULLIF(pv.image_url, ''),
+                        NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.media, '$[0].url')), ''),
+                        ''
+                    ) as image_url,
+                    COALESCE(NULLIF(pv.sku, ''), NULLIF(p.sku, '')) as sku
+                 FROM payment_item_reservations pir
+                 LEFT JOIN products p ON p.id = pir.product_id
+                 LEFT JOIN product_variants pv ON pv.id = pir.variant_id
+                 WHERE pir.attempt_id = ?
+                 ORDER BY pir.id ASC`,
+                [attempt.id]
+            );
+            snapshotItems = (reservationRows || []).map((row) => {
+                const quantity = Math.max(0, Number(row.quantity || 0));
+                const unitPrice = Math.max(0, Number(row.unit_price || 0));
+                return {
+                    id: row.id,
+                    productId: row.product_id,
+                    variantId: row.variant_id || '',
+                    title: row.product_title || 'Product',
+                    variantTitle: row.variant_title || '',
+                    quantity,
+                    unitPrice,
+                    lineTotal: Number((quantity * unitPrice).toFixed(2)),
+                    imageUrl: row.image_url || '',
+                    sku: row.sku || null,
+                    capturedAt: new Date().toISOString()
+                };
+            });
+        }
+
+        if (!snapshotItems.length) {
+            throw new Error('Attempt snapshot has no items to convert');
+        }
+
+        const subtotal = Number(pricing.subtotal ?? fromSubunits(attempt.amount_subunits) ?? 0);
+        const shippingFee = Number(pricing.shippingFee ?? 0);
+        const discountTotal = Number(pricing.discountTotal ?? 0);
+        const total = Number(pricing.total ?? fromSubunits(attempt.amount_subunits) ?? 0);
+        const couponDiscountTotal = Number(pricing.couponDiscountTotal ?? 0);
+        const loyaltyDiscountTotal = Number(pricing.loyaltyDiscountTotal ?? 0);
+        const loyaltyShippingDiscountTotal = Number(pricing.loyaltyShippingDiscountTotal ?? 0);
+        const loyaltyTier = String(loyalty?.tier || 'regular').toLowerCase();
+
+        const orderItems = snapshotItems.map((item) => {
+            const quantity = Math.max(0, Number(item?.quantity || 0));
+            const unitPrice = Math.max(0, Number(item?.unitPrice ?? item?.price ?? 0));
+            const lineTotal = Number(item?.lineTotal ?? (quantity * unitPrice));
+            return {
+                productId: item?.productId || null,
+                variantId: item?.variantId || '',
+                title: item?.title || 'Product',
+                variantTitle: item?.variantTitle || '',
+                quantity,
+                price: unitPrice,
+                lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+                imageUrl: item?.imageUrl || '',
+                sku: item?.sku || null,
+                snapshot: item && typeof item === 'object' ? item : null
+            };
+        });
+
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            const companyProfile = await CompanyProfile.get();
+            const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
+            const orderRef = buildOrderRef();
+            const loyaltyMeta = {
+                ...(loyalty?.meta && typeof loyalty.meta === 'object' ? loyalty.meta : {}),
+                source: 'attempt_snapshot_conversion',
+                convertedBy: actorUserId || null,
+                convertedAt: new Date().toISOString(),
+                paymentReference: String(paymentReference || '').trim() || null
+            };
+            const couponMeta = coupon?.code ? {
+                source: coupon?.source || 'coupon',
+                type: coupon?.type || null,
+                discountSubunits: toSubunits(couponDiscountTotal)
+            } : null;
+
+            const [orderResult] = await connection.execute(
+                `INSERT INTO orders
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    orderRef,
+                    userId,
+                    'confirmed',
+                    'paid',
+                    String(paymentGateway || 'manual').slice(0, 30),
+                    null,
+                    null,
+                    null,
+                    coupon?.code || null,
+                    coupon?.type || null,
+                    couponDiscountTotal,
+                    couponMeta ? JSON.stringify(couponMeta) : null,
+                    loyaltyTier,
+                    loyaltyDiscountTotal,
+                    loyaltyShippingDiscountTotal,
+                    JSON.stringify(loyaltyMeta),
+                    'admin_attempt_conversion',
+                    0,
+                    null,
+                    subtotal,
+                    shippingFee,
+                    discountTotal,
+                    total,
+                    String(attempt.currency || 'INR'),
+                    JSON.stringify(normalizeAddress(attempt.billing_address) || null),
+                    JSON.stringify(normalizeAddress(attempt.shipping_address) || null),
+                    JSON.stringify(companySnapshot),
+                    null,
+                    null
+                ]
+            );
+
+            const orderId = orderResult.insertId;
+            await connection.execute(
+                'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
+                [orderId, 'confirmed', actorUserId || null]
+            );
+            const values = orderItems.map((item) => ([
+                orderId,
+                item.productId,
+                item.variantId,
+                item.title,
+                item.variantTitle,
+                item.quantity,
+                item.price,
+                item.lineTotal,
+                item.imageUrl,
+                item.sku,
+                JSON.stringify(item.snapshot || null)
+            ]));
+            await connection.query(
+                `INSERT INTO order_items
+                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                VALUES ?`,
+                [values]
+            );
+
+            await connection.execute(
+                `UPDATE payment_item_reservations
+                 SET status = 'consumed',
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE attempt_id = ?
+                   AND status = 'reserved'`,
+                [attempt.id]
+            );
+            await connection.execute(
+                `UPDATE payment_attempts
+                 SET local_order_id = ?,
+                     status = 'paid',
+                     verify_started_at = NULL,
+                     verified_at = CURRENT_TIMESTAMP,
+                     failure_reason = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?
+                   AND local_order_id IS NULL`,
+                [orderId, attempt.id]
+            );
+
+            await connection.commit();
+            await reassessUserTier(userId, { reason: 'order_paid', sendNotifications: true, notificationMode: 'upgrade_welcome' }).catch(() => {});
+            return Order.getById(orderId);
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
     static async getByRazorpayOrderId(razorpayOrderId) {
         const [rows] = await db.execute(
             'SELECT id FROM orders WHERE razorpay_order_id = ? ORDER BY id DESC LIMIT 1',
@@ -1067,6 +1285,7 @@ class Order {
                 o.loyalty_discount_total,
                 o.loyalty_shipping_discount_total,
                 o.loyalty_meta,
+                NULL as attempt_notes,
                 o.source_channel,
                 o.is_abandoned_recovery,
                 o.abandoned_journey_id,
@@ -1112,10 +1331,11 @@ class Order {
                 NULL as coupon_type,
                 0 as coupon_discount_value,
                 NULL as coupon_meta,
-                'regular' as loyalty_tier,
+                COALESCE(NULLIF(LOWER(JSON_UNQUOTE(JSON_EXTRACT(pa.notes, '$.attemptSnapshot.loyalty.tier'))), ''), NULLIF(LOWER(ul.tier), ''), 'regular') as loyalty_tier,
                 0 as loyalty_discount_total,
                 0 as loyalty_shipping_discount_total,
                 NULL as loyalty_meta,
+                pa.notes as attempt_notes,
                 NULL as source_channel,
                 0 as is_abandoned_recovery,
                 NULL as abandoned_journey_id,
@@ -1142,6 +1362,7 @@ class Order {
                 pa.failure_reason
             FROM payment_attempts pa
             LEFT JOIN users u ON u.id = pa.user_id
+            LEFT JOIN user_loyalty ul ON ul.user_id = pa.user_id
             ${attemptWhere}` : ''}
         `;
 
@@ -1199,6 +1420,62 @@ class Order {
             rows = normalRows;
         }
 
+        const attemptItemMap = {};
+        const attemptIds = rows
+            .filter((row) => String(row?.entity_type || '').toLowerCase() === 'attempt')
+            .map((row) => Number(row.attempt_id))
+            .filter((id) => Number.isFinite(id) && id > 0);
+        if (attemptIds.length > 0) {
+            const placeholders = attemptIds.map(() => '?').join(',');
+            const [attemptItems] = await db.execute(
+                `SELECT
+                    pir.id,
+                    pir.attempt_id,
+                    pir.product_id,
+                    pir.variant_id,
+                    pir.quantity,
+                    p.title as product_title,
+                    COALESCE(pv.variant_title, '') as variant_title,
+                    COALESCE(
+                        NULLIF(pv.discount_price, 0),
+                        NULLIF(pv.price, 0),
+                        NULLIF(p.discount_price, 0),
+                        NULLIF(p.mrp, 0),
+                        0
+                    ) as unit_price,
+                    COALESCE(
+                        NULLIF(pv.image_url, ''),
+                        NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.media, '$[0].url')), ''),
+                        ''
+                    ) as image_url
+                 FROM payment_item_reservations pir
+                 LEFT JOIN products p ON p.id = pir.product_id
+                 LEFT JOIN product_variants pv ON pv.id = pir.variant_id
+                 WHERE pir.attempt_id IN (${placeholders})
+                 ORDER BY pir.attempt_id ASC, pir.id ASC`,
+                attemptIds
+            );
+            for (const item of (attemptItems || [])) {
+                const attemptId = Number(item.attempt_id);
+                if (!Number.isFinite(attemptId) || attemptId <= 0) continue;
+                const quantity = Math.max(0, Number(item.quantity || 0));
+                const unitPrice = Math.max(0, Number(item.unit_price || 0));
+                const entry = {
+                    id: item.id,
+                    product_id: item.product_id,
+                    variant_id: item.variant_id,
+                    title: item.product_title || 'Product',
+                    variant_title: item.variant_title || '',
+                    quantity,
+                    price: unitPrice,
+                    line_total: Number((quantity * unitPrice).toFixed(2)),
+                    image_url: item.image_url || ''
+                };
+                if (!attemptItemMap[attemptId]) attemptItemMap[attemptId] = [];
+                attemptItemMap[attemptId].push(entry);
+            }
+        }
+
         const normalized = rows.map((row) => {
             const base = {
                 ...row,
@@ -1208,16 +1485,89 @@ class Order {
                 settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
                 refund_notes: parseJsonSafe(row.refund_notes),
                 loyalty_meta: parseJsonSafe(row.loyalty_meta),
+                attempt_notes: parseJsonSafe(row.attempt_notes),
                 coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
                     ? (() => {
                         try { return JSON.parse(row.coupon_meta); } catch { return null; }
                     })()
                     : row.coupon_meta || null,
-                items: [],
+                items: String(row?.entity_type || '').toLowerCase() === 'attempt'
+                    ? (attemptItemMap[Number(row.attempt_id)] || [])
+                    : [],
                 events: []
             };
             if (row.entity_type === 'attempt') {
-                return base;
+                const attemptNotes = base.attempt_notes && typeof base.attempt_notes === 'object'
+                    ? base.attempt_notes
+                    : {};
+                const snapshot = attemptNotes?.attemptSnapshot && typeof attemptNotes.attemptSnapshot === 'object'
+                    ? attemptNotes.attemptSnapshot
+                    : null;
+                const snapshotItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+                const mappedSnapshotItems = snapshotItems.map((item, index) => {
+                    const quantity = Math.max(0, Number(item?.quantity || 0));
+                    const unitPrice = Math.max(0, Number(item?.unitPrice ?? item?.price ?? 0));
+                    const lineTotal = Number(
+                        item?.lineTotal != null
+                            ? item.lineTotal
+                            : (unitPrice * quantity)
+                    );
+                    return {
+                        id: item?.id || `snap_${base.attempt_id}_${index + 1}`,
+                        product_id: item?.productId || null,
+                        variant_id: item?.variantId || '',
+                        title: item?.title || 'Product',
+                        variant_title: item?.variantTitle || '',
+                        quantity,
+                        price: unitPrice,
+                        line_total: Number.isFinite(lineTotal) ? lineTotal : 0,
+                        image_url: item?.imageUrl || '',
+                        sku: item?.sku || null,
+                        item_snapshot: item && typeof item === 'object' ? item : null
+                    };
+                });
+                const pricing = snapshot?.pricing && typeof snapshot.pricing === 'object'
+                    ? snapshot.pricing
+                    : null;
+                const loyalty = snapshot?.loyalty && typeof snapshot.loyalty === 'object'
+                    ? snapshot.loyalty
+                    : null;
+                const coupon = snapshot?.coupon && typeof snapshot.coupon === 'object'
+                    ? snapshot.coupon
+                    : null;
+                return {
+                    ...base,
+                    loyalty_tier: String(
+                        loyalty?.tier
+                        || base.loyalty_tier
+                        || 'regular'
+                    ).toLowerCase(),
+                    loyalty_discount_total: Number(
+                        pricing?.loyaltyDiscountTotal
+                        ?? base.loyalty_discount_total
+                        ?? 0
+                    ),
+                    loyalty_shipping_discount_total: Number(
+                        pricing?.loyaltyShippingDiscountTotal
+                        ?? base.loyalty_shipping_discount_total
+                        ?? 0
+                    ),
+                    loyalty_meta: loyalty?.meta || base.loyalty_meta || null,
+                    coupon_code: coupon?.code || base.coupon_code || null,
+                    coupon_type: coupon?.type || base.coupon_type || null,
+                    coupon_discount_value: Number(
+                        pricing?.couponDiscountTotal
+                        ?? base.coupon_discount_value
+                        ?? 0
+                    ),
+                    subtotal: Number(pricing?.subtotal ?? base.subtotal ?? 0),
+                    shipping_fee: Number(pricing?.shippingFee ?? base.shipping_fee ?? 0),
+                    discount_total: Number(pricing?.discountTotal ?? base.discount_total ?? 0),
+                    total: Number(pricing?.total ?? base.total ?? 0),
+                    items: mappedSnapshotItems.length
+                        ? mappedSnapshotItems
+                        : (attemptItemMap[Number(base.attempt_id)] || [])
+                };
             }
             return applyDefaultPending(base);
         });

@@ -41,6 +41,7 @@ const MANUAL_REFUND_METHODS = [
     'Bank A/c Transfer',
     'Voucher code'
 ];
+const MANUAL_PAYMENT_MODES = ['cash', 'upi', 'bank_transfer', 'card_swipe', 'net_banking', 'manual'];
 
 const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
@@ -291,6 +292,99 @@ const normalizeSettlementSnapshot = (settlement = null) => {
     };
 };
 
+const buildAttemptSnapshot = async ({
+    userId,
+    summary = null
+} = {}) => {
+    const [cartRows] = await db.execute(
+        `SELECT ci.product_id, ci.variant_id, ci.quantity,
+                p.title as product_title, p.status as product_status,
+                p.mrp, p.discount_price as product_discount_price, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
+                pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
+                pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg, pv.variant_options
+         FROM cart_items ci
+         JOIN products p ON p.id = ci.product_id
+         LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+         WHERE ci.user_id = ?`,
+        [userId]
+    );
+    const items = [];
+    for (const row of (cartRows || [])) {
+        const quantity = Math.max(0, Number(row.quantity || 0));
+        if (quantity <= 0) continue;
+        const unitPrice = Number(
+            row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
+        );
+        const originalPrice = Number(row.variant_price || row.mrp || unitPrice);
+        const lineTotal = Number((quantity * unitPrice).toFixed(2));
+        const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+        let imageUrl = row.variant_image_url || null;
+        if (!imageUrl && row.product_media) {
+            try {
+                const media = JSON.parse(row.product_media || '[]');
+                imageUrl = Array.isArray(media) ? (media[0]?.url || media[0] || null) : null;
+            } catch {
+                imageUrl = null;
+            }
+        }
+        items.push({
+            productId: row.product_id,
+            variantId: row.variant_id || '',
+            title: row.product_title || 'Product',
+            variantTitle: row.variant_title || '',
+            variantOptions: row.variant_options ? (() => {
+                try {
+                    return typeof row.variant_options === 'string' ? JSON.parse(row.variant_options) : row.variant_options;
+                } catch {
+                    return null;
+                }
+            })() : null,
+            quantity,
+            unitPrice,
+            originalPrice,
+            discountValuePerUnit: Math.max(0, originalPrice - unitPrice),
+            lineTotal,
+            imageUrl: imageUrl || '',
+            sku: row.variant_sku || row.product_sku || null,
+            weightKg: itemWeight,
+            productStatus: row.product_status || 'active',
+            capturedAt: new Date().toISOString()
+        });
+    }
+    if (!summary || typeof summary !== 'object') {
+        return {
+            capturedAt: new Date().toISOString(),
+            items
+        };
+    }
+    return {
+        capturedAt: new Date().toISOString(),
+        items,
+        pricing: {
+            subtotal: Number(summary.subtotal || 0),
+            shippingFee: Number(summary.shippingFee || 0),
+            couponDiscountTotal: Number(summary.couponDiscountTotal || 0),
+            loyaltyDiscountTotal: Number(summary.loyaltyDiscountTotal || 0),
+            loyaltyShippingDiscountTotal: Number(summary.loyaltyShippingDiscountTotal || 0),
+            discountTotal: Number(summary.discountTotal || 0),
+            total: Number(summary.total || 0),
+            currency: String(summary.currency || 'INR')
+        },
+        loyalty: {
+            tier: String(summary.loyaltyTier || 'regular').toLowerCase(),
+            profile: summary.loyaltyProfile || null,
+            meta: summary.loyaltyMeta || null
+        },
+        coupon: summary.coupon
+            ? {
+                code: summary.coupon.code || null,
+                type: summary.coupon.type || null,
+                source: summary.coupon.source || null
+            }
+            : null
+    };
+};
+
 const fetchSettlementSnapshotSafe = async (razorpay, settlementId) => {
     const ref = String(settlementId || '').trim();
     if (!razorpay || !ref) return null;
@@ -350,7 +444,11 @@ const createRazorpayOrder = async (req, res) => {
             shippingAddress: safeShippingAddress,
             notes: {
                 ...(notes && typeof notes === 'object' ? notes : {}),
-                ...(normalizedCouponCode ? { couponCode: normalizedCouponCode } : {})
+                ...(normalizedCouponCode ? { couponCode: normalizedCouponCode } : {}),
+                attemptSnapshot: await buildAttemptSnapshot({
+                    userId,
+                    summary
+                })
             },
             expiresAt
         });
@@ -1671,6 +1769,111 @@ const deleteAdminPaymentAttempt = async (req, res) => {
     }
 };
 
+const convertAdminPaymentAttemptToOrder = async (req, res) => {
+    try {
+        const attemptId = Number(req.params.id);
+        if (!Number.isFinite(attemptId) || attemptId <= 0) {
+            return res.status(400).json({ message: 'Invalid attempt id' });
+        }
+        const paymentMode = String(req.body?.paymentMode || 'manual').trim().toLowerCase();
+        const paymentReference = String(req.body?.paymentReference || '').trim();
+        if (!MANUAL_PAYMENT_MODES.includes(paymentMode)) {
+            return res.status(400).json({ message: 'Select a valid manual payment mode' });
+        }
+
+        const attempt = await PaymentAttempt.getById(attemptId);
+        if (!attempt) {
+            return res.status(404).json({ message: 'Attempt not found' });
+        }
+        if (attempt.local_order_id) {
+            const existingOrder = await Order.getById(attempt.local_order_id);
+            if (existingOrder) {
+                return res.json({ order: existingOrder, attempt });
+            }
+            return res.status(400).json({ message: 'Attempt is already linked to an order' });
+        }
+
+        const order = await Order.createManualOrderFromAttempt({
+            attempt,
+            paymentGateway: paymentMode,
+            paymentReference,
+            actorUserId: req.user?.id || null
+        });
+        if (!order) {
+            return res.status(400).json({ message: 'Unable to convert payment attempt' });
+        }
+
+        const updatedAttempt = await PaymentAttempt.getById(attempt.id);
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('order:update', { orderId: order.id, status: order.status, order });
+            if (order?.user_id) {
+                io.to(`user:${order.user_id}`).emit('order:update', { orderId: order.id, status: order.status, order });
+            }
+        }
+        emitCouponChangedForOrder(req, order);
+        void triggerOrderLifecycleEmail({
+            order,
+            stage: 'confirmed',
+            includeInvoice: false
+        });
+
+        return res.json({ order, attempt: updatedAttempt || null });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to convert attempt to order' });
+    }
+};
+
+const createAdminManualOrder = async (req, res) => {
+    try {
+        const userId = String(req.body?.userId || '').trim();
+        if (!userId) {
+            return res.status(400).json({ message: 'Customer is required' });
+        }
+        const user = await User.findById(userId);
+        if (!user || String(user.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const shippingAddress = normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
+        const billingAddress = normalizeAddressPayload(req.body?.billingAddress, { fieldLabel: 'Billing address' });
+        const couponCode = String(req.body?.couponCode || '').trim().toUpperCase() || null;
+        const paymentMode = String(req.body?.paymentMode || 'manual').trim().toLowerCase();
+        if (!MANUAL_PAYMENT_MODES.includes(paymentMode)) {
+            return res.status(400).json({ message: 'Select a valid manual payment mode' });
+        }
+        const order = await Order.createFromCart(userId, {
+            billingAddress,
+            shippingAddress,
+            payment: {
+                paymentStatus: 'paid',
+                gateway: paymentMode
+            },
+            couponCode,
+            sourceChannel: 'admin_manual'
+        });
+        if (!order?.id) {
+            return res.status(400).json({ message: 'Failed to create manual order' });
+        }
+        const persisted = await Order.getById(order.id);
+        const io = req.app.get('io');
+        if (io && persisted) {
+            io.emit('order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
+            if (persisted?.user_id) {
+                io.to(`user:${persisted.user_id}`).emit('order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
+            }
+        }
+        emitCouponChangedForOrder(req, persisted || order);
+        void triggerOrderLifecycleEmail({
+            order: persisted || order,
+            stage: 'confirmed',
+            includeInvoice: false
+        });
+        return res.status(201).json({ order: persisted || order });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to create manual order' });
+    }
+};
+
 const fetchAdminPaymentStatus = async (req, res) => {
     try {
         const razorpayConfig = await getRazorpayConfig();
@@ -2032,6 +2235,8 @@ module.exports = {
     fetchMyPaymentStatus,
     deleteAdminOrder,
     deleteAdminPaymentAttempt,
+    convertAdminPaymentAttemptToOrder,
+    createAdminManualOrder,
     getOverdueShippedSummary,
     confirmDeliveryBySignedLink
 };

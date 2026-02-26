@@ -525,6 +525,35 @@ export const orderService = {
         removeAdminEntityFromCache({ id, entityType: 'attempt' });
         return data;
     },
+    convertAdminPaymentAttemptToOrder: async (attemptId, payload = {}) => {
+        const res = await fetch(`${API_URL}/admin/attempt/${encodeURIComponent(attemptId)}/convert`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        const data = await handleResponse(res);
+        if (data?.order) patchAdminOrderCaches(data.order);
+        if (data?.order?.id) {
+            adminOrderDetailCache[String(data.order.id)] = { ts: Date.now(), data: { order: data.order } };
+        }
+        if (attemptId != null) {
+            removeAdminEntityFromCache({ id: attemptId, entityType: 'attempt' });
+        }
+        return data;
+    },
+    createAdminManualOrder: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/admin/manual`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        const data = await handleResponse(res);
+        if (data?.order) patchAdminOrderCaches(data.order);
+        if (data?.order?.id) {
+            adminOrderDetailCache[String(data.order.id)] = { ts: Date.now(), data: { order: data.order } };
+        }
+        return data;
+    },
     fetchAdminPaymentStatus: async (payload = {}) => {
         const res = await fetch(`${API_URL}/admin/payment/fetch-status`, {
             method: 'POST',

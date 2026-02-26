@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus } from 'lucide-react';
 import { orderService } from '../../services/orderService';
+import { adminService } from '../../services/adminService';
 import orderWaitIllustration from '../../assets/order_wait.svg';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
@@ -41,6 +42,15 @@ const CANCELLATION_MODES = [
     { value: 'manual', label: 'Manual Refund' }
 ];
 const MANUAL_REFUND_METHODS = ['Cash', 'NEFT/RTGS', 'UPI', 'Bank A/c Transfer', 'Voucher code'];
+const MANUAL_PAYMENT_OPTIONS = [
+    { value: 'cash', label: 'Cash' },
+    { value: 'upi', label: 'UPI' },
+    { value: 'bank_transfer', label: 'Bank Transfer' },
+    { value: 'card_swipe', label: 'Card Swipe' },
+    { value: 'net_banking', label: 'Net Banking' },
+    { value: 'manual', label: 'Manual' }
+];
+const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
 
 const toDateOnly = (value) => {
     if (!value) return null;
@@ -144,6 +154,9 @@ export default function Orders({
     const [manualRefundRef, setManualRefundRef] = useState('');
     const [manualRefundUtr, setManualRefundUtr] = useState('');
     const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
+    const [attemptConversionMode, setAttemptConversionMode] = useState('cash');
+    const [attemptConversionReference, setAttemptConversionReference] = useState('');
+    const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
     const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
     const [deletingOrderId, setDeletingOrderId] = useState(null);
     const [selectedRowKeys, setSelectedRowKeys] = useState([]);
@@ -163,6 +176,20 @@ export default function Orders({
         action: null
     });
     const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
+    const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
+    const [manualCustomers, setManualCustomers] = useState([]);
+    const [isManualCustomersLoading, setIsManualCustomersLoading] = useState(false);
+    const [manualCustomerQuery, setManualCustomerQuery] = useState('');
+    const [manualOrderForm, setManualOrderForm] = useState({
+        userId: '',
+        paymentMode: 'cash',
+        paymentReference: '',
+        couponCode: '',
+        shippingAddress: { ...EMPTY_ADDRESS },
+        billingAddress: { ...EMPTY_ADDRESS },
+        billingSameAsShipping: true
+    });
+    const [isCreatingManualOrder, setIsCreatingManualOrder] = useState(false);
     const {
         orderMetricsByKey,
         registerOrderMetricsQuery,
@@ -240,6 +267,23 @@ export default function Orders({
         if (['pending', 'created', 'attempted'].includes(paymentStatus)) return true;
         return paymentStatus === 'paid' && needsSettlementSync(order);
     };
+    const filteredManualCustomers = useMemo(() => {
+        const term = String(manualCustomerQuery || '').trim().toLowerCase();
+        const rows = Array.isArray(manualCustomers) ? manualCustomers : [];
+        if (!term) return rows;
+        return rows.filter((customer) => {
+            const haystack = [
+                customer?.name,
+                customer?.mobile,
+                customer?.email
+            ].map((v) => String(v || '').toLowerCase()).join(' ');
+            return haystack.includes(term);
+        });
+    }, [manualCustomerQuery, manualCustomers]);
+    const selectedManualCustomer = useMemo(
+        () => (manualCustomers || []).find((row) => String(row?.id) === String(manualOrderForm.userId || '')) || null,
+        [manualCustomers, manualOrderForm.userId]
+    );
     const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
     const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
     const getRefundVoucherCode = (order) => {
@@ -651,6 +695,144 @@ export default function Orders({
         }
     };
 
+    const normalizeUserAddress = (address = null) => {
+        if (!address || typeof address !== 'object') return { ...EMPTY_ADDRESS };
+        return {
+            line1: String(address.line1 || '').trim(),
+            city: String(address.city || '').trim(),
+            state: String(address.state || '').trim(),
+            zip: String(address.zip || '').trim()
+        };
+    };
+
+    const loadManualCustomers = async () => {
+        if (isManualCustomersLoading) return;
+        setIsManualCustomersLoading(true);
+        try {
+            const customers = await adminService.getUsersAll('customer');
+            const normalized = (Array.isArray(customers) ? customers : []).map((row) => ({
+                ...row,
+                address: normalizeUserAddress(row?.address),
+                billingAddress: normalizeUserAddress(row?.billingAddress || row?.address)
+            }));
+            setManualCustomers(normalized);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to load customers');
+        } finally {
+            setIsManualCustomersLoading(false);
+        }
+    };
+
+    const openCreateManualOrder = async () => {
+        setIsCreateOrderOpen(true);
+        if (!manualCustomers.length) {
+            await loadManualCustomers();
+        }
+    };
+
+    const updateManualAddress = (type, field, value) => {
+        setManualOrderForm((prev) => {
+            const next = {
+                ...prev,
+                [type]: {
+                    ...(prev[type] || { ...EMPTY_ADDRESS }),
+                    [field]: value
+                }
+            };
+            if (type === 'shippingAddress' && prev.billingSameAsShipping) {
+                next.billingAddress = { ...next.shippingAddress };
+            }
+            return next;
+        });
+    };
+
+    const handleManualCustomerSelect = (userId) => {
+        const customer = (manualCustomers || []).find((row) => String(row?.id) === String(userId || ''));
+        setManualOrderForm((prev) => ({
+            ...prev,
+            userId: userId || '',
+            shippingAddress: customer?.address ? normalizeUserAddress(customer.address) : { ...EMPTY_ADDRESS },
+            billingAddress: customer?.billingAddress ? normalizeUserAddress(customer.billingAddress) : { ...EMPTY_ADDRESS }
+        }));
+    };
+
+    const validateManualAddress = (address = null) => {
+        const value = address || {};
+        return ['line1', 'city', 'state', 'zip'].every((field) => String(value?.[field] || '').trim());
+    };
+
+    const handleCreateManualOrder = async () => {
+        if (!manualOrderForm.userId) {
+            toast.error('Select a customer');
+            return;
+        }
+        if (!validateManualAddress(manualOrderForm.shippingAddress)) {
+            toast.error('Complete shipping address fields');
+            return;
+        }
+        if (!validateManualAddress(manualOrderForm.billingAddress)) {
+            toast.error('Complete billing address fields');
+            return;
+        }
+        setIsCreatingManualOrder(true);
+        try {
+            const payload = {
+                userId: manualOrderForm.userId,
+                paymentMode: manualOrderForm.paymentMode,
+                paymentReference: manualOrderForm.paymentReference || '',
+                couponCode: manualOrderForm.couponCode || '',
+                shippingAddress: manualOrderForm.shippingAddress,
+                billingAddress: manualOrderForm.billingAddress
+            };
+            const data = await orderService.createAdminManualOrder(payload);
+            const nextOrder = data?.order || null;
+            if (!nextOrder) throw new Error('Order creation failed');
+            toast.success('Manual order created');
+            setIsCreateOrderOpen(false);
+            setManualOrderForm({
+                userId: '',
+                paymentMode: 'cash',
+                paymentReference: '',
+                couponCode: '',
+                shippingAddress: { ...EMPTY_ADDRESS },
+                billingAddress: { ...EMPTY_ADDRESS },
+                billingSameAsShipping: true
+            });
+            setPage(1);
+            fetchOrders(1);
+            openDetails(nextOrder);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to create manual order');
+        } finally {
+            setIsCreatingManualOrder(false);
+        }
+    };
+
+    const handleConvertAttemptToPaidOrder = async () => {
+        if (!selectedOrder || !isAttemptEntry(selectedOrder)) return;
+        setIsConvertingAttempt(true);
+        try {
+            const payload = {
+                paymentMode: attemptConversionMode,
+                paymentReference: attemptConversionReference
+            };
+            const data = await orderService.convertAdminPaymentAttemptToOrder(selectedOrder.attempt_id || selectedOrder.id, payload);
+            const order = data?.order || null;
+            if (!order) throw new Error('Attempt conversion failed');
+            toast.success('Failed attempt converted to successful order');
+            setSelectedOrder(order);
+            setPendingStatus(order.status || 'confirmed');
+            setDetailsLastSyncedAt(new Date().toISOString());
+            setAttemptConversionReference('');
+            setPage(1);
+            fetchOrders(1);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to convert payment attempt');
+        } finally {
+            setIsConvertingAttempt(false);
+        }
+    };
+
     const openDetails = async (order) => {
         setIsDetailsOpen(true);
         const hasSeedData = Boolean(order && !isAttemptEntry(order));
@@ -670,6 +852,8 @@ export default function Orders({
                 };
                 setSelectedOrder(attemptOrder);
                 setPendingStatus(attemptOrder.status || 'failed');
+                setAttemptConversionMode('cash');
+                setAttemptConversionReference('');
                 setDetailsLastSyncedAt(new Date().toISOString());
                 return;
             }
@@ -1294,6 +1478,14 @@ export default function Orders({
                                 onChange={(e) => setSearchInput(e.target.value)}
                             />
                         </div>
+                        <button
+                            type="button"
+                            onClick={openCreateManualOrder}
+                            className="w-full md:w-auto order-4 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100"
+                        >
+                            <Plus size={15} />
+                            Create Order
+                        </button>
                     </div>
                 </div>
                 {selectedNonDeletableCount > 0 && (
@@ -1623,6 +1815,45 @@ export default function Orders({
                                     <p className="text-sm font-semibold text-gray-800 truncate">{selectedOrder.customer_name || 'Guest'}</p>
                                     <p className="text-xs text-gray-500">{selectedOrder.customer_mobile || 'No mobile number'}</p>
                                 </div>
+                                {isAttemptEntry(selectedOrder) && (
+                                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-3">
+                                        <p className="text-xs text-emerald-800 font-semibold">
+                                            Convert this failed attempt into a successful manual order.
+                                        </p>
+                                        <div>
+                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Payment Mode</label>
+                                            <select
+                                                value={attemptConversionMode}
+                                                onChange={(e) => setAttemptConversionMode(e.target.value)}
+                                                disabled={isConvertingAttempt}
+                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                            >
+                                                {MANUAL_PAYMENT_OPTIONS.map((mode) => (
+                                                    <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reference (Optional)</label>
+                                            <input
+                                                type="text"
+                                                value={attemptConversionReference}
+                                                onChange={(e) => setAttemptConversionReference(e.target.value)}
+                                                disabled={isConvertingAttempt}
+                                                placeholder="Transaction / receipt reference"
+                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={handleConvertAttemptToPaidOrder}
+                                            disabled={isConvertingAttempt}
+                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                                        >
+                                            {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}
+                                        </button>
+                                    </div>
+                                )}
                                 {!isAttemptEntry(selectedOrder) && (
                                     <div className="mt-3 flex justify-end">
                                         <div className="inline-flex items-center gap-2 flex-wrap justify-end">
@@ -1914,7 +2145,7 @@ export default function Orders({
                                             )}
                                         </div>
                                     )}
-                                    {!isAttemptEntry(selectedOrder) && (
+                                    {selectedOrder && (
                                         <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                                             <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
                                             <div className="mt-2 space-y-1 text-sm text-gray-700">
@@ -2012,6 +2243,146 @@ export default function Orders({
                                 </div>
                             </>
                         )}
+                    </div>
+                </div>,
+                document.body
+            )}
+            {isCreateOrderOpen && createPortal(
+                <div className="fixed inset-0 z-[90]">
+                    <div className="absolute inset-0 bg-black/50" onClick={() => !isCreatingManualOrder && setIsCreateOrderOpen(false)}></div>
+                    <div className="relative z-10 flex min-h-full items-center justify-center p-4">
+                        <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
+                            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                                <div>
+                                    <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Manual Order</p>
+                                    <h3 className="text-lg font-semibold text-gray-900 mt-1">Create Order</h3>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => !isCreatingManualOrder && setIsCreateOrderOpen(false)}
+                                    className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div className="p-5 space-y-4 overflow-y-auto">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <label className="text-sm text-gray-600">
+                                        Search Customer
+                                        <input
+                                            className="input-field mt-1"
+                                            value={manualCustomerQuery}
+                                            onChange={(e) => setManualCustomerQuery(e.target.value)}
+                                            placeholder="Name / mobile / email"
+                                        />
+                                    </label>
+                                    <label className="text-sm text-gray-600">
+                                        Customer
+                                        <select
+                                            className="input-field mt-1"
+                                            value={manualOrderForm.userId}
+                                            onChange={(e) => handleManualCustomerSelect(e.target.value)}
+                                            disabled={isManualCustomersLoading}
+                                        >
+                                            <option value="">{isManualCustomersLoading ? 'Loading customers...' : 'Select customer'}</option>
+                                            {filteredManualCustomers.map((customer) => (
+                                                <option key={customer.id} value={customer.id}>
+                                                    {customer.name || 'Customer'} ({customer.mobile || customer.email || customer.id})
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {selectedManualCustomer && (
+                                            <p className="mt-1 text-xs text-gray-500">
+                                                Selected: {selectedManualCustomer.name} {selectedManualCustomer.mobile ? `• ${selectedManualCustomer.mobile}` : ''}
+                                            </p>
+                                        )}
+                                    </label>
+                                    <label className="text-sm text-gray-600">
+                                        Payment Mode
+                                        <select
+                                            className="input-field mt-1"
+                                            value={manualOrderForm.paymentMode}
+                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, paymentMode: e.target.value }))}
+                                        >
+                                            {MANUAL_PAYMENT_OPTIONS.map((mode) => (
+                                                <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <label className="text-sm text-gray-600">
+                                        Payment Reference (Optional)
+                                        <input
+                                            className="input-field mt-1"
+                                            value={manualOrderForm.paymentReference}
+                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, paymentReference: e.target.value }))}
+                                            placeholder="Receipt / transaction reference"
+                                        />
+                                    </label>
+                                    <label className="text-sm text-gray-600 md:col-span-2">
+                                        Coupon Code (Optional)
+                                        <input
+                                            className="input-field mt-1"
+                                            value={manualOrderForm.couponCode}
+                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))}
+                                            placeholder="Coupon code"
+                                        />
+                                    </label>
+                                </div>
+                                <div className="rounded-xl border border-gray-200 p-4">
+                                    <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Shipping Address</p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                                        <input className="input-field" placeholder="Address line" value={manualOrderForm.shippingAddress.line1} onChange={(e) => updateManualAddress('shippingAddress', 'line1', e.target.value)} />
+                                        <input className="input-field" placeholder="City" value={manualOrderForm.shippingAddress.city} onChange={(e) => updateManualAddress('shippingAddress', 'city', e.target.value)} />
+                                        <input className="input-field" placeholder="State" value={manualOrderForm.shippingAddress.state} onChange={(e) => updateManualAddress('shippingAddress', 'state', e.target.value)} />
+                                        <input className="input-field" placeholder="PIN code" value={manualOrderForm.shippingAddress.zip} onChange={(e) => updateManualAddress('shippingAddress', 'zip', e.target.value)} />
+                                    </div>
+                                </div>
+                                <div className="rounded-xl border border-gray-200 p-4">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Billing Address</p>
+                                        <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                                            <input
+                                                type="checkbox"
+                                                checked={manualOrderForm.billingSameAsShipping}
+                                                onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setManualOrderForm((prev) => ({
+                                                        ...prev,
+                                                        billingSameAsShipping: checked,
+                                                        billingAddress: checked ? { ...prev.shippingAddress } : prev.billingAddress
+                                                    }));
+                                                }}
+                                            />
+                                            Same as shipping
+                                        </label>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                                        <input className="input-field" placeholder="Address line" value={manualOrderForm.billingAddress.line1} onChange={(e) => updateManualAddress('billingAddress', 'line1', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className="input-field" placeholder="City" value={manualOrderForm.billingAddress.city} onChange={(e) => updateManualAddress('billingAddress', 'city', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className="input-field" placeholder="State" value={manualOrderForm.billingAddress.state} onChange={(e) => updateManualAddress('billingAddress', 'state', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className="input-field" placeholder="PIN code" value={manualOrderForm.billingAddress.zip} onChange={(e) => updateManualAddress('billingAddress', 'zip', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCreateOrderOpen(false)}
+                                    disabled={isCreatingManualOrder}
+                                    className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleCreateManualOrder}
+                                    disabled={isCreatingManualOrder}
+                                    className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
+                                >
+                                    {isCreatingManualOrder ? 'Creating...' : 'Create Order'}
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>,
                 document.body
