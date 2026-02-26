@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const db = require('../config/db');
 const Cart = require('../models/Cart');
+const Order = require('../models/Order');
 const bcrypt = require('bcryptjs');
 const CompanyProfile = require('../models/CompanyProfile');
 const Coupon = require('../models/Coupon');
@@ -14,6 +15,23 @@ const {
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
+
+const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${fieldLabel} must be an object`);
+    }
+    const line1 = String(value.line1 || '').trim();
+    const city = String(value.city || '').trim();
+    const state = String(value.state || '').trim();
+    const zip = String(value.zip || '').trim();
+    if (!line1 || !city || !state || !zip) {
+        throw new Error(`${fieldLabel} fields are required`);
+    }
+    if (!/^[0-9A-Za-z\\-\\s]{3,12}$/.test(zip)) {
+        throw new Error(`${fieldLabel} zip code is invalid`);
+    }
+    return { line1, city, state, zip };
+};
 
 const emitCouponChanged = (req, payload = {}) => {
     const io = req.app.get('io');
@@ -1426,8 +1444,8 @@ const getUsers = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const role = req.query.role || 'all';
-
-        const result = await User.getPaginated(page, limit, role);
+        const search = String(req.query.search || '').trim();
+        const result = await User.getPaginated(page, limit, role, search);
         
         res.json({
             users: result.users,
@@ -1562,6 +1580,108 @@ const getUserCart = async (req, res) => {
     } catch (error) {
         console.error('Admin cart fetch error:', error);
         res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+const addUserCartItem = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const userToFetch = await User.findById(userId);
+        if (!userToFetch || String(userToFetch.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const { productId, variantId, quantity } = req.body || {};
+        if (!productId) return res.status(400).json({ message: 'productId required' });
+        await Cart.addItem(userId, productId, variantId || '', quantity || 1);
+        const items = await Cart.getByUser(userId);
+        return res.json({ items });
+    } catch (error) {
+        console.error('Admin cart add error:', error);
+        return res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+const updateUserCartItem = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const userToFetch = await User.findById(userId);
+        if (!userToFetch || String(userToFetch.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const { productId, variantId, quantity } = req.body || {};
+        if (!productId) return res.status(400).json({ message: 'productId required' });
+        await Cart.setItemQuantity(userId, productId, variantId || '', quantity);
+        const items = await Cart.getByUser(userId);
+        return res.json({ items });
+    } catch (error) {
+        console.error('Admin cart update error:', error);
+        return res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+const removeUserCartItem = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const userToFetch = await User.findById(userId);
+        if (!userToFetch || String(userToFetch.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const { productId, variantId } = req.body || {};
+        if (!productId) return res.status(400).json({ message: 'productId required' });
+        await Cart.removeItem(userId, productId, variantId || '');
+        const items = await Cart.getByUser(userId);
+        return res.json({ items });
+    } catch (error) {
+        console.error('Admin cart remove error:', error);
+        return res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+const clearUserCart = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const userToFetch = await User.findById(userId);
+        if (!userToFetch || String(userToFetch.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        await Cart.clearUser(userId);
+        return res.json({ items: [] });
+    } catch (error) {
+        console.error('Admin cart clear error:', error);
+        return res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+const getUserCartSummary = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const user = await User.findById(userId);
+        if (!user || String(user.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const shippingAddress = normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
+        const code = String(req.body?.couponCode || '').trim().toUpperCase() || null;
+        const summary = await Order.getCheckoutSummary(userId, {
+            shippingAddress,
+            couponCode: code
+        });
+        return res.json({ summary });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to compute cart summary' });
+    }
+};
+
+const getUserAvailableCoupons = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const user = await User.findById(userId);
+        if (!user || String(user.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const coupons = await Order.getAvailableCoupons(userId);
+        return res.json({ coupons });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to load available coupons' });
     }
 };
 
@@ -2075,6 +2195,12 @@ module.exports = {
     deleteUser,
     resetUserPassword,
     getUserCart,
+    addUserCartItem,
+    updateUserCartItem,
+    removeUserCartItem,
+    clearUserCart,
+    getUserCartSummary,
+    getUserAvailableCoupons,
     verifyEmailChannel,
     sendTestEmail,
     getCompanyInfo,

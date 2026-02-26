@@ -49,7 +49,7 @@ class User {
     }
 
     // --- 2. PAGINATION (Pure SQL) ---
-    static async getPaginated(page = 1, limit = 10, roleFilter = null) {
+    static async getPaginated(page = 1, limit = 10, roleFilter = null, search = '') {
         const offset = (page - 1) * limit;
         
         let query = `SELECT u.*,
@@ -76,12 +76,23 @@ class User {
             LEFT JOIN user_loyalty ul ON ul.user_id = u.id`;
         let countQuery = 'SELECT COUNT(*) as total FROM users';
         const params = [];
+        const whereParts = [];
         
         // Filter Logic
         if (roleFilter && roleFilter !== 'all') {
-            query += ' WHERE u.role = ?';
-            countQuery += ' WHERE role = ?';
+            whereParts.push('u.role = ?');
             params.push(roleFilter);
+        }
+        const normalizedSearch = String(search || '').trim();
+        if (normalizedSearch) {
+            whereParts.push('(u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ?)');
+            const term = `%${normalizedSearch}%`;
+            params.push(term, term, term);
+        }
+        if (whereParts.length) {
+            const whereClause = ` WHERE ${whereParts.join(' AND ')}`;
+            query += whereClause;
+            countQuery += whereClause.replaceAll('u.', '');
         }
 
         // Sort Logic (Admin > Staff > Customer)
@@ -98,7 +109,8 @@ class User {
         params.push(parseInt(limit), parseInt(offset));
 
         const [users] = await db.execute(query, params);
-        const [countResult] = await db.execute(countQuery, roleFilter && roleFilter !== 'all' ? [roleFilter] : []);
+        const countParams = params.slice(0, params.length - 2);
+        const [countResult] = await db.execute(countQuery, countParams);
         
         return {
             users: users.map(User.normalizeRow),

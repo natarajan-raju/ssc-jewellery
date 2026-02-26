@@ -161,6 +161,10 @@ export default function Login() {
         if (method === 'otp') setOtpStatus('valid');
 
         login(res.token, res.user);
+        if (String(res?.user?.role || '').toLowerCase() === 'admin') {
+          navigate('/admin/dashboard', { replace: true });
+          return;
+        }
 
         toast.success(`Welcome back, ${res.user.name}!`);
     } else {

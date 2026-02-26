@@ -94,6 +94,148 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
     return Number(eligible[0].rate || 0);
 };
 
+const parseVariantOptionsSafe = (value) => {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+
+const getPrimaryMediaUrl = (value) => {
+    if (!value) return null;
+    try {
+        const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+        if (!Array.isArray(parsed) || !parsed.length) return null;
+        return parsed[0]?.url || parsed[0] || null;
+    } catch {
+        return null;
+    }
+};
+
+const normalizeManualSelections = (items = []) => {
+    const out = new Map();
+    for (const row of (Array.isArray(items) ? items : [])) {
+        const productId = Number(row?.productId || row?.product_id || 0);
+        const rawVariantId = row?.variantId ?? row?.variant_id ?? '';
+        const variantId = rawVariantId === '' || rawVariantId == null ? null : Number(rawVariantId);
+        const quantity = Math.max(0, Number(row?.quantity || 0));
+        if (!Number.isFinite(productId) || productId <= 0 || quantity <= 0) continue;
+        if (variantId != null && (!Number.isFinite(variantId) || variantId <= 0)) continue;
+        const key = `${productId}:${variantId || ''}`;
+        if (!out.has(key)) {
+            out.set(key, { productId, variantId, quantity: 0 });
+        }
+        out.get(key).quantity += quantity;
+    }
+    return Array.from(out.values());
+};
+
+const buildOrderItemsFromSelections = async (connection, selections = [], { deductStock = false } = {}) => {
+    const normalized = normalizeManualSelections(selections);
+    if (!normalized.length) {
+        throw new Error('Add at least one product to create order');
+    }
+    const orderItems = [];
+    let subtotal = 0;
+    let totalWeightKg = 0;
+    for (const selected of normalized) {
+        const { productId, variantId, quantity } = selected;
+        const [rows] = await connection.execute(
+            `SELECT p.id as product_id, p.title as product_title, p.status as product_status,
+                    p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
+                    p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
+                    pv.id as variant_id, pv.product_id as variant_product_id, pv.variant_title,
+                    pv.price as variant_price, pv.discount_price as variant_discount_price,
+                    pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
+                    pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg,
+                    pv.variant_options
+             FROM products p
+             LEFT JOIN product_variants pv ON pv.id = ?
+             WHERE p.id = ?
+             LIMIT 1
+             ${deductStock ? 'FOR UPDATE' : ''}`,
+            [variantId || null, productId]
+        );
+        const row = rows[0];
+        if (!row) throw new Error('Some selected products are unavailable');
+        if (row.product_status && row.product_status !== 'active') {
+            throw new Error('Some selected products are unavailable');
+        }
+        if (variantId && (!row.variant_id || Number(row.variant_product_id) !== Number(productId))) {
+            throw new Error('Some selected variants are unavailable');
+        }
+        if (deductStock) {
+            if (variantId) {
+                if (Number(row.variant_track_quantity) === 1 && Number(row.variant_quantity || 0) < quantity) {
+                    throw new Error('Insufficient stock for some items');
+                }
+                if (Number(row.variant_track_quantity) === 1) {
+                    await connection.execute(
+                        'UPDATE product_variants SET quantity = quantity - ? WHERE id = ?',
+                        [quantity, variantId]
+                    );
+                }
+            } else {
+                if (Number(row.product_track_quantity) === 1 && Number(row.product_quantity || 0) < quantity) {
+                    throw new Error('Insufficient stock for some items');
+                }
+                if (Number(row.product_track_quantity) === 1) {
+                    await connection.execute(
+                        'UPDATE products SET quantity = quantity - ? WHERE id = ?',
+                        [quantity, productId]
+                    );
+                }
+            }
+        }
+        const price = Number(
+            row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
+        );
+        const originalPrice = Number(row.variant_price || row.mrp || price);
+        const lineTotal = price * quantity;
+        const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+        totalWeightKg += itemWeight * quantity;
+        const imageUrl = row.variant_image_url || getPrimaryMediaUrl(row.product_media) || null;
+        orderItems.push({
+            productId,
+            variantId: variantId || '',
+            title: row.product_title || 'Product',
+            variantTitle: row.variant_title || null,
+            quantity,
+            price,
+            lineTotal,
+            imageUrl,
+            sku: row.variant_sku || row.product_sku || null,
+            snapshot: {
+                productId,
+                variantId: variantId || '',
+                title: row.product_title || '',
+                variantTitle: row.variant_title || null,
+                variantOptions: parseVariantOptionsSafe(row.variant_options),
+                quantity,
+                unitPrice: price,
+                originalPrice,
+                discountValuePerUnit: Math.max(0, originalPrice - price),
+                lineTotal,
+                imageUrl,
+                sku: row.variant_sku || row.product_sku || null,
+                weightKg: itemWeight,
+                productStatus: row.product_status || 'active',
+                capturedAt: new Date().toISOString()
+            }
+        });
+        subtotal += lineTotal;
+    }
+    return {
+        orderItems,
+        subtotal,
+        totalWeightKg,
+        cartProductIds: [...new Set(orderItems.map((item) => item.productId).filter(Boolean))]
+    };
+};
+
 const MAX_FETCH_RANGE_DAYS = 90;
 
 const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) => {
@@ -222,6 +364,28 @@ class Order {
                 loyaltyTier: eligibleLoyaltyTier,
                 cartTotalSubunits: toSubunits(subtotal),
                 cartProductIds: [...new Set(productIds)]
+            });
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async getAvailableCouponsForSelection({
+        userId,
+        items = []
+    } = {}) {
+        const connection = await db.getConnection();
+        try {
+            const { subtotal, cartProductIds } = await buildOrderItemsFromSelections(connection, items, { deductStock: false });
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const eligibleLoyaltyTier = loyaltyStatus?.eligibility?.isEligible
+                ? (loyaltyStatus?.tier || 'regular')
+                : 'regular';
+            return Coupon.getAvailableCouponsForUser({
+                userId,
+                loyaltyTier: eligibleLoyaltyTier,
+                cartTotalSubunits: toSubunits(subtotal),
+                cartProductIds
             });
         } finally {
             connection.release();
@@ -838,6 +1002,213 @@ class Order {
         }
     }
 
+    static async getAdminManualQuote(userId, {
+        shippingAddress = null,
+        couponCode = null,
+        items = []
+    } = {}) {
+        const connection = await db.getConnection();
+        try {
+            const {
+                orderItems,
+                subtotal,
+                totalWeightKg,
+                cartProductIds
+            } = await buildOrderItemsFromSelections(connection, items, { deductStock: false });
+            const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
+            let couponDiscountTotal = 0;
+            let coupon = null;
+            const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible);
+            const eligibleLoyaltyTier = isMembershipEligible ? (loyaltyStatus?.tier || 'regular') : 'regular';
+            if (couponCode) {
+                const discount = await Coupon.resolveRedeemableCoupon({
+                    code: couponCode,
+                    userId,
+                    cartTotalSubunits: toSubunits(subtotal),
+                    shippingFeeSubunits: toSubunits(shippingFee),
+                    loyaltyTier: eligibleLoyaltyTier,
+                    cartProductIds,
+                    connection
+                });
+                if (!discount) {
+                    throw new Error('Coupon is invalid or expired');
+                }
+                couponDiscountTotal = fromSubunits(discount.discountSubunits);
+                coupon = {
+                    id: discount.id,
+                    code: discount.code,
+                    source: discount.source || 'coupon',
+                    type: discount.type || 'percent',
+                    percent: Number(discount.percent || 0),
+                    fixedAmount: Number(discount.fixedAmount || 0),
+                    journeyId: discount.journeyId || null,
+                    discountSubunits: Number(discount.discountSubunits || 0)
+                };
+            }
+            const maxCouponDiscount = Math.max(0, subtotal + shippingFee);
+            if (couponDiscountTotal > maxCouponDiscount) couponDiscountTotal = maxCouponDiscount;
+            const loyaltyAdjustments = calculateOrderLoyaltyAdjustments({
+                subtotal,
+                shippingFee,
+                couponDiscount: couponDiscountTotal,
+                tier: eligibleLoyaltyTier,
+                membershipEligible: isMembershipEligible
+            });
+            const loyaltyDiscountTotal = Math.min(
+                Math.max(0, subtotal - couponDiscountTotal),
+                Number(loyaltyAdjustments.loyaltyDiscount || 0)
+            );
+            const loyaltyShippingDiscountTotal = Math.min(
+                Math.max(0, shippingFee),
+                Number(loyaltyAdjustments.shippingDiscount || 0)
+            );
+            const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
+            const total = Math.max(0, subtotal + shippingFee - discountTotal);
+            return {
+                items: orderItems,
+                subtotal,
+                shippingFee,
+                couponDiscountTotal,
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal,
+                discountTotal,
+                total,
+                currency: 'INR',
+                coupon,
+                loyaltyTier: String(eligibleLoyaltyTier || 'regular').toLowerCase(),
+                loyaltyMeta: {
+                    profile: loyaltyAdjustments.profile || null,
+                    progress: loyaltyStatus?.progress || null
+                }
+            };
+        } finally {
+            connection.release();
+        }
+    }
+
+    static async createAdminManualOrder(userId, {
+        billingAddress,
+        shippingAddress,
+        payment = null,
+        couponCode = null,
+        sourceChannel = null,
+        items = []
+    }) {
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
+            const {
+                orderItems,
+                subtotal,
+                shippingFee,
+                couponDiscountTotal,
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal,
+                discountTotal,
+                total,
+                coupon,
+                loyaltyTier,
+                loyaltyMeta
+            } = await Order.getAdminManualQuote(userId, { shippingAddress, couponCode, items });
+
+            await buildOrderItemsFromSelections(connection, items, { deductStock: true });
+            const orderRef = buildOrderRef();
+            const paymentStatus = payment?.paymentStatus || 'paid';
+            const paymentGateway = payment?.gateway || 'manual';
+            const paymentReference = String(payment?.paymentReference || '').trim();
+            const couponMeta = coupon ? {
+                percent: coupon.percent || 0,
+                fixedAmount: coupon.fixedAmount || 0,
+                source: coupon.source || 'coupon',
+                discountSubunits: coupon.discountSubunits || 0
+            } : null;
+            const persistedLoyaltyMeta = {
+                ...(loyaltyMeta && typeof loyaltyMeta === 'object' ? loyaltyMeta : {}),
+                manualPaymentReference: paymentReference || null
+            };
+            const companyProfile = await CompanyProfile.get();
+            const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
+            const [orderResult] = await connection.execute(
+                `INSERT INTO orders 
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    orderRef,
+                    userId,
+                    'confirmed',
+                    paymentStatus,
+                    paymentGateway,
+                    null,
+                    null,
+                    null,
+                    coupon?.code || null,
+                    coupon?.type || null,
+                    couponDiscountTotal,
+                    couponMeta ? JSON.stringify(couponMeta) : null,
+                    loyaltyTier,
+                    loyaltyDiscountTotal,
+                    loyaltyShippingDiscountTotal,
+                    JSON.stringify(persistedLoyaltyMeta),
+                    sourceChannel ? String(sourceChannel).slice(0, 30) : null,
+                    0,
+                    null,
+                    subtotal,
+                    shippingFee,
+                    discountTotal,
+                    total,
+                    'INR',
+                    JSON.stringify(billingAddress || null),
+                    JSON.stringify(shippingAddress || null),
+                    JSON.stringify(companySnapshot),
+                    null,
+                    null
+                ]
+            );
+            const orderId = orderResult.insertId;
+            if (coupon?.id) {
+                await Coupon.markRedeemed({
+                    source: coupon.source || 'coupon',
+                    id: coupon.id,
+                    orderId,
+                    userId,
+                    connection
+                });
+            }
+            await connection.execute(
+                'INSERT INTO order_status_events (order_id, status) VALUES (?, ?)',
+                [orderId, 'confirmed']
+            );
+            const values = orderItems.map(item => ([
+                orderId,
+                item.productId,
+                item.variantId,
+                item.title,
+                item.variantTitle,
+                item.quantity,
+                item.price,
+                item.lineTotal,
+                item.imageUrl,
+                item.sku,
+                JSON.stringify(item.snapshot || null)
+            ]));
+            await connection.query(
+                `INSERT INTO order_items 
+                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                VALUES ?`,
+                [values]
+            );
+            await connection.commit();
+            await reassessUserTier(userId, { reason: 'order_paid', sendNotifications: true, notificationMode: 'upgrade_welcome' }).catch(() => {});
+            return Order.getById(orderId);
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
+
     static async createManualOrderFromAttempt({
         attempt = null,
         paymentGateway = 'manual',
@@ -1331,7 +1702,7 @@ class Order {
                 NULL as coupon_type,
                 0 as coupon_discount_value,
                 NULL as coupon_meta,
-                COALESCE(NULLIF(LOWER(JSON_UNQUOTE(JSON_EXTRACT(pa.notes, '$.attemptSnapshot.loyalty.tier'))), ''), NULLIF(LOWER(ul.tier), ''), 'regular') as loyalty_tier,
+                COALESCE(NULLIF(LOWER(JSON_UNQUOTE(JSON_EXTRACT(pa.notes, '$.attemptSnapshot.loyalty.tier'))), ''), 'regular') as loyalty_tier,
                 0 as loyalty_discount_total,
                 0 as loyalty_shipping_discount_total,
                 NULL as loyalty_meta,
@@ -1362,7 +1733,6 @@ class Order {
                 pa.failure_reason
             FROM payment_attempts pa
             LEFT JOIN users u ON u.id = pa.user_id
-            LEFT JOIN user_loyalty ul ON ul.user_id = pa.user_id
             ${attemptWhere}` : ''}
         `;
 

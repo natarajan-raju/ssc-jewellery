@@ -33,6 +33,57 @@ const formatDate = (value) => {
         return '';
     }
 };
+const formatTier = (value) => {
+    const tier = String(value || 'regular').trim().toLowerCase();
+    if (!tier || tier === 'regular') return 'Basic';
+    return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
+};
+const parseSnapshotSafe = (value) => {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+const buildOrderSnapshotLine = (order = {}) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const resolvedItems = items
+        .map((item) => {
+            const snapshot = parseSnapshotSafe(item?.item_snapshot) || {};
+            const quantity = Math.max(0, Number(snapshot?.quantity ?? item?.quantity ?? 0));
+            const title = String(snapshot?.title || item?.title || 'Item').trim() || 'Item';
+            const variantTitle = String(snapshot?.variantTitle || item?.variant_title || item?.variantTitle || '').trim();
+            const lineTotal = Number(snapshot?.lineTotal ?? item?.line_total ?? ((Number(item?.price || 0) * quantity) || 0));
+            return { quantity, title, variantTitle, lineTotal };
+        })
+        .filter((item) => item.quantity > 0);
+    if (!resolvedItems.length) return '';
+    const couponDiscount = Number(order?.coupon_discount_value || 0);
+    const loyaltyDiscount = Number(order?.loyalty_discount_total || 0);
+    const loyaltyShippingDiscount = Number(order?.loyalty_shipping_discount_total || 0);
+    const couponCode = String(order?.coupon_code || '').trim().toUpperCase();
+    const summaryParts = [
+        `Tier: <strong>${formatTier(order?.loyalty_tier || order?.loyaltyTier)}</strong>`,
+        couponCode ? `Coupon: <strong>${couponCode}</strong>` : null,
+        couponDiscount > 0 ? `Coupon discount: <strong>${formatCurrency(couponDiscount)}</strong>` : null,
+        loyaltyDiscount > 0 ? `Member discount: <strong>${formatCurrency(loyaltyDiscount)}</strong>` : null,
+        loyaltyShippingDiscount > 0 ? `Member shipping discount: <strong>${formatCurrency(loyaltyShippingDiscount)}</strong>` : null
+    ].filter(Boolean);
+    const visibleItems = resolvedItems.slice(0, 10);
+    const lines = visibleItems.map((item, idx) => (
+        `${idx + 1}. ${item.quantity} x ${item.title}${item.variantTitle ? ` (${item.variantTitle})` : ''} - ${formatCurrency(item.lineTotal)}`
+    ));
+    if (resolvedItems.length > visibleItems.length) {
+        lines.push(`+${resolvedItems.length - visibleItems.length} more item(s)`);
+    }
+    return [
+        '<strong>Order snapshot</strong>',
+        summaryParts.length ? summaryParts.join(' | ') : null,
+        ...lines
+    ].filter(Boolean).join('<br/>');
+};
 
 const hashSeed = (input = '') => {
     const value = String(input || '');
@@ -227,11 +278,13 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
             refundCouponCode ? `Refund voucher code: <strong>${refundCouponCode}</strong>` : null
         ].filter(Boolean).join(' | ')
         : '';
+    const snapshotLine = buildOrderSnapshotLine(order);
 
     const bodyBlocks = [
         stageSummary[stageKey] || `Your order <strong>${orderRef}</strong> status is <strong>${stageKey}</strong>.`,
         orderRefLine,
         `Order value: <strong>${total}</strong>`,
+        snapshotLine || null,
         shipmentInfoLine || null,
         refundDetailLine || null,
         emiCancellationWarning || null,

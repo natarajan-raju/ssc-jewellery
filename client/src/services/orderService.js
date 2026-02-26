@@ -554,6 +554,22 @@ export const orderService = {
         }
         return data;
     },
+    getAdminManualCoupons: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/admin/manual/coupons`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    getAdminManualPreview: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/admin/manual/preview`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
     fetchAdminPaymentStatus: async (payload = {}) => {
         const res = await fetch(`${API_URL}/admin/payment/fetch-status`, {
             method: 'POST',

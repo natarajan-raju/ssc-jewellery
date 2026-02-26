@@ -13,6 +13,7 @@ const CompanyProfile = require('../models/CompanyProfile');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
+const { reassessUserTier } = require('../services/loyaltyService');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -1101,6 +1102,52 @@ const getAvailableCoupons = async (req, res) => {
     }
 };
 
+const getAdminManualCoupons = async (req, res) => {
+    try {
+        const userId = String(req.body?.userId || '').trim();
+        if (!userId) {
+            return res.status(400).json({ message: 'Customer is required' });
+        }
+        const user = await User.findById(userId);
+        if (!user || String(user.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const useCustomerCart = req.body?.useCustomerCart === true || String(req.body?.useCustomerCart || '').toLowerCase() === 'true';
+        const coupons = useCustomerCart
+            ? await Order.getAvailableCoupons(userId)
+            : await Order.getAvailableCouponsForSelection({ userId, items: Array.isArray(req.body?.items) ? req.body.items : [] });
+        return res.json({ coupons });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to fetch coupons' });
+    }
+};
+
+const getAdminManualPreview = async (req, res) => {
+    try {
+        const userId = String(req.body?.userId || '').trim();
+        if (!userId) {
+            return res.status(400).json({ message: 'Customer is required' });
+        }
+        const user = await User.findById(userId);
+        if (!user || String(user.role || '').toLowerCase() !== 'customer') {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const shippingAddress = normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
+        const couponCode = String(req.body?.couponCode || '').trim().toUpperCase() || null;
+        const useCustomerCart = req.body?.useCustomerCart === true || String(req.body?.useCustomerCart || '').toLowerCase() === 'true';
+        const quote = useCustomerCart
+            ? await Order.getCheckoutSummary(userId, { shippingAddress, couponCode })
+            : await Order.getAdminManualQuote(userId, {
+                shippingAddress,
+                couponCode,
+                items: Array.isArray(req.body?.items) ? req.body.items : []
+            });
+        return res.json({ summary: quote });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to build order summary' });
+    }
+};
+
 const getCustomerPopupData = async (req, res) => {
     try {
         const userId = req.user.id;
@@ -1648,6 +1695,13 @@ const updateOrderStatus = async (req, res) => {
                 io.to(`user:${order.user_id}`).emit('order:update', { orderId: req.params.id, status: nextStatus, order });
             }
         }
+        if (
+            order?.user_id
+            && String(existingOrder?.status || '').toLowerCase() !== String(nextStatus || '').toLowerCase()
+            && ['cancelled', 'refunded'].includes(String(nextStatus || '').toLowerCase())
+        ) {
+            await reassessUserTier(order.user_id, { reason: 'order_status_reversal', sendNotifications: false }).catch(() => {});
+        }
         void triggerOrderLifecycleEmail({
             order,
             stage: nextStatus === 'pending' ? 'pending_delay' : nextStatus,
@@ -1815,7 +1869,7 @@ const convertAdminPaymentAttemptToOrder = async (req, res) => {
         void triggerOrderLifecycleEmail({
             order,
             stage: 'confirmed',
-            includeInvoice: false
+            includeInvoice: true
         });
 
         return res.json({ order, attempt: updatedAttempt || null });
@@ -1837,20 +1891,37 @@ const createAdminManualOrder = async (req, res) => {
         const shippingAddress = normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
         const billingAddress = normalizeAddressPayload(req.body?.billingAddress, { fieldLabel: 'Billing address' });
         const couponCode = String(req.body?.couponCode || '').trim().toUpperCase() || null;
+        const useCustomerCart = req.body?.useCustomerCart === true || String(req.body?.useCustomerCart || '').toLowerCase() === 'true';
+        const items = Array.isArray(req.body?.items) ? req.body.items : [];
         const paymentMode = String(req.body?.paymentMode || 'manual').trim().toLowerCase();
+        const paymentReference = String(req.body?.paymentReference || '').trim();
         if (!MANUAL_PAYMENT_MODES.includes(paymentMode)) {
             return res.status(400).json({ message: 'Select a valid manual payment mode' });
         }
-        const order = await Order.createFromCart(userId, {
-            billingAddress,
-            shippingAddress,
-            payment: {
-                paymentStatus: 'paid',
-                gateway: paymentMode
-            },
-            couponCode,
-            sourceChannel: 'admin_manual'
-        });
+        const order = useCustomerCart
+            ? await Order.createFromCart(userId, {
+                billingAddress,
+                shippingAddress,
+                payment: {
+                    paymentStatus: 'paid',
+                    gateway: paymentMode,
+                    paymentReference
+                },
+                couponCode,
+                sourceChannel: 'admin_manual'
+            })
+            : await Order.createAdminManualOrder(userId, {
+                billingAddress,
+                shippingAddress,
+                payment: {
+                    paymentStatus: 'paid',
+                    gateway: paymentMode,
+                    paymentReference
+                },
+                couponCode,
+                sourceChannel: 'admin_manual',
+                items
+            });
         if (!order?.id) {
             return res.status(400).json({ message: 'Failed to create manual order' });
         }
@@ -1866,7 +1937,7 @@ const createAdminManualOrder = async (req, res) => {
         void triggerOrderLifecycleEmail({
             order: persisted || order,
             stage: 'confirmed',
-            includeInvoice: false
+            includeInvoice: true
         });
         return res.status(201).json({ order: persisted || order });
     } catch (error) {
@@ -2145,7 +2216,15 @@ const triggerOrderLifecycleEmail = async ({
         const customer = await User.findById(order.user_id);
         if (!customer?.email) return;
         let invoiceAttachment = null;
-        if (includeInvoice) {
+        const stageKey = String(stage || '').trim().toLowerCase();
+        const paymentStatus = String(order?.payment_status || '').trim().toLowerCase();
+        const shouldAttachInvoice = Boolean(includeInvoice)
+            || (
+                ['confirmed', 'confirmation', 'processing', 'shipped', 'shipped_followup', 'completed', 'delivered', 'cancelled', 'updated']
+                    .includes(stageKey)
+                && ['paid', 'refunded'].includes(paymentStatus)
+            );
+        if (shouldAttachInvoice) {
             const orderForInvoice = await hydrateOrderForInvoice(order);
             const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
             const invoiceRef = String(order?.order_ref || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
@@ -2159,7 +2238,7 @@ const triggerOrderLifecycleEmail = async ({
             stage,
             customer,
             order,
-            includeInvoice,
+            includeInvoice: shouldAttachInvoice,
             invoiceAttachment
         });
     } catch (error) {
@@ -2219,6 +2298,8 @@ module.exports = {
     getCheckoutSummary,
     validateRecoveryCoupon,
     getAvailableCoupons,
+    getAdminManualCoupons,
+    getAdminManualPreview,
     getCustomerPopupData,
     getPublicPopupData,
     retryRazorpayPayment,

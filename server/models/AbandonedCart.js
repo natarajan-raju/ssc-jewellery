@@ -617,12 +617,15 @@ class AbandonedCart {
         await AbandonedCart.closeActiveJourneysWithEmptyCarts();
         const now = new Date();
         const [rows] = await db.execute(
-            `SELECT * FROM abandoned_cart_journeys
-             WHERE status = 'active'
+            `SELECT j.*
+             FROM abandoned_cart_journeys j
+             LEFT JOIN users u ON u.id = j.user_id
+             WHERE j.status = 'active'
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
                AND next_attempt_at IS NOT NULL
                AND next_attempt_at <= DATE_ADD(?, INTERVAL ? SECOND)
                AND (expires_at IS NULL OR expires_at > ?)
-             ORDER BY next_attempt_at ASC
+             ORDER BY j.next_attempt_at ASC
              LIMIT ?`,
             [now, DUE_GRACE_SECONDS, now, Number(limit || 25)]
         );
@@ -863,7 +866,7 @@ class AbandonedCart {
     static async listJourneys({ status = 'all', limit = 50, offset = 0 } = {}) {
         const campaign = await AbandonedCart.getCampaign();
         const params = [];
-        let where = 'WHERE 1=1';
+        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'";
         if (status && status !== 'all') {
             where += ' AND j.status = ?';
             params.push(status);
@@ -902,7 +905,9 @@ class AbandonedCart {
             `SELECT j.*, u.name as customer_name, u.email as customer_email, u.mobile as customer_mobile
              FROM abandoned_cart_journeys j
              LEFT JOIN users u ON u.id = j.user_id
-             WHERE j.id = ? LIMIT 1`,
+             WHERE j.id = ?
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+             LIMIT 1`,
             [journeyId]
         );
         if (!journeyRows.length) return null;
@@ -1001,7 +1006,7 @@ class AbandonedCart {
         const campaign = await AbandonedCart.getCampaign();
         const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 90)));
         const params = [];
-        let where = 'WHERE 1=1';
+        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'";
         where += ' AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
         params.push(safeRangeDays);
         if (status && status !== 'all') {
@@ -1067,13 +1072,15 @@ class AbandonedCart {
         const [summaryRows] = await db.execute(
             `SELECT
                 COUNT(*) as total_journeys,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_journeys,
-                SUM(CASE WHEN status = 'recovered' THEN 1 ELSE 0 END) as recovered_journeys,
-                SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired_journeys,
-                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_journeys,
-                SUM(CASE WHEN status = 'recovered' THEN cart_total_subunits ELSE 0 END) as recovered_value_subunits
-             FROM abandoned_cart_journeys
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`,
+                SUM(CASE WHEN j.status = 'active' THEN 1 ELSE 0 END) as active_journeys,
+                SUM(CASE WHEN j.status = 'recovered' THEN 1 ELSE 0 END) as recovered_journeys,
+                SUM(CASE WHEN j.status = 'expired' THEN 1 ELSE 0 END) as expired_journeys,
+                SUM(CASE WHEN j.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_journeys,
+                SUM(CASE WHEN j.status = 'recovered' THEN j.cart_total_subunits ELSE 0 END) as recovered_value_subunits
+             FROM abandoned_cart_journeys j
+             LEFT JOIN users u ON u.id = j.user_id
+             WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'`,
             [safeDays]
         );
         const [attemptRows] = await db.execute(
@@ -1088,12 +1095,14 @@ class AbandonedCart {
         );
         const [dailyRows] = await db.execute(
             `SELECT
-                DATE(created_at) as day,
+                DATE(j.created_at) as day,
                 COUNT(*) as journeys,
-                SUM(CASE WHEN status = 'recovered' THEN 1 ELSE 0 END) as recovered,
-                SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active
-             FROM abandoned_cart_journeys
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                SUM(CASE WHEN j.status = 'recovered' THEN 1 ELSE 0 END) as recovered,
+                SUM(CASE WHEN j.status = 'active' THEN 1 ELSE 0 END) as active
+             FROM abandoned_cart_journeys j
+             LEFT JOIN users u ON u.id = j.user_id
+             WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
              GROUP BY DATE(created_at)
              ORDER BY DATE(created_at) ASC`,
             [safeDays]

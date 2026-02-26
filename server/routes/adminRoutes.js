@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listLoyaltyPopupTemplates, createLoyaltyPopupTemplate, updateLoyaltyPopupTemplate, deleteLoyaltyPopupTemplate, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, addUserCartItem, updateUserCartItem, removeUserCartItem, clearUserCart, getUserCartSummary, getUserAvailableCoupons, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listLoyaltyPopupTemplates, createLoyaltyPopupTemplate, updateLoyaltyPopupTemplate, deleteLoyaltyPopupTemplate, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -35,6 +35,12 @@ router.post('/dashboard/events', trackDashboardEvent);
 router.post('/users', createUser);
 router.delete('/users/:id', deleteUser);
 router.get('/users/:id/cart', getUserCart);
+router.post('/users/:id/cart/items', addUserCartItem);
+router.put('/users/:id/cart/items', updateUserCartItem);
+router.delete('/users/:id/cart/items', removeUserCartItem);
+router.delete('/users/:id/cart', clearUserCart);
+router.post('/users/:id/cart/summary', getUserCartSummary);
+router.get('/users/:id/coupons/available', getUserAvailableCoupons);
 router.get('/users/:id/coupons/active', getUserActiveCoupons);
 router.post('/users/:id/coupons', issueCouponToUser);
 router.delete('/users/:id/coupons/:couponId', deleteUserCoupon);

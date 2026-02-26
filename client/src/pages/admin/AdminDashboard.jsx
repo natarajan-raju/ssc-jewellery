@@ -41,6 +41,7 @@ export default function AdminDashboard() {
     const [ordersInitialEndDate, setOrdersInitialEndDate] = useState('');
     const [ordersInitialSortBy, setOrdersInitialSortBy] = useState('');
     const [ordersInitialSourceChannel, setOrdersInitialSourceChannel] = useState('');
+    const [ordersInitialManualCustomerId, setOrdersInitialManualCustomerId] = useState('');
     const [incomingOrders, setIncomingOrders] = useState([]);
     const [activePopupType, setActivePopupType] = useState(null);
     const [activeShippingSummary, setActiveShippingSummary] = useState(null);
@@ -436,6 +437,10 @@ export default function AdminDashboard() {
                     {activeTab === 'customers' && (
                         <Customers
                             onOpenLoyalty={() => setActiveTab('loyalty')}
+                            onCreateOrderForCustomer={(userId) => {
+                                setActiveTab('orders');
+                                setOrdersInitialManualCustomerId(String(userId || '').trim());
+                            }}
                             focusCustomerId={focusCustomerId}
                             onFocusCustomerHandled={() => setFocusCustomerId(null)}
                         />
@@ -461,6 +466,8 @@ export default function AdminDashboard() {
                             onInitialSortApplied={() => setOrdersInitialSortBy('')}
                             initialSourceChannel={ordersInitialSourceChannel}
                             onInitialSourceChannelApplied={() => setOrdersInitialSourceChannel('')}
+                            initialManualCustomerId={ordersInitialManualCustomerId}
+                            onInitialManualCustomerApplied={() => setOrdersInitialManualCustomerId('')}
                         />
                     )}
                     {activeTab === 'abandoned' && <AbandonedCarts />}

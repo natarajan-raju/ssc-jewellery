@@ -138,6 +138,31 @@ class LoyaltyPopupConfig {
         const endsAt = row.endsAt ? new Date(row.endsAt).getTime() : null;
         if (startsAt && startsAt > now) return null;
         if (endsAt && endsAt < now) return null;
+        if (row.couponCode) {
+            const [couponRows] = await db.execute(
+                `SELECT is_active, starts_at, expires_at
+                 FROM coupons
+                 WHERE code = ?
+                 LIMIT 1`,
+                [String(row.couponCode || '').trim().toUpperCase()]
+            );
+            const coupon = couponRows?.[0] || null;
+            const couponActive = Boolean(coupon && Number(coupon.is_active || 0) === 1);
+            const couponStartsAt = coupon?.starts_at ? new Date(coupon.starts_at).getTime() : null;
+            const couponExpiresAt = coupon?.expires_at ? new Date(coupon.expires_at).getTime() : null;
+            const couponInWindow = couponActive
+                && (!couponStartsAt || couponStartsAt <= now)
+                && (!couponExpiresAt || couponExpiresAt >= now);
+            if (!couponInWindow) {
+                await db.execute(
+                    `UPDATE loyalty_popup_config
+                     SET is_active = 0,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = 1`
+                );
+                return null;
+            }
+        }
         return row;
     }
 }

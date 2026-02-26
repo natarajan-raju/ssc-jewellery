@@ -35,9 +35,10 @@ const formatLongDate = (value) => {
     return `${day}${suffix} ${month} ${year}`;
 };
 
-const formatCouponOffer = (coupon = {}) => {
-    const type = String(coupon.discountType || '').toLowerCase();
-    const value = Number(coupon.discountValue || 0);
+const formatCouponOffer = (coupon = null) => {
+    const safe = coupon && typeof coupon === 'object' ? coupon : {};
+    const type = String(safe.discountType || '').toLowerCase();
+    const value = Number(safe.discountValue || 0);
     if (type === 'fixed') return `₹${value.toLocaleString('en-IN')} OFF`;
     if (type === 'shipping_full') return 'FREE SHIPPING';
     if (type === 'shipping_partial') return `${value}% SHIPPING OFF`;
@@ -226,12 +227,29 @@ export default function CustomerCouponPopup() {
 
     if (!open || !popup) return null;
     if (dismissed) return null;
-    const coupon = popup.coupon || null;
+    const coupon = (() => {
+        if (popup?.coupon && typeof popup.coupon === 'object') return popup.coupon;
+        if (popup && (popup.discountType || popup.discountValue || popup.couponCode || popup.code)) {
+            return {
+                code: popup.couponCode || popup.code || '',
+                discountType: popup.discountType || '',
+                discountValue: popup.discountValue || 0,
+                expiresAt: popup.expiresAt || null,
+                scopeType: popup.scopeType || '',
+                primaryCategoryName: popup.primaryCategoryName || '',
+                categoryNames: popup.categoryNames || [],
+                categoryNotice: popup.categoryNotice || ''
+            };
+        }
+        return null;
+    })();
     const categoryOnlyCoupon = String(coupon?.scopeType || '').toLowerCase() === 'category';
     const categoryName = String(coupon?.primaryCategoryName || coupon?.categoryNames?.[0] || '').trim();
     const categoryNotice = String(coupon?.categoryNotice || '').trim()
         || (categoryOnlyCoupon && categoryName ? `Valid only for ${categoryName} category products.` : '');
-    const renderCouponCard = (extraClass = '') => (
+    const renderCouponCard = (extraClass = '') => {
+        if (!coupon) return null;
+        return (
         <div className={`relative inline-grid max-w-full rounded-xl border overflow-hidden grid-cols-[auto_148px] ${extraClass}`}>
             <div className="bg-primary px-5 py-4 flex flex-col justify-center">
                 <p className="text-[10px] uppercase tracking-wider text-slate-300">Voucher Code</p>
@@ -252,7 +270,8 @@ export default function CustomerCouponPopup() {
             <span style={{ left: 'calc(100% - 148px)' }} className="absolute -top-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
             <span style={{ left: 'calc(100% - 148px)' }} className="absolute -bottom-[5px] h-[10px] w-[10px] -translate-x-1/2 rounded-full bg-white border border-gray-200 z-10" />
         </div>
-    );
+        );
+    };
 
     return createPortal(
         <div className="fixed inset-0 z-[240]">
@@ -274,7 +293,11 @@ export default function CustomerCouponPopup() {
                             onTouchEnd={handleScratchEnd}
                         >
                             <div className={`transition-all duration-500 ${scratchUnlocked ? 'ring-4 ring-amber-300 shadow-2xl shadow-amber-200/60' : ''}`}>
-                                {renderCouponCard()}
+                                {coupon ? renderCouponCard() : (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm font-semibold text-amber-800">
+                                        Scratch and reveal your surprise offer
+                                    </div>
+                                )}
                             </div>
                             <canvas
                                 ref={scratchCanvasRef}

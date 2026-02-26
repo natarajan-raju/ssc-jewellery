@@ -47,9 +47,9 @@ const handleResponse = async (res) => {
 };
 
 export const adminService = {
-    getUsers: async (page = 1, role = 'all', limit = 10) => {
+    getUsers: async (page = 1, role = 'all', limit = 10, search = '') => {
         // 1. Create a unique key for this request (e.g., "page1_roleadmin")
-        const cacheKey = `page${page}_role${role}_limit${limit}`;
+        const cacheKey = `page${page}_role${role}_limit${limit}_search${String(search || '').trim().toLowerCase()}`;
 
         // 2. Check Cache
         if (userCache[cacheKey]) {
@@ -58,7 +58,7 @@ export const adminService = {
         }
 
         // 3. Fetch from Network
-        const query = `?page=${page}&limit=${limit}&role=${role}`;
+        const query = `?page=${page}&limit=${limit}&role=${encodeURIComponent(role)}&search=${encodeURIComponent(String(search || '').trim())}`;
         const res = await fetch(`${API_URL}/users${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
 
@@ -100,6 +100,49 @@ export const adminService = {
         const res = await fetch(`${API_URL}/users/${userId}/cart`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
+    addUserCartItem: async (userId, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${userId}/cart/items`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    updateUserCartItem: async (userId, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${userId}/cart/items`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    removeUserCartItem: async (userId, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${userId}/cart/items`, {
+            method: 'DELETE',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    clearUserCart: async (userId) => {
+        const res = await fetch(`${API_URL}/users/${userId}/cart`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
+    getUserCartSummary: async (userId, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${userId}/cart/summary`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    getUserAvailableCoupons: async (userId) => {
+        const res = await fetch(`${API_URL}/users/${userId}/coupons/available`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
     getUserActiveCoupons: async (userId) => {
         const res = await fetch(`${API_URL}/users/${userId}/coupons/active`, { headers: getAuthHeader() });
         return handleResponse(res);
@@ -120,13 +163,13 @@ export const adminService = {
         return handleResponse(res);
     },
 
-    getUsersAll: async (role = 'all') => {
+    getUsersAll: async (role = 'all', search = '') => {
         const all = [];
         let page = 1;
         let totalPages = 1;
         const pageSize = 200;
         do {
-            const data = await adminService.getUsers(page, role, pageSize);
+            const data = await adminService.getUsers(page, role, pageSize, search);
             const users = data.users || data || [];
             all.push(...users);
             totalPages = data.pagination?.totalPages || 1;

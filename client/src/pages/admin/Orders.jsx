@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
+import { productService } from '../../services/productService';
 import orderWaitIllustration from '../../assets/order_wait.svg';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
@@ -51,6 +52,17 @@ const MANUAL_PAYMENT_OPTIONS = [
     { value: 'manual', label: 'Manual' }
 ];
 const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
+const EMPTY_MANUAL_ITEM = { productId: '', variantId: '', quantity: 1 };
+const getManualUnitPrice = (product = {}, variant = null) => {
+    return Number(
+        variant?.discount_price
+        ?? variant?.price
+        ?? product?.discount_price
+        ?? product?.mrp
+        ?? product?.price
+        ?? 0
+    );
+};
 
 const toDateOnly = (value) => {
     if (!value) return null;
@@ -116,7 +128,9 @@ export default function Orders({
     initialSortBy = '',
     onInitialSortApplied = () => {},
     initialSourceChannel = '',
-    onInitialSourceChannelApplied = () => {}
+    onInitialSourceChannelApplied = () => {},
+    initialManualCustomerId = '',
+    onInitialManualCustomerApplied = () => {}
 }) {
     const toast = useToast();
     const [orders, setOrders] = useState([]);
@@ -189,7 +203,24 @@ export default function Orders({
         billingAddress: { ...EMPTY_ADDRESS },
         billingSameAsShipping: true
     });
+    const [manualDraftItem, setManualDraftItem] = useState({ ...EMPTY_MANUAL_ITEM });
+    const [manualOrderItems, setManualOrderItems] = useState([]);
+    const [manualProducts, setManualProducts] = useState([]);
+    const [manualProductQuery, setManualProductQuery] = useState('');
+    const [isManualProductsLoading, setIsManualProductsLoading] = useState(false);
+    const [isManualCustomersFetchingMore, setIsManualCustomersFetchingMore] = useState(false);
+    const [isManualProductsFetchingMore, setIsManualProductsFetchingMore] = useState(false);
+    const [manualCoupons, setManualCoupons] = useState([]);
+    const [isManualCouponsLoading, setIsManualCouponsLoading] = useState(false);
+    const [manualSummary, setManualSummary] = useState(null);
+    const [isManualSummaryLoading, setIsManualSummaryLoading] = useState(false);
+    const [manualSummaryError, setManualSummaryError] = useState('');
+    const [manualCouponError, setManualCouponError] = useState('');
     const [isCreatingManualOrder, setIsCreatingManualOrder] = useState(false);
+    const [manualCreateAttempted, setManualCreateAttempted] = useState(false);
+    const [manualCartTouched, setManualCartTouched] = useState(false);
+    const customerFetchSeqRef = useRef(0);
+    const productFetchSeqRef = useRef(0);
     const {
         orderMetricsByKey,
         registerOrderMetricsQuery,
@@ -284,6 +315,198 @@ export default function Orders({
         () => (manualCustomers || []).find((row) => String(row?.id) === String(manualOrderForm.userId || '')) || null,
         [manualCustomers, manualOrderForm.userId]
     );
+    const manualItemPayload = useMemo(() => (
+        (manualOrderItems || [])
+            .map((row) => ({
+                productId: Number(row?.productId || 0),
+                variantId: row?.variantId ? Number(row.variantId) : null,
+                quantity: Number(row?.quantity || 0)
+            }))
+            .filter((row) => Number.isFinite(row.productId) && row.productId > 0 && Number.isFinite(row.quantity) && row.quantity > 0)
+    ), [manualOrderItems]);
+    const isVariantInStock = (variant = {}) => {
+        const track = String(variant?.track_quantity) === '1' || variant?.track_quantity === true;
+        if (!track) return true;
+        return Number(variant?.quantity || 0) > 0;
+    };
+    const isProductInStock = (product = {}) => {
+        const variants = Array.isArray(product?.variants) ? product.variants : [];
+        if (variants.length > 0) return variants.some((variant) => isVariantInStock(variant));
+        const track = String(product?.track_quantity) === '1' || product?.track_quantity === true;
+        if (!track) return true;
+        return Number(product?.quantity || 0) > 0;
+    };
+    const activeInStockProducts = useMemo(() => (
+        (manualProducts || []).filter((product) =>
+            String(product?.status || '').toLowerCase() === 'active' && isProductInStock(product)
+        )
+    ), [manualProducts]);
+    const filteredManualProducts = useMemo(() => {
+        const term = String(manualProductQuery || '').trim().toLowerCase();
+        const rows = Array.isArray(activeInStockProducts) ? activeInStockProducts : [];
+        if (!term) return rows;
+        return rows.filter((product) => {
+            const haystack = [
+                product?.title,
+                product?.sku,
+                ...(Array.isArray(product?.variants) ? product.variants.map((v) => `${v?.variant_title || ''} ${v?.sku || ''}`) : [])
+            ].map((v) => String(v || '').toLowerCase()).join(' ');
+            return haystack.includes(term);
+        });
+    }, [activeInStockProducts, manualProductQuery]);
+    const manualCartDisplayItems = useMemo(() => (
+        (manualOrderItems || [])
+            .filter((row) => String(row?.productId || '').trim())
+            .map((row, idx) => {
+            const product = (manualProducts || []).find((entry) => Number(entry?.id) === Number(row?.productId));
+            const variants = Array.isArray(product?.variants) ? product.variants : [];
+            const variant = variants.find((entry) => Number(entry?.id) === Number(row?.variantId || 0));
+            const qty = Math.max(1, Number(row?.quantity || 1));
+            const unitPrice = Number(row?.unitPrice ?? getManualUnitPrice(product, variant));
+            return {
+                id: `${row?.productId || 'p'}:${row?.variantId || ''}:${idx}`,
+                productId: row?.productId || '',
+                variantId: row?.variantId || '',
+                title: row?.title || product?.title || `Product #${row?.productId || ''}`,
+                variantTitle: row?.variantTitle || variant?.variant_title || '',
+                quantity: qty,
+                lineTotal: Number((unitPrice * qty).toFixed(2))
+            };
+            })
+    ), [manualOrderItems, manualProducts]);
+    const fallbackManualSummary = useMemo(() => {
+        const subtotal = (manualCartDisplayItems || []).reduce((sum, item) => sum + Number(item?.lineTotal || 0), 0);
+        return {
+            subtotal,
+            shippingFee: null,
+            couponDiscountTotal: null,
+            loyaltyDiscountTotal: null,
+            loyaltyShippingDiscountTotal: null,
+            total: subtotal
+        };
+    }, [manualCartDisplayItems]);
+    const syncManualOrderItemsFromUserCart = useCallback(async (userId) => {
+        const id = String(userId || '').trim();
+        if (!id) {
+            setManualOrderItems([]);
+            return [];
+        }
+        const data = await adminService.getUserCart(id);
+        const rows = Array.isArray(data?.items) ? data.items : [];
+        const normalizedRows = rows.map((item) => ({
+            productId: String(item?.productId || ''),
+            variantId: String(item?.variantId || ''),
+            quantity: Math.max(1, Number(item?.quantity || 1)),
+            title: String(item?.title || '').trim(),
+            variantTitle: String(item?.variantTitle || '').trim(),
+            unitPrice: Number(item?.price || 0)
+        }));
+        setManualOrderItems(normalizedRows);
+        return normalizedRows;
+    }, []);
+    const refreshManualCartDerivedData = useCallback(async (userId, cartRows = null) => {
+        const id = String(userId || '').trim();
+        if (!id) return;
+        const rows = Array.isArray(cartRows) ? cartRows : await syncManualOrderItemsFromUserCart(id);
+        setIsManualCouponsLoading(true);
+        try {
+            const data = await adminService.getUserAvailableCoupons(id);
+            const coupons = Array.isArray(data?.coupons) ? data.coupons : [];
+            setManualCoupons(coupons);
+            setManualCouponError('');
+            const selectedCode = String(manualOrderForm.couponCode || '').trim().toUpperCase();
+            if (selectedCode && !coupons.some((row) => String(row?.code || '').trim().toUpperCase() === selectedCode && row?.isEligible !== false)) {
+                setManualOrderForm((prev) => ({ ...prev, couponCode: '' }));
+            }
+        } catch (error) {
+            setManualCoupons([]);
+            setManualCouponError(String(error?.message || 'Failed to load coupons'));
+        } finally {
+            setIsManualCouponsLoading(false);
+        }
+
+        if (!(rows || []).length) {
+            setManualSummary(null);
+            setManualSummaryError('');
+            return;
+        }
+        const preferredShipping = resolvePrimaryAddress(manualOrderForm.shippingAddress, manualOrderForm.billingAddress);
+        if (!isAddressComplete(preferredShipping)) {
+            setManualSummary(null);
+            setManualSummaryError('Shipping address is incomplete. Fill Address line, City, State, and PIN code.');
+            return;
+        }
+        setIsManualSummaryLoading(true);
+        try {
+            const data = await adminService.getUserCartSummary(id, {
+                couponCode: manualOrderForm.couponCode || '',
+                shippingAddress: preferredShipping
+            });
+            setManualSummary(data?.summary || null);
+            setManualSummaryError('');
+        } catch (error) {
+            setManualSummary(null);
+            setManualSummaryError(String(error?.message || 'Failed to calculate order pricing'));
+        } finally {
+            setIsManualSummaryLoading(false);
+        }
+    }, [manualOrderForm.billingAddress, manualOrderForm.couponCode, manualOrderForm.shippingAddress, syncManualOrderItemsFromUserCart]);
+    const effectiveManualSummary = useMemo(() => {
+        if (manualSummary) return manualSummary;
+        if ((manualOrderItems || []).length > 0) return fallbackManualSummary;
+        return null;
+    }, [fallbackManualSummary, manualOrderItems, manualSummary]);
+    const isAddressComplete = (address = null) => {
+        const value = address || {};
+        return ['line1', 'city', 'state', 'zip'].every((field) => String(value?.[field] || '').trim());
+    };
+    const getMissingAddressFields = (address = null) => {
+        const value = address || {};
+        const labels = { line1: 'Address line', city: 'City', state: 'State', zip: 'PIN code' };
+        return ['line1', 'city', 'state', 'zip']
+            .filter((field) => !String(value?.[field] || '').trim())
+            .map((field) => labels[field]);
+    };
+    const resolvePrimaryAddress = (shippingAddress = null, billingAddress = null) => {
+        if (isAddressComplete(shippingAddress)) return shippingAddress;
+        if (isAddressComplete(billingAddress)) return billingAddress;
+        return shippingAddress || billingAddress || { ...EMPTY_ADDRESS };
+    };
+    const formatInrOrDash = (value) => {
+        if (value == null || Number.isNaN(Number(value))) return '—';
+        return `₹${Number(value).toLocaleString('en-IN')}`;
+    };
+    const effectiveBillingAddress = useMemo(
+        () => (manualOrderForm.billingSameAsShipping ? manualOrderForm.shippingAddress : manualOrderForm.billingAddress),
+        [manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress]
+    );
+    const manualValidationState = useMemo(() => {
+        const shippingMissing = getMissingAddressFields(manualOrderForm.shippingAddress);
+        const billingMissing = manualOrderForm.billingSameAsShipping ? [] : getMissingAddressFields(manualOrderForm.billingAddress);
+        return {
+            missingCustomer: !manualOrderForm.userId,
+            missingItems: manualItemPayload.length === 0,
+            shippingMissing,
+            billingMissing
+        };
+    }, [manualItemPayload.length, manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress, manualOrderForm.userId]);
+    const canSubmitManualOrder = useMemo(() => {
+        if (!manualOrderForm.userId) return false;
+        if (!isAddressComplete(manualOrderForm.shippingAddress)) return false;
+        if (!isAddressComplete(effectiveBillingAddress)) return false;
+        if (!manualItemPayload.length) return false;
+        return true;
+    }, [effectiveBillingAddress, manualItemPayload.length, manualOrderForm.shippingAddress, manualOrderForm.userId]);
+    const hasManualVariantGaps = useMemo(() => {
+        for (const row of (manualOrderItems || [])) {
+            const productId = Number(row?.productId || 0);
+            if (!productId) continue;
+            const selectedProduct = (manualProducts || []).find((p) => Number(p?.id) === productId);
+            const hasVariants = Array.isArray(selectedProduct?.variants) && selectedProduct.variants.length > 0;
+            if (hasVariants && !row?.variantId) return true;
+        }
+        return false;
+    }, [manualOrderItems, manualProducts]);
     const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
     const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
     const getRefundVoucherCode = (order) => {
@@ -698,35 +921,194 @@ export default function Orders({
     const normalizeUserAddress = (address = null) => {
         if (!address || typeof address !== 'object') return { ...EMPTY_ADDRESS };
         return {
-            line1: String(address.line1 || '').trim(),
-            city: String(address.city || '').trim(),
-            state: String(address.state || '').trim(),
-            zip: String(address.zip || '').trim()
+            line1: String(address.line1 || address.address1 || address.street || address.address || '').trim(),
+            city: String(address.city || address.town || '').trim(),
+            state: String(address.state || address.province || '').trim(),
+            zip: String(address.zip || address.pincode || address.pin || address.postalCode || '').trim()
         };
     };
 
-    const loadManualCustomers = async () => {
-        if (isManualCustomersLoading) return;
+    const loadManualCustomers = useCallback(async (query = '') => {
+        const seq = ++customerFetchSeqRef.current;
         setIsManualCustomersLoading(true);
         try {
-            const customers = await adminService.getUsersAll('customer');
-            const normalized = (Array.isArray(customers) ? customers : []).map((row) => ({
+            const first = await adminService.getUsers(1, 'customer', 50, query);
+            if (seq !== customerFetchSeqRef.current) return;
+            const normalizeRows = (rows = []) => rows.map((row) => ({
                 ...row,
                 address: normalizeUserAddress(row?.address),
                 billingAddress: normalizeUserAddress(row?.billingAddress || row?.address)
             }));
-            setManualCustomers(normalized);
+            const firstRows = normalizeRows(first?.users || []);
+            setManualCustomers(firstRows);
+            const totalPages = Math.max(1, Number(first?.pagination?.totalPages || 1));
+            if (totalPages > 1) setIsManualCustomersFetchingMore(true);
+            for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
+                const next = await adminService.getUsers(pageNo, 'customer', 50, query);
+                if (seq !== customerFetchSeqRef.current) return;
+                const nextRows = normalizeRows(next?.users || []);
+                setManualCustomers((prev) => {
+                    const seen = new Set((prev || []).map((entry) => String(entry.id)));
+                    const merged = [...(prev || [])];
+                    for (const row of nextRows) {
+                        if (!seen.has(String(row.id))) {
+                            merged.push(row);
+                        }
+                    }
+                    return merged;
+                });
+            }
         } catch (error) {
-            toast.error(error?.message || 'Failed to load customers');
+            if (seq === customerFetchSeqRef.current) {
+                toast.error(error?.message || 'Failed to load customers');
+            }
         } finally {
-            setIsManualCustomersLoading(false);
+            if (seq === customerFetchSeqRef.current) {
+                setIsManualCustomersLoading(false);
+                setIsManualCustomersFetchingMore(false);
+            }
+        }
+    }, [toast]);
+
+    const loadManualProducts = useCallback(async (query = '') => {
+        const seq = ++productFetchSeqRef.current;
+        setIsManualProductsLoading(true);
+        try {
+            const term = String(query || '').trim();
+            if (term) {
+                const data = await productService.searchProducts({
+                    query: term,
+                    page: 1,
+                    limit: 60,
+                    category: 'all',
+                    status: 'active',
+                    sort: 'relevance',
+                    inStockOnly: true
+                });
+                if (seq !== productFetchSeqRef.current) return;
+                setManualProducts(Array.isArray(data?.products) ? data.products : []);
+            } else {
+                const first = await productService.getProducts(1, 'all', 'active', 'newest', 100);
+                if (seq !== productFetchSeqRef.current) return;
+                const firstRows = Array.isArray(first?.products) ? first.products : [];
+                setManualProducts(firstRows);
+                const totalPages = Math.max(1, Number(first?.totalPages || 1));
+                if (totalPages > 1) setIsManualProductsFetchingMore(true);
+                for (let pageNo = 2; pageNo <= Math.min(totalPages, 8); pageNo += 1) {
+                    const next = await productService.getProducts(pageNo, 'all', 'active', 'newest', 100);
+                    if (seq !== productFetchSeqRef.current) return;
+                    const nextRows = Array.isArray(next?.products) ? next.products : [];
+                    setManualProducts((prev) => {
+                        const seen = new Set((prev || []).map((entry) => String(entry.id)));
+                        const merged = [...(prev || [])];
+                        for (const row of nextRows) {
+                            if (!seen.has(String(row.id))) merged.push(row);
+                        }
+                        return merged;
+                    });
+                }
+            }
+        } catch (error) {
+            if (seq === productFetchSeqRef.current) {
+                toast.error(error?.message || 'Failed to load products');
+            }
+        } finally {
+            if (seq === productFetchSeqRef.current) {
+                setIsManualProductsLoading(false);
+                setIsManualProductsFetchingMore(false);
+            }
+        }
+    }, [toast]);
+
+    const openCreateManualOrder = useCallback(async () => {
+        setIsCreateOrderOpen(true);
+        setManualCreateAttempted(false);
+        setManualCartTouched(false);
+        setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+        setManualOrderItems([]);
+        setManualCoupons([]);
+        setManualProductQuery('');
+        setManualSummaryError('');
+        setManualCouponError('');
+        setManualOrderForm((prev) => ({ ...prev, couponCode: '' }));
+        await Promise.all([loadManualProducts(''), loadManualCustomers('')]);
+    }, [loadManualCustomers, loadManualProducts]);
+
+    const closeCreateManualOrder = useCallback(async () => {
+        if (isCreatingManualOrder) return;
+        const selectedUserId = String(manualOrderForm.userId || '').trim();
+        const shouldClearCart = manualCartTouched && selectedUserId;
+        setIsCreateOrderOpen(false);
+        if (shouldClearCart) {
+            try {
+                await adminService.clearUserCart(selectedUserId);
+            } catch {
+                // no-op; close should not block on cleanup
+            }
+        }
+        setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+        setManualOrderItems([]);
+        setManualCoupons([]);
+        setManualSummary(null);
+        setManualCreateAttempted(false);
+        setManualCartTouched(false);
+    }, [isCreatingManualOrder, manualCartTouched, manualOrderForm.userId]);
+
+    const updateManualDraftItem = (patch = {}) => {
+        setManualDraftItem((prev) => {
+            const merged = { ...(prev || EMPTY_MANUAL_ITEM), ...patch };
+            const qty = Math.max(1, Number(merged.quantity || 1));
+            return { ...merged, quantity: qty };
+        });
+    };
+
+    const addManualDraftToCart = async () => {
+        if (!manualOrderForm.userId) {
+            toast.error('Select customer first');
+            return;
+        }
+        const productId = String(manualDraftItem?.productId || '').trim();
+        if (!productId) {
+            toast.error('Select a product first');
+            return;
+        }
+        const product = (manualProducts || []).find((entry) => String(entry?.id) === productId);
+        if (!product) {
+            toast.error('Selected product is unavailable');
+            return;
+        }
+        const variants = Array.isArray(product?.variants) ? product.variants.filter((variant) => isVariantInStock(variant)) : [];
+        const hasVariants = variants.length > 0;
+        const variantId = String(manualDraftItem?.variantId || '').trim();
+        if (hasVariants && !variantId) {
+            toast.error('Select a variant before adding');
+            return;
+        }
+        if (variantId && !variants.some((entry) => String(entry?.id) === variantId)) {
+            toast.error('Selected variant is unavailable');
+            return;
+        }
+        const quantity = Math.max(1, Number(manualDraftItem?.quantity || 1));
+        try {
+            await adminService.addUserCartItem(manualOrderForm.userId, { productId, variantId, quantity });
+            const rows = await syncManualOrderItemsFromUserCart(manualOrderForm.userId);
+            setManualCartTouched(true);
+            setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+            await refreshManualCartDerivedData(manualOrderForm.userId, rows);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to add item to customer cart');
         }
     };
 
-    const openCreateManualOrder = async () => {
-        setIsCreateOrderOpen(true);
-        if (!manualCustomers.length) {
-            await loadManualCustomers();
+    const removeManualCartItem = async (productId, variantId = '') => {
+        if (!manualOrderForm.userId) return;
+        try {
+            await adminService.removeUserCartItem(manualOrderForm.userId, { productId, variantId });
+            const rows = await syncManualOrderItemsFromUserCart(manualOrderForm.userId);
+            setManualCartTouched(true);
+            await refreshManualCartDerivedData(manualOrderForm.userId, rows);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to remove item from customer cart');
         }
     };
 
@@ -746,22 +1128,76 @@ export default function Orders({
         });
     };
 
-    const handleManualCustomerSelect = (userId) => {
+    const handleManualCustomerSelect = useCallback(async (userId) => {
         const customer = (manualCustomers || []).find((row) => String(row?.id) === String(userId || ''));
+        const normalizedShipping = customer?.address ? normalizeUserAddress(customer.address) : { ...EMPTY_ADDRESS };
+        const normalizedBilling = customer?.billingAddress ? normalizeUserAddress(customer.billingAddress) : normalizedShipping;
+        const primaryAddress = resolvePrimaryAddress(normalizedShipping, normalizedBilling);
         setManualOrderForm((prev) => ({
             ...prev,
             userId: userId || '',
-            shippingAddress: customer?.address ? normalizeUserAddress(customer.address) : { ...EMPTY_ADDRESS },
-            billingAddress: customer?.billingAddress ? normalizeUserAddress(customer.billingAddress) : { ...EMPTY_ADDRESS }
+            couponCode: '',
+            shippingAddress: { ...primaryAddress },
+            billingAddress: prev.billingSameAsShipping ? { ...primaryAddress } : normalizedBilling
         }));
-    };
+        setManualCoupons([]);
+        setManualSummary(null);
+        setManualSummaryError('');
+        setManualCouponError('');
+        const rows = await syncManualOrderItemsFromUserCart(userId);
+        await refreshManualCartDerivedData(userId, rows);
+    }, [manualCustomers, refreshManualCartDerivedData, syncManualOrderItemsFromUserCart]);
+
+    useEffect(() => {
+        const userId = String(initialManualCustomerId || '').trim();
+        if (!userId) return;
+        const boot = async () => {
+            await openCreateManualOrder();
+            await handleManualCustomerSelect(userId);
+            onInitialManualCustomerApplied(userId);
+        };
+        boot();
+    }, [handleManualCustomerSelect, initialManualCustomerId, onInitialManualCustomerApplied, openCreateManualOrder]);
+
+    useEffect(() => {
+        if (!isCreateOrderOpen) return;
+        const timer = setTimeout(() => {
+            loadManualCustomers(manualCustomerQuery);
+        }, 220);
+        return () => clearTimeout(timer);
+    }, [isCreateOrderOpen, loadManualCustomers, manualCustomerQuery]);
+
+    useEffect(() => {
+        if (!isCreateOrderOpen) return;
+        const timer = setTimeout(() => {
+            loadManualProducts(manualProductQuery);
+        }, 220);
+        return () => clearTimeout(timer);
+    }, [isCreateOrderOpen, loadManualProducts, manualProductQuery]);
+
+    useEffect(() => {
+        if (!isCreateOrderOpen || !manualOrderForm.userId) return;
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            if (cancelled) return;
+            await refreshManualCartDerivedData(manualOrderForm.userId);
+        }, 120);
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [isCreateOrderOpen, manualOrderForm.billingAddress, manualOrderForm.couponCode, manualOrderForm.shippingAddress, manualOrderForm.userId, refreshManualCartDerivedData]);
 
     const validateManualAddress = (address = null) => {
-        const value = address || {};
-        return ['line1', 'city', 'state', 'zip'].every((field) => String(value?.[field] || '').trim());
+        return isAddressComplete(address);
     };
 
     const handleCreateManualOrder = async () => {
+        setManualCreateAttempted(true);
+        if (!canSubmitManualOrder) {
+            toast.error('Complete all mandatory fields before creating order');
+            return;
+        }
         if (!manualOrderForm.userId) {
             toast.error('Select a customer');
             return;
@@ -770,8 +1206,16 @@ export default function Orders({
             toast.error('Complete shipping address fields');
             return;
         }
-        if (!validateManualAddress(manualOrderForm.billingAddress)) {
+        if (!validateManualAddress(effectiveBillingAddress)) {
             toast.error('Complete billing address fields');
+            return;
+        }
+        if (!manualItemPayload.length) {
+            toast.error('Add at least one product item');
+            return;
+        }
+        if (hasManualVariantGaps) {
+            toast.error('Select variant for all variant products');
             return;
         }
         setIsCreatingManualOrder(true);
@@ -781,14 +1225,16 @@ export default function Orders({
                 paymentMode: manualOrderForm.paymentMode,
                 paymentReference: manualOrderForm.paymentReference || '',
                 couponCode: manualOrderForm.couponCode || '',
+                useCustomerCart: true,
                 shippingAddress: manualOrderForm.shippingAddress,
-                billingAddress: manualOrderForm.billingAddress
+                billingAddress: effectiveBillingAddress
             };
             const data = await orderService.createAdminManualOrder(payload);
             const nextOrder = data?.order || null;
             if (!nextOrder) throw new Error('Order creation failed');
             toast.success('Manual order created');
             setIsCreateOrderOpen(false);
+            setManualCreateAttempted(false);
             setManualOrderForm({
                 userId: '',
                 paymentMode: 'cash',
@@ -798,6 +1244,11 @@ export default function Orders({
                 billingAddress: { ...EMPTY_ADDRESS },
                 billingSameAsShipping: true
             });
+            setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+            setManualOrderItems([]);
+            setManualCoupons([]);
+            setManualProductQuery('');
+            setManualCartTouched(false);
             setPage(1);
             fetchOrders(1);
             openDetails(nextOrder);
@@ -2249,17 +2700,24 @@ export default function Orders({
             )}
             {isCreateOrderOpen && createPortal(
                 <div className="fixed inset-0 z-[90]">
-                    <div className="absolute inset-0 bg-black/50" onClick={() => !isCreatingManualOrder && setIsCreateOrderOpen(false)}></div>
+                    <div className="absolute inset-0 bg-black/50" onClick={() => { if (!isCreatingManualOrder) void closeCreateManualOrder(); }}></div>
                     <div className="relative z-10 flex min-h-full items-center justify-center p-4">
                         <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
                             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                                 <div>
                                     <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Manual Order</p>
-                                    <h3 className="text-lg font-semibold text-gray-900 mt-1">Create Order</h3>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <h3 className="text-lg font-semibold text-gray-900">Create Order</h3>
+                                        {selectedManualCustomer && (
+                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getTierBadgeClasses(selectedManualCustomer)}`}>
+                                                {getTierLabel(selectedManualCustomer)}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => !isCreatingManualOrder && setIsCreateOrderOpen(false)}
+                                    onClick={() => { if (!isCreatingManualOrder) void closeCreateManualOrder(); }}
                                     className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
                                 >
                                     <X size={16} />
@@ -2279,9 +2737,9 @@ export default function Orders({
                                     <label className="text-sm text-gray-600">
                                         Customer
                                         <select
-                                            className="input-field mt-1"
+                                            className={`input-field mt-1 ${manualCreateAttempted && manualValidationState.missingCustomer ? 'border-red-300 focus:border-red-400' : ''}`}
                                             value={manualOrderForm.userId}
-                                            onChange={(e) => handleManualCustomerSelect(e.target.value)}
+                                            onChange={(e) => { void handleManualCustomerSelect(e.target.value); }}
                                             disabled={isManualCustomersLoading}
                                         >
                                             <option value="">{isManualCustomersLoading ? 'Loading customers...' : 'Select customer'}</option>
@@ -2290,11 +2748,18 @@ export default function Orders({
                                                     {customer.name || 'Customer'} ({customer.mobile || customer.email || customer.id})
                                                 </option>
                                             ))}
+                                            {isManualCustomersFetchingMore && <option value="" disabled>Loading more customers...</option>}
                                         </select>
                                         {selectedManualCustomer && (
                                             <p className="mt-1 text-xs text-gray-500">
                                                 Selected: {selectedManualCustomer.name} {selectedManualCustomer.mobile ? `• ${selectedManualCustomer.mobile}` : ''}
                                             </p>
+                                        )}
+                                        {isManualCustomersFetchingMore && (
+                                            <p className="mt-1 text-xs text-gray-400 inline-flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Fetching more customers...</p>
+                                        )}
+                                        {manualCreateAttempted && manualValidationState.missingCustomer && (
+                                            <p className="mt-1 text-xs text-red-600">Select a customer to continue.</p>
                                         )}
                                     </label>
                                     <label className="text-sm text-gray-600">
@@ -2319,23 +2784,183 @@ export default function Orders({
                                         />
                                     </label>
                                     <label className="text-sm text-gray-600 md:col-span-2">
-                                        Coupon Code (Optional)
-                                        <input
+                                        Coupon (Optional)
+                                        <select
                                             className="input-field mt-1"
                                             value={manualOrderForm.couponCode}
-                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, couponCode: e.target.value.toUpperCase() }))}
-                                            placeholder="Coupon code"
-                                        />
+                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, couponCode: e.target.value }))}
+                                            disabled={!manualOrderForm.userId || isManualCouponsLoading}
+                                        >
+                                            <option value="">
+                                                {!manualOrderForm.userId
+                                                    ? 'Select customer first'
+                                                    : isManualCouponsLoading
+                                                        ? 'Loading coupons...'
+                                                        : 'No coupon'}
+                                            </option>
+                                            {manualCoupons.map((coupon) => (
+                                                <option
+                                                    key={coupon.code}
+                                                    value={coupon.code}
+                                                    disabled={coupon?.isEligible === false}
+                                                >
+                                                    {coupon.code} - {coupon.name || coupon.code}{coupon?.isEligible === false ? ' (Not eligible yet)' : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {manualOrderForm.userId && manualItemPayload.length > 0 && !isManualCouponsLoading && manualCoupons.length === 0 && (
+                                            <p className="mt-1 text-xs text-amber-600">No eligible coupons available for current cart value/category.</p>
+                                        )}
+                                        {manualCouponError && (
+                                            <p className="mt-1 text-xs text-amber-600">{manualCouponError}</p>
+                                        )}
                                     </label>
+                                </div>
+                                <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Products & Variants</p>
+                                    </div>
+                                    <input
+                                        className="input-field"
+                                        placeholder="Search products by name / sku / variant"
+                                        value={manualProductQuery}
+                                        onChange={(e) => setManualProductQuery(e.target.value)}
+                                    />
+                                    {isManualProductsFetchingMore && (
+                                        <p className="text-xs text-gray-400 inline-flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Fetching more products...</p>
+                                    )}
+                                    {(() => {
+                                        const selectedProduct = (manualProducts || []).find((p) => String(p?.id) === String(manualDraftItem?.productId || ''));
+                                        const variants = Array.isArray(selectedProduct?.variants) ? selectedProduct.variants.filter((variant) => isVariantInStock(variant)) : [];
+                                        const hasVariants = variants.length > 0;
+                                        return (
+                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                                                <label className="text-xs text-gray-500 md:col-span-6">
+                                                    Product
+                                                    <select
+                                                        className="input-field mt-1"
+                                                        value={manualDraftItem?.productId || ''}
+                                                        onChange={(e) => updateManualDraftItem({ productId: e.target.value, variantId: '' })}
+                                                    >
+                                                        <option value="">{isManualProductsLoading ? 'Loading products...' : 'Select product'}</option>
+                                                        {filteredManualProducts.map((product) => (
+                                                            <option key={product.id} value={product.id}>
+                                                                {product.title} ({product.sku || `#${product.id}`})
+                                                            </option>
+                                                        ))}
+                                                        {isManualProductsFetchingMore && <option value="" disabled>Loading more products...</option>}
+                                                    </select>
+                                                </label>
+                                                <label className="text-xs text-gray-500 md:col-span-3">
+                                                    Variant
+                                                    <select
+                                                        className="input-field mt-1"
+                                                        value={manualDraftItem?.variantId || ''}
+                                                        onChange={(e) => updateManualDraftItem({ variantId: e.target.value })}
+                                                        disabled={!manualDraftItem?.productId || !hasVariants}
+                                                    >
+                                                        <option value="">
+                                                            {!manualDraftItem?.productId
+                                                                ? 'Select product'
+                                                                : hasVariants
+                                                                    ? 'Select variant'
+                                                                    : 'No variant'}
+                                                        </option>
+                                                        {variants.map((variant) => (
+                                                            <option key={variant.id} value={variant.id}>
+                                                                {variant.variant_title || `Variant #${variant.id}`} ({variant.sku || variant.id})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </label>
+                                                <label className="text-xs text-gray-500 md:col-span-2">
+                                                    Qty
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        className="input-field mt-1"
+                                                        value={manualDraftItem?.quantity || 1}
+                                                        onChange={(e) => updateManualDraftItem({ quantity: e.target.value })}
+                                                    />
+                                                </label>
+                                                <div className="md:col-span-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={addManualDraftToCart}
+                                                        className="w-full h-10 flex items-center justify-center rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50"
+                                                        title="Add to cart"
+                                                    >
+                                                        <Plus size={14} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                                <div className="rounded-xl border border-gray-200 p-4">
+                                    <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">In-Cart Summary</p>
+                                    {isManualSummaryLoading && (
+                                        <p className="mt-3 text-xs text-gray-500">Calculating order summary...</p>
+                                    )}
+                                    {!isManualSummaryLoading && !manualSummary && (
+                                        <p className="mt-3 text-xs text-gray-500">Add customer, items, and shipping address to view summary.</p>
+                                    )}
+                                    {manualSummaryError && (
+                                        <p className="mt-2 text-xs text-amber-600">{manualSummaryError}</p>
+                                    )}
+                                    {manualOrderItems.length > 0 && (
+                                        <div className="mt-3 space-y-2 border border-gray-100 rounded-lg p-2 bg-gray-50/50">
+                                            {(manualSummary?.items?.length ? manualSummary.items : manualCartDisplayItems).map((item, idx) => (
+                                                <div key={`sum-item-${item?.productId || 'p'}-${item?.variantId || ''}-${idx}`} className="grid grid-cols-[1fr_auto] gap-2 text-xs items-start">
+                                                    <div>
+                                                        <p className="font-semibold text-gray-700 line-clamp-1">{item.title || 'Product'}</p>
+                                                        <p className="text-gray-500">{item.variantTitle || 'Default'} • Qty {item.quantity}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-right font-semibold text-gray-700">₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => removeManualCartItem(item?.productId, item?.variantId)}
+                                                            className="inline-flex items-center justify-center p-1 rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                                                            title="Delete item"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {manualCreateAttempted && manualValidationState.missingItems && (
+                                        <p className="mt-2 text-xs text-red-600">Add at least one product to cart.</p>
+                                    )}
+                                    {!isManualSummaryLoading && effectiveManualSummary && (
+                                        <div className="mt-3 space-y-2 text-sm">
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Subtotal</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.subtotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Shipping</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.shippingFee)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Coupon Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Member Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Shipping Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
+                                            <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(effectiveManualSummary.total)}</span></div>
+                                            {!manualSummary && (
+                                                <p className="text-xs text-gray-500">
+                                                    Add shipping address and select coupon to fetch exact shipping and membership benefit calculations.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="rounded-xl border border-gray-200 p-4">
                                     <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Shipping Address</p>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        <input className="input-field" placeholder="Address line" value={manualOrderForm.shippingAddress.line1} onChange={(e) => updateManualAddress('shippingAddress', 'line1', e.target.value)} />
-                                        <input className="input-field" placeholder="City" value={manualOrderForm.shippingAddress.city} onChange={(e) => updateManualAddress('shippingAddress', 'city', e.target.value)} />
-                                        <input className="input-field" placeholder="State" value={manualOrderForm.shippingAddress.state} onChange={(e) => updateManualAddress('shippingAddress', 'state', e.target.value)} />
-                                        <input className="input-field" placeholder="PIN code" value={manualOrderForm.shippingAddress.zip} onChange={(e) => updateManualAddress('shippingAddress', 'zip', e.target.value)} />
+                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.line1 || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="Address line" value={manualOrderForm.shippingAddress.line1} onChange={(e) => updateManualAddress('shippingAddress', 'line1', e.target.value)} />
+                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.city || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="City" value={manualOrderForm.shippingAddress.city} onChange={(e) => updateManualAddress('shippingAddress', 'city', e.target.value)} />
+                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.state || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="State" value={manualOrderForm.shippingAddress.state} onChange={(e) => updateManualAddress('shippingAddress', 'state', e.target.value)} />
+                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.zip || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="PIN code" value={manualOrderForm.shippingAddress.zip} onChange={(e) => updateManualAddress('shippingAddress', 'zip', e.target.value)} />
                                     </div>
+                                    {manualCreateAttempted && manualValidationState.shippingMissing.length > 0 && (
+                                        <p className="mt-2 text-xs text-red-600">Shipping missing: {manualValidationState.shippingMissing.join(', ')}</p>
+                                    )}
                                 </div>
                                 <div className="rounded-xl border border-gray-200 p-4">
                                     <div className="flex items-center justify-between gap-2">
@@ -2357,17 +2982,20 @@ export default function Orders({
                                         </label>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        <input className="input-field" placeholder="Address line" value={manualOrderForm.billingAddress.line1} onChange={(e) => updateManualAddress('billingAddress', 'line1', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        <input className="input-field" placeholder="City" value={manualOrderForm.billingAddress.city} onChange={(e) => updateManualAddress('billingAddress', 'city', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        <input className="input-field" placeholder="State" value={manualOrderForm.billingAddress.state} onChange={(e) => updateManualAddress('billingAddress', 'state', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        <input className="input-field" placeholder="PIN code" value={manualOrderForm.billingAddress.zip} onChange={(e) => updateManualAddress('billingAddress', 'zip', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.line1 || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="Address line" value={manualOrderForm.billingAddress.line1} onChange={(e) => updateManualAddress('billingAddress', 'line1', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.city || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="City" value={manualOrderForm.billingAddress.city} onChange={(e) => updateManualAddress('billingAddress', 'city', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.state || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="State" value={manualOrderForm.billingAddress.state} onChange={(e) => updateManualAddress('billingAddress', 'state', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.zip || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="PIN code" value={manualOrderForm.billingAddress.zip} onChange={(e) => updateManualAddress('billingAddress', 'zip', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
                                     </div>
+                                    {manualCreateAttempted && manualValidationState.billingMissing.length > 0 && (
+                                        <p className="mt-2 text-xs text-red-600">Billing missing: {manualValidationState.billingMissing.join(', ')}</p>
+                                    )}
                                 </div>
                             </div>
                             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
                                 <button
                                     type="button"
-                                    onClick={() => setIsCreateOrderOpen(false)}
+                                    onClick={() => { void closeCreateManualOrder(); }}
                                     disabled={isCreatingManualOrder}
                                     className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                                 >

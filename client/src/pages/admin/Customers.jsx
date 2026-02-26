@@ -109,6 +109,7 @@ const canDeleteCouponFromDrawer = (coupon = {}) => {
 
 export default function Customers({
     onOpenLoyalty,
+    onCreateOrderForCustomer,
     focusCustomerId = null,
     onFocusCustomerHandled = () => {}
 }) {
@@ -583,6 +584,44 @@ export default function Customers({
                         <div className="flex items-center justify-between mb-6">
                             <h3 className="text-xl font-bold text-gray-800">Customer Profile</h3>
                             <button onClick={() => setIsProfileOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
+                        </div>
+                        <div className="mb-4 flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => openCart(selectedUser)}
+                                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
+                            >
+                                <ShoppingCart size={13} /> View Cart
+                            </button>
+                            {getWhatsappLink(selectedUser.mobile) && (
+                                <a
+                                    href={getWhatsappLink(selectedUser.mobile)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
+                                >
+                                    <MessageCircle size={13} /> WhatsApp
+                                </a>
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsProfileOpen(false);
+                                    onCreateOrderForCustomer?.(selectedUser.id);
+                                }}
+                                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
+                            >
+                                <Plus size={13} /> Create Order
+                            </button>
+                            {canDeleteUser(selectedUser) && (
+                                <button
+                                    type="button"
+                                    onClick={() => openDeleteModal(selectedUser)}
+                                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-red-200 hover:bg-red-50 text-red-700"
+                                >
+                                    <Trash2 size={13} /> Delete
+                                </button>
+                            )}
                         </div>
                         <div className="bg-gray-50 rounded-2xl p-4 mb-6 border border-gray-100">
                             <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>

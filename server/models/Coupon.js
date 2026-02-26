@@ -183,7 +183,9 @@ class Coupon {
         const safeLimit = Math.max(1, Math.min(100, Number(limit || 20)));
         const offset = (safePage - 1) * safeLimit;
         const params = [];
-        let where = 'WHERE c.is_active = 1';
+        let where = `WHERE c.is_active = 1
+            AND (c.starts_at IS NULL OR c.starts_at <= NOW())
+            AND (c.expires_at IS NULL OR c.expires_at >= NOW())`;
         if (search) {
             where += ' AND (c.code LIKE ? OR c.name LIKE ?)';
             const term = `%${search}%`;
@@ -493,16 +495,20 @@ class Coupon {
         if (!userId) return [];
         const [rows] = await db.execute(
             `SELECT c.*,
+                    (SELECT COUNT(*) FROM coupon_redemptions cr WHERE cr.coupon_id = c.id) as used_count,
+                    (SELECT COUNT(*) FROM coupon_redemptions cr WHERE cr.coupon_id = c.id AND cr.user_id = ?) as used_by_user,
                     EXISTS(SELECT 1 FROM coupon_user_targets cut WHERE cut.coupon_id = c.id AND cut.user_id = ?) as is_user_target
              FROM coupons c
              WHERE c.is_active = 1
              ORDER BY c.created_at DESC
              LIMIT 100`,
-            [userId]
+            [userId, userId]
         );
         const out = [];
         for (const row of rows) {
             if (!isWithinDateWindow(row)) continue;
+            if (row.usage_limit_total != null && Number(row.used_count || 0) >= Number(row.usage_limit_total || 0)) continue;
+            if (Number(row.used_by_user || 0) >= Math.max(1, Number(row.usage_limit_per_user || 1))) continue;
             const scope = String(row.scope_type || 'generic').toLowerCase();
             if (scope === 'customer' && Number(row.is_user_target || 0) !== 1) continue;
             if (scope === 'tier') {
