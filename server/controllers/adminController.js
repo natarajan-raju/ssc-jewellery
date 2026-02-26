@@ -6,6 +6,7 @@ const CompanyProfile = require('../models/CompanyProfile');
 const Coupon = require('../models/Coupon');
 const AbandonedCart = require('../models/AbandonedCart');
 const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
+const LoyaltyPopupTemplate = require('../models/LoyaltyPopupTemplate');
 const {
     verifyEmailTransport,
     sendEmailCommunication,
@@ -1715,6 +1716,49 @@ const updateLoyaltyPopupConfig = async (req, res) => {
     }
 };
 
+const listLoyaltyPopupTemplates = async (_req, res) => {
+    try {
+        const templates = await LoyaltyPopupTemplate.list();
+        return res.json({ templates });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch popup templates' });
+    }
+};
+
+const createLoyaltyPopupTemplate = async (req, res) => {
+    try {
+        const templateName = String(req.body?.templateName || '').trim();
+        const payload = req.body?.payload || {};
+        const template = await LoyaltyPopupTemplate.create({ templateName, payload });
+        return res.status(201).json({ template });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to create popup template' });
+    }
+};
+
+const updateLoyaltyPopupTemplate = async (req, res) => {
+    try {
+        const templateId = Number(req.params?.id || 0);
+        const templateName = String(req.body?.templateName || '').trim();
+        const payload = req.body?.payload || {};
+        const template = await LoyaltyPopupTemplate.update(templateId, { templateName, payload });
+        return res.json({ template });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to update popup template' });
+    }
+};
+
+const deleteLoyaltyPopupTemplate = async (req, res) => {
+    try {
+        const templateId = Number(req.params?.id || 0);
+        const ok = await LoyaltyPopupTemplate.remove(templateId);
+        if (!ok) return res.status(404).json({ message: 'Popup template not found' });
+        return res.json({ ok: true, id: templateId });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to delete popup template' });
+    }
+};
+
 const updateLoyaltyConfig = async (req, res) => {
     try {
         const items = Array.isArray(req.body?.config) ? req.body.config : [];
@@ -2039,6 +2083,10 @@ module.exports = {
     updateLoyaltyConfig,
     getLoyaltyPopupConfig,
     updateLoyaltyPopupConfig,
+    listLoyaltyPopupTemplates,
+    createLoyaltyPopupTemplate,
+    updateLoyaltyPopupTemplate,
+    deleteLoyaltyPopupTemplate,
     listCoupons,
     createCoupon,
     deleteCoupon,

@@ -22,8 +22,8 @@ const cleanPhone = (value = '') => String(value || '').replace(/\D/g, '');
 const InfoCard = ({ title, value, href = '', Icon, iconTint = 'text-primary' }) => {
     if (!value) return null;
     return (
-        <div className="group relative overflow-hidden bg-white rounded-2xl border border-gray-200 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/40">
-            <Icon size={72} className={`absolute -bottom-2 -right-2 text-gray-100 pointer-events-none`} />
+        <div className="emboss-card group relative overflow-hidden bg-white rounded-2xl border border-gray-200 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/40">
+            <Icon size={72} className="bg-emboss-icon absolute -bottom-2 -right-2 text-gray-100" />
             <div className="relative z-10 flex items-start gap-4">
                 <div className={`w-11 h-11 rounded-xl bg-primary/10 ${iconTint} flex items-center justify-center`}>
                     <Icon size={18} />

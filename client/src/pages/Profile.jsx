@@ -277,6 +277,12 @@ export default function Profile() {
     const membershipMessage = (!isProgressMessageDuplicated && progressMessage)
         ? progressMessage
         : 'Keep your profile updated to receive curated offers.';
+    const membershipEligibility = loyaltyStatus?.eligibility || null;
+    const isMembershipEligible = Boolean(membershipEligibility?.isEligible ?? true);
+    const profileCompletionPct = Number(membershipEligibility?.completionPct || 0);
+    const missingProfileFields = Array.isArray(membershipEligibility?.missingFields)
+        ? membershipEligibility.missingFields
+        : [];
 
     return (
         <div className="bg-secondary min-h-screen">
@@ -335,6 +341,21 @@ export default function Profile() {
                             <p className={`!mb-0 text-sm mt-2 ${tierTheme.body}`}>
                                 {membershipMessage}
                             </p>
+                            {!isMembershipEligible && (
+                                <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
+                                    <p className="text-xs font-semibold !mb-0">
+                                        Membership eligibility locked: profile {profileCompletionPct}% complete.
+                                    </p>
+                                    <p className="text-[11px] mt-1 !mb-0">
+                                        Complete all profile details to unlock tier discounts and shipping benefits.
+                                    </p>
+                                    {missingProfileFields.length > 0 && (
+                                        <p className="text-[11px] mt-1 !mb-0">
+                                            Pending: {missingProfileFields.slice(0, 3).join(', ')}{missingProfileFields.length > 3 ? ', ...' : ''}.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
                             <div className={`mt-3 text-xs ${tierTheme.caption}`}>
                                 Spent: ₹{currentSpend.toLocaleString('en-IN')}
                             </div>

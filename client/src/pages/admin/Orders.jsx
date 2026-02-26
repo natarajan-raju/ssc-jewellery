@@ -1204,8 +1204,8 @@ export default function Orders({
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                 {cards.map((card) => (
-                    <div key={card.label} className={`relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 ${card.cardBg}`}>
-                        <card.icon size={56} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
+                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 ${card.cardBg}`}>
+                        <card.icon size={56} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${card.color}`}>
                             <card.icon size={20} />
                         </div>

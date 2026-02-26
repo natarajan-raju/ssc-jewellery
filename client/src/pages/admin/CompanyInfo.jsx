@@ -301,8 +301,8 @@ export default function CompanyInfo() {
                 <p className="text-gray-500 text-sm mt-1">Manage company profile and payment gateway configuration.</p>
             </div>
 
-            <div className="relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
-                <Building2 size={70} className="absolute right-3 bottom-2 text-gray-100 pointer-events-none" />
+            <div className="emboss-card relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                <Building2 size={70} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                 <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3 relative z-10">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Admins & Staff</h3>
                     {currentUser?.role === 'admin' && (
@@ -371,8 +371,8 @@ export default function CompanyInfo() {
             </div>
 
             <form onSubmit={handleSave} className="grid grid-cols-1 gap-5">
-                <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
-                    <Building2 size={72} className="absolute right-3 bottom-2 text-gray-100 pointer-events-none" />
+                <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                    <Building2 size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                     <div className="relative z-10">
                         <h3 className="text-sm font-semibold text-gray-800">Company Info</h3>
                         <p className="text-xs text-gray-500 mt-1">Mandatory fields are highlighted in red if invalid.</p>
@@ -487,8 +487,8 @@ export default function CompanyInfo() {
                     {formErrors.socialUrl && <p className="relative z-10 text-xs text-red-600">{formErrors.socialUrl}</p>}
                 </div>
 
-                <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
-                    <CreditCard size={72} className="absolute right-3 bottom-2 text-gray-100 pointer-events-none" />
+                <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                    <CreditCard size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                     <div className="relative z-10">
                         <h3 className="text-sm font-semibold text-gray-800">Razorpay Settings</h3>
                         <p className="text-xs text-gray-500 mt-1">Stored in database and used by checkout/webhooks.</p>

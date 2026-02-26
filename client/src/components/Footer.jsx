@@ -23,9 +23,17 @@ export default function Footer() {
 
     const loadCategories = async (force = false) => {
         try {
-            const data = await productService.getCategoryStats(force);
-            const list = Array.isArray(data) ? data : [];
-            setCategories(list);
+            const [statsData, categoriesData] = await Promise.all([
+                productService.getCategoryStats(force).catch(() => []),
+                productService.getCategories().catch(() => [])
+            ]);
+            const statsList = Array.isArray(statsData) ? statsData : (Array.isArray(statsData?.categories) ? statsData.categories : []);
+            const categoryList = Array.isArray(categoriesData) ? categoriesData : (Array.isArray(categoriesData?.categories) ? categoriesData.categories : []);
+            if (statsList.length) {
+                setCategories(statsList);
+                return;
+            }
+            setCategories(categoryList);
         } catch {
             setCategories([]);
         }
@@ -52,10 +60,10 @@ export default function Footer() {
     });
 
     const categoryLinks = categories
-        .filter(c => c?.name && Number(c.product_count) > 0)
+        .filter(c => c?.name)
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     const whatsappLink = company.whatsappNumber
-        ? `https://wa.me/${String(company.whatsappNumber).replace(/\\D/g, '')}`
+        ? `https://wa.me/${String(company.whatsappNumber).replace(/\D/g, '')}`
         : '';
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
 
@@ -132,7 +140,6 @@ export default function Footer() {
                                     <Link to="/register" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><User size={14} className="text-white/40" />Create Account</Link>
                                 </>
                             )}
-                            <Link to="/support" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><HelpCircle size={14} className="text-white/40" />Customer Support</Link>
                         </div>
                     </div>
 
@@ -143,7 +150,7 @@ export default function Footer() {
                             <Link to="/privacy" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><ShieldCheck size={14} className="text-white/40" />Privacy Policy</Link>
                             <Link to="/refund" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><RefreshCw size={14} className="text-white/40" />Refund Policy</Link>
                             <Link to="/shipping" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Truck size={14} className="text-white/40" />Shipping Policy</Link>
-                            <Link to="/copyright" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Copyright size={14} className="text-white/40" />Copyright Claimer</Link>
+                            <Link to="/copyright" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Copyright size={14} className="text-white/40" />Copyright & Legal</Link>
                         </div>
                     </div>
                 </div>

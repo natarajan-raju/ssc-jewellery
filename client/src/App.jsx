@@ -36,6 +36,9 @@ import Orders from './pages/Orders';
 import PaymentSuccess from './pages/PaymentSuccess';
 import PaymentFailed from './pages/PaymentFailed';
 import TrackOrder from './pages/TrackOrder';
+import PolicyPage from './pages/PolicyPage';
+import About from './pages/About';
+import Faq from './pages/Faq';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -99,6 +102,8 @@ function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/faq" element={<Faq />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/wishlist" element={<Wishlist />} />
@@ -115,6 +120,11 @@ function App() {
                 <Route path="/checkout" element={<Checkout />} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />
                 <Route path="/payment/failed" element={<PaymentFailed />} />
+                <Route path="/terms" element={<PolicyPage />} />
+                <Route path="/shipping" element={<PolicyPage />} />
+                <Route path="/refund" element={<PolicyPage />} />
+                <Route path="/privacy" element={<PolicyPage />} />
+                <Route path="/copyright" element={<PolicyPage />} />
                 {/* Product Details Route */}
                 <Route path="/product/:id" element={<ProductPage />} />
               </Route>

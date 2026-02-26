@@ -690,8 +690,8 @@ export default function AbandonedCarts() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 {cards.map((card) => (
-                    <div key={card.label} className={`relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 ${card.cardBg || 'bg-white'}`}>
-                        <ShoppingCart size={54} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
+                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 ${card.cardBg || 'bg-white'}`}>
+                        <ShoppingCart size={54} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
                         <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{card.label}</p>
                         <p className="text-xl font-bold text-gray-800 mt-1">{card.value}</p>
                     </div>

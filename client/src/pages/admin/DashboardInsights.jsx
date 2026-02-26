@@ -601,8 +601,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     document.body
                 )
             )}
-            <div className="relative overflow-hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
-                <BarChart3 size={64} className="absolute right-4 top-4 text-gray-200 opacity-40 pointer-events-none" />
+            <div className="emboss-card relative overflow-hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                <BarChart3 size={64} className="bg-emboss-icon absolute right-4 top-4 text-gray-200" />
                 <button
                     type="button"
                     onClick={() => setIsStoreIntroOpen((prev) => !prev)}

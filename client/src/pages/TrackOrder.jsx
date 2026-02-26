@@ -92,6 +92,11 @@ export default function TrackOrder() {
         });
     }, [orders, query]);
 
+    const openOrderDetails = (orderId) => {
+        if (!orderId) return;
+        navigate(`/orders?order=${encodeURIComponent(String(orderId))}`);
+    };
+
     if (!user) return null;
 
     return (
@@ -142,7 +147,12 @@ export default function TrackOrder() {
                         const events = Array.isArray(order?.events) ? order.events : [];
                         const latestEvent = events[0] || null;
                         return (
-                            <div key={order.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
+                            <button
+                                key={order.id}
+                                type="button"
+                                onClick={() => openOrderDetails(order.id)}
+                                className="w-full text-left bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:border-primary/30 hover:shadow cursor-pointer transition-colors"
+                            >
                                 <div className="flex flex-wrap gap-3 items-center justify-between">
                                     <div>
                                         <p className="text-xs text-gray-400 uppercase tracking-wider">Order Ref</p>
@@ -166,7 +176,10 @@ export default function TrackOrder() {
                                         <span>{latestEvent.description}</span>
                                     </div>
                                 )}
-                            </div>
+                                <div className="mt-3 text-xs font-semibold text-primary">
+                                    Click to view full order details
+                                </div>
+                            </button>
                         );
                     })}
                 </div>

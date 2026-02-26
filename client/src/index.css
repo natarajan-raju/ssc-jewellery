@@ -207,4 +207,16 @@ div[role="dialog"] {
     box-shadow: 0 0 20px rgba(212, 175, 55, 0.3); /* Gold Glow */
     transform: translateY(-5px);
   }
+
+  .emboss-card > :not(.bg-emboss-icon) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .bg-emboss-icon {
+    pointer-events: none;
+    z-index: 0;
+    opacity: 1;
+    filter: none;
+  }
 }

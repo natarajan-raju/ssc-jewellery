@@ -155,12 +155,44 @@ const getDefaultPopupForm = () => ({
     endsAt: ''
 });
 
+const getDefaultTemplateName = () => {
+    const date = new Date();
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `Template ${yyyy}-${mm}-${dd}`;
+};
+
+const DEFAULT_POPUP_TEMPLATE_ID = '__default_popup_template__';
+const DEFAULT_POPUP_TEMPLATE_NAME = 'Default (Coupon + Pop)';
+const DEFAULT_POPUP_TEMPLATE_PAYLOAD = {
+    imageUrl: '/assets/coupon.jpg',
+    audioUrl: '/assets/pop.mp3'
+};
+
 const toDateInput = (value) => {
     if (!value) return '';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
     const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
+};
+
+const isCouponCurrentlyValid = (coupon = {}) => {
+    const activeValue = coupon?.is_active ?? coupon?.isActive ?? 1;
+    if (Number(activeValue) !== 1) return false;
+    const now = Date.now();
+    const startsAtRaw = coupon?.starts_at ?? coupon?.startsAt ?? null;
+    if (startsAtRaw) {
+        const startsAt = new Date(startsAtRaw).getTime();
+        if (Number.isFinite(startsAt) && now < startsAt) return false;
+    }
+    const expiresAtRaw = coupon?.expires_at ?? coupon?.expiresAt ?? null;
+    if (expiresAtRaw) {
+        const expiresAt = new Date(expiresAtRaw).getTime();
+        if (Number.isFinite(expiresAt) && now > expiresAt) return false;
+    }
+    return true;
 };
 
 const normalizeCategoryOptions = (value) => {
@@ -210,6 +242,12 @@ export default function LoyaltySettings({ onBack }) {
     const [popupImageUploading, setPopupImageUploading] = useState(false);
     const [popupAudioUploading, setPopupAudioUploading] = useState(false);
     const [popupCouponOptions, setPopupCouponOptions] = useState([]);
+    const [popupTemplates, setPopupTemplates] = useState([]);
+    const [selectedPopupTemplateId, setSelectedPopupTemplateId] = useState('');
+    const [popupTemplateName, setPopupTemplateName] = useState(getDefaultTemplateName());
+    const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+    const [popupTemplateSaving, setPopupTemplateSaving] = useState(false);
+    const [popupTemplateDeleting, setPopupTemplateDeleting] = useState(false);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
         title: '',
@@ -223,6 +261,10 @@ export default function LoyaltySettings({ onBack }) {
     const couponStartDateInputRef = useRef(null);
     const couponEndDateInputRef = useRef(null);
     const popupEndDateInputRef = useRef(null);
+    const isPersistedTemplateSelection = (value) => {
+        const id = Number(value || 0);
+        return Number.isFinite(id) && id > 0;
+    };
 
     const applyConfigRows = (config = []) => {
         const byTier = Object.fromEntries((Array.isArray(config) ? config : []).map((item) => [String(item.tier || '').toLowerCase(), item]));
@@ -250,10 +292,11 @@ export default function LoyaltySettings({ onBack }) {
         Promise.all([
             adminService.getLoyaltyConfig(),
             adminService.getLoyaltyPopupConfig().catch(() => ({ popup: null })),
+            adminService.listLoyaltyPopupTemplates().catch(() => ({ templates: [] })),
             productService.getCategoryStats().catch(() => null),
             productService.getCategories().catch(() => ({ categories: [] })),
             adminService.getLoyaltyCoupons({ page: 1, limit: 100, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
-        ]).then(([data, popupData, categoryStats, cats, popupCouponsData]) => {
+        ]).then(([data, popupData, templateData, categoryStats, cats, popupCouponsData]) => {
             if (cancelled) return;
             applyConfigRows(Array.isArray(data?.config) ? data.config : []);
             const popup = popupData?.popup || null;
@@ -270,8 +313,14 @@ export default function LoyaltySettings({ onBack }) {
                 couponCode: popup?.couponCode || '',
                 endsAt: toDateInput(popup?.endsAt)
             });
+            const templates = Array.isArray(templateData?.templates) ? templateData.templates : [];
+            setPopupTemplates(templates);
+            if (!popupTemplateName) {
+                setPopupTemplateName(getDefaultTemplateName());
+            }
             const popupCouponRows = Array.isArray(popupCouponsData?.coupons) ? popupCouponsData.coupons : [];
             const popupEligible = popupCouponRows
+                .filter((row) => isCouponCurrentlyValid(row))
                 .filter((row) => !['tier', 'customer'].includes(String(row?.scope_type || '').toLowerCase()))
                 .map((row) => ({
                     code: String(row.code || '').toUpperCase(),
@@ -279,14 +328,10 @@ export default function LoyaltySettings({ onBack }) {
                     scopeType: String(row.scope_type || 'generic').toLowerCase()
                 }))
                 .filter((row) => row.code);
-            if (popup?.couponCode && !popupEligible.some((row) => row.code === String(popup.couponCode).toUpperCase())) {
-                popupEligible.unshift({
-                    code: String(popup.couponCode).toUpperCase(),
-                    name: 'Selected coupon',
-                    scopeType: 'generic'
-                });
-            }
             setPopupCouponOptions(popupEligible);
+            if (popup?.couponCode && !popupEligible.some((row) => row.code === String(popup.couponCode).toUpperCase())) {
+                setPopupForm((prev) => ({ ...prev, couponCode: '' }));
+            }
             const statRows = Array.isArray(categoryStats)
                 ? categoryStats
                 : (Array.isArray(categoryStats?.categories) ? categoryStats.categories : []);
@@ -334,6 +379,7 @@ export default function LoyaltySettings({ onBack }) {
                 .then((data) => {
                     const rows = Array.isArray(data?.coupons) ? data.coupons : [];
                     const options = rows
+                        .filter((row) => isCouponCurrentlyValid(row))
                         .filter((row) => !['tier', 'customer'].includes(String(row?.scope_type || '').toLowerCase()))
                         .map((row) => ({
                             code: String(row.code || '').toUpperCase(),
@@ -342,6 +388,12 @@ export default function LoyaltySettings({ onBack }) {
                         }))
                         .filter((row) => row.code);
                     setPopupCouponOptions(options);
+                    setPopupForm((prev) => {
+                        const currentCode = String(prev?.couponCode || '').toUpperCase();
+                        if (!currentCode) return prev;
+                        if (options.some((row) => row.code === currentCode)) return prev;
+                        return { ...prev, couponCode: '' };
+                    });
                 })
                 .catch(() => {});
         },
@@ -577,6 +629,55 @@ export default function LoyaltySettings({ onBack }) {
         }
     };
 
+    const loadTemplateToForm = (templateId) => {
+        if (String(templateId || '') === DEFAULT_POPUP_TEMPLATE_ID) {
+            setPopupForm((prev) => ({
+                ...prev,
+                ...DEFAULT_POPUP_TEMPLATE_PAYLOAD
+            }));
+            setPopupTemplateName(DEFAULT_POPUP_TEMPLATE_NAME);
+            toast.success(`Template loaded: ${DEFAULT_POPUP_TEMPLATE_NAME}`);
+            return;
+        }
+        const id = Number(templateId || 0);
+        if (!Number.isFinite(id) || id <= 0) return;
+        const template = popupTemplates.find((entry) => Number(entry?.id) === id);
+        if (!template?.payload) return;
+        setPopupForm((prev) => ({
+            ...prev,
+            ...template.payload
+        }));
+        setPopupTemplateName(String(template.templateName || getDefaultTemplateName()));
+        toast.success(`Template loaded: ${template.templateName || 'Unnamed template'}`);
+    };
+
+    const handleTemplateSelection = (templateId) => {
+        setSelectedPopupTemplateId(String(templateId || ''));
+        if (!templateId) {
+            setPopupTemplateName(getDefaultTemplateName());
+            return;
+        }
+        loadTemplateToForm(templateId);
+    };
+
+    const handleDeleteTemplate = async () => {
+        const id = Number(selectedPopupTemplateId || 0);
+        if (!isPersistedTemplateSelection(selectedPopupTemplateId) || popupTemplateDeleting) return;
+        setPopupTemplateDeleting(true);
+        try {
+            await adminService.deleteLoyaltyPopupTemplate(id);
+            const next = popupTemplates.filter((entry) => Number(entry.id) !== id);
+            setPopupTemplates(next);
+            setSelectedPopupTemplateId('');
+            setPopupTemplateName(getDefaultTemplateName());
+            toast.success('Popup template deleted');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to delete popup template');
+        } finally {
+            setPopupTemplateDeleting(false);
+        }
+    };
+
     const handleSavePopup = async () => {
         setPopupSaving(true);
         try {
@@ -594,16 +695,56 @@ export default function LoyaltySettings({ onBack }) {
                 endsAt: popupForm.endsAt ? new Date(`${popupForm.endsAt}T23:59:59`).toISOString() : null
             };
             const data = await adminService.updateLoyaltyPopupConfig(payload);
+            if (saveAsTemplate) {
+                const templateName = String(popupTemplateName || '').trim();
+                if (!templateName) {
+                    throw new Error('Template name is required when saving as template');
+                }
+                setPopupTemplateSaving(true);
+                let templateRes = null;
+                if (isPersistedTemplateSelection(selectedPopupTemplateId)) {
+                    templateRes = await adminService.updateLoyaltyPopupTemplate(selectedPopupTemplateId, {
+                        templateName,
+                        payload: {
+                            ...popupForm,
+                            ...payload,
+                            endsAt: popupForm.endsAt || ''
+                        }
+                    });
+                } else {
+                    templateRes = await adminService.createLoyaltyPopupTemplate({
+                        templateName,
+                        payload: {
+                            ...popupForm,
+                            ...payload,
+                            endsAt: popupForm.endsAt || ''
+                        }
+                    });
+                }
+                const savedTemplate = templateRes?.template || null;
+                if (savedTemplate?.id) {
+                    setPopupTemplates((prev) => {
+                        const exists = prev.some((entry) => Number(entry.id) === Number(savedTemplate.id));
+                        if (exists) {
+                            return prev.map((entry) => (Number(entry.id) === Number(savedTemplate.id) ? savedTemplate : entry));
+                        }
+                        return [savedTemplate, ...prev];
+                    });
+                    setSelectedPopupTemplateId(String(savedTemplate.id));
+                    setPopupTemplateName(String(savedTemplate.templateName || templateName));
+                }
+            }
             const popup = data?.popup || null;
             setPopupForm((prev) => ({
                 ...prev,
                 isActive: Boolean(popup?.isActive),
                 endsAt: toDateInput(popup?.endsAt)
             }));
-            toast.success('Popup settings saved');
+            toast.success(saveAsTemplate ? 'Popup settings and template saved' : 'Popup settings saved');
         } catch (error) {
             toast.error(error?.message || 'Failed to save popup settings');
         } finally {
+            setPopupTemplateSaving(false);
             setPopupSaving(false);
         }
     };
@@ -901,6 +1042,40 @@ export default function LoyaltySettings({ onBack }) {
                         <input type="checkbox" checked={Boolean(popupForm.isActive)} onChange={(e) => setPopupForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
                         Popup enabled
                     </label>
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-3">
+                        <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Template Library</p>
+                        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">
+                            <select
+                                className="input-field"
+                                value={selectedPopupTemplateId}
+                                onChange={(e) => handleTemplateSelection(e.target.value)}
+                            >
+                                <option value="">Select template</option>
+                                <option value={DEFAULT_POPUP_TEMPLATE_ID}>{DEFAULT_POPUP_TEMPLATE_NAME}</option>
+                                {popupTemplates.map((template) => (
+                                    <option key={template.id} value={template.id}>
+                                        {template.templateName}
+                                    </option>
+                                ))}
+                            </select>
+                            <button
+                                type="button"
+                                onClick={() => selectedPopupTemplateId && loadTemplateToForm(selectedPopupTemplateId)}
+                                disabled={!selectedPopupTemplateId}
+                                className="px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-60"
+                            >
+                                Load
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDeleteTemplate}
+                                disabled={!isPersistedTemplateSelection(selectedPopupTemplateId) || popupTemplateDeleting}
+                                className="px-3 py-2 rounded-lg border border-red-200 text-xs font-semibold text-red-700 bg-white hover:bg-red-50 disabled:opacity-60"
+                            >
+                                {popupTemplateDeleting ? 'Deleting...' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
                     <div className="relative">
                         <div className={`${popupForm.isActive ? '' : 'blur-[2px] opacity-55 pointer-events-none select-none'} space-y-4 transition-all`}>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -985,10 +1160,33 @@ export default function LoyaltySettings({ onBack }) {
                                     <input type="file" accept="audio/*" className="hidden" onChange={(e) => handlePopupAudioUpload(e.target.files?.[0])} />
                                 </label>
                             </div>
-                            <div className="flex justify-end">
-                                <button type="button" onClick={handleSavePopup} disabled={popupSaving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
-                                    <Save size={16} /> {popupSaving ? 'Saving...' : 'Save Popup'}
-                                </button>
+                            <div className="w-full flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+                                <div className="space-y-2 md:max-w-sm">
+                                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={saveAsTemplate}
+                                            onChange={(e) => setSaveAsTemplate(e.target.checked)}
+                                        />
+                                        Save this popup as template
+                                    </label>
+                                    {saveAsTemplate && (
+                                        <input
+                                            className="input-field text-sm w-full"
+                                            value={popupTemplateName}
+                                            onChange={(e) => setPopupTemplateName(e.target.value)}
+                                            placeholder="Template name (e.g., Diwali 2026)"
+                                        />
+                                    )}
+                                </div>
+                                <div>
+                                    <button type="button" onClick={handleSavePopup} disabled={popupSaving || popupTemplateSaving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
+                                        <Save size={16} /> {(popupSaving || popupTemplateSaving) ? 'Saving...' : 'Save Popup'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="text-xs text-gray-500">
+                                Tip: choose an existing template, edit popup content, and save again to replace it for future campaigns.
                             </div>
                         </div>
                         {!popupForm.isActive && (

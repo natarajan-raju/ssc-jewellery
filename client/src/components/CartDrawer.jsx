@@ -202,7 +202,7 @@ export default function CartDrawer() {
                                 <p className="text-sm text-gray-500 mt-2">Add products to continue checkout.</p>
                             </div>
                             <Link
-                                to="/store"
+                                to="/shop"
                                 className="inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold px-5 py-2.5 hover:bg-primary/5 transition-colors"
                                 onClick={closeCart}
                             >
@@ -363,7 +363,7 @@ export default function CartDrawer() {
                                 <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${freeProgress.pct}%` }} />
                             </div>
                             <Link
-                                to="/store"
+                                to="/shop"
                                 className="mt-3 w-full inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
                                 onClick={closeCart}
                             >

@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const User = require('../models/User');
 const Coupon = require('../models/Coupon');
-const { sendOrderLifecycleCommunication, sendEmailCommunication } = require('./communications/communicationService');
+const { sendEmailCommunication } = require('./communications/communicationService');
 
 const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -260,8 +260,50 @@ const getLoyaltyProfileByTier = (tier = 'regular') => {
     return cfg[tier] || cfg.regular || DEFAULT_LOYALTY_CONFIG.regular;
 };
 
-const calculateOrderLoyaltyAdjustments = ({ subtotal = 0, shippingFee = 0, couponDiscount = 0, tier = 'regular' } = {}) => {
+const evaluateProfileCompletion = (user = {}) => {
+    const address = user?.address && typeof user.address === 'object' ? user.address : {};
+    const billingAddress = user?.billingAddress && typeof user.billingAddress === 'object' ? user.billingAddress : {};
+    const checks = [
+        { key: 'name', ok: Boolean(String(user?.name || '').trim()), label: 'name' },
+        { key: 'email', ok: Boolean(String(user?.email || '').trim()), label: 'email' },
+        { key: 'mobile', ok: Boolean(String(user?.mobile || '').trim()), label: 'mobile number' },
+        { key: 'dob', ok: Boolean(String(user?.dob || '').trim()), label: 'date of birth' },
+        { key: 'profileImage', ok: Boolean(String(user?.profileImage || '').trim()), label: 'profile photo' },
+        { key: 'addressLine1', ok: Boolean(String(address?.line1 || '').trim()), label: 'shipping address line' },
+        { key: 'addressCity', ok: Boolean(String(address?.city || '').trim()), label: 'shipping city' },
+        { key: 'addressState', ok: Boolean(String(address?.state || '').trim()), label: 'shipping state' },
+        { key: 'addressZip', ok: Boolean(String(address?.zip || '').trim()), label: 'shipping PIN code' },
+        { key: 'billingLine1', ok: Boolean(String(billingAddress?.line1 || '').trim()), label: 'billing address line' },
+        { key: 'billingCity', ok: Boolean(String(billingAddress?.city || '').trim()), label: 'billing city' },
+        { key: 'billingState', ok: Boolean(String(billingAddress?.state || '').trim()), label: 'billing state' },
+        { key: 'billingZip', ok: Boolean(String(billingAddress?.zip || '').trim()), label: 'billing PIN code' }
+    ];
+    const completed = checks.filter((item) => item.ok).length;
+    const completionPct = Math.max(0, Math.min(100, Math.round((completed / checks.length) * 100)));
+    const missingFields = checks.filter((item) => !item.ok).map((item) => item.label);
+    const isEligible = missingFields.length === 0;
+    return {
+        isEligible,
+        completionPct,
+        missingFields,
+        totalFields: checks.length,
+        completedFields: completed,
+        message: isEligible
+            ? 'Profile is complete. Membership benefits are active.'
+            : `Complete profile to 100% to unlock membership benefits (${completionPct}% completed).`
+    };
+};
+
+const calculateOrderLoyaltyAdjustments = ({ subtotal = 0, shippingFee = 0, couponDiscount = 0, tier = 'regular', membershipEligible = true } = {}) => {
     const profile = getLoyaltyProfileByTier(tier);
+    if (!membershipEligible) {
+        return {
+            tier,
+            profile,
+            loyaltyDiscount: 0,
+            shippingDiscount: 0
+        };
+    }
     const eligibleBase = Math.max(0, toMoney(subtotal - couponDiscount));
     const loyaltyDiscount = toMoney((eligibleBase * Number(profile.extraDiscountPct || 0)) / 100);
     const shippingDiscount = toMoney((toMoney(shippingFee) * Number(profile.shippingDiscountPct || 0)) / 100);
@@ -277,12 +319,18 @@ const getUserLoyaltyStatus = async (userId) => {
     await ensureLoyaltyConfigLoaded();
     if (!userId) {
         const progress = buildProgress({ tier: 'regular' });
+        const eligibility = evaluateProfileCompletion({});
         return {
             tier: 'regular',
             profile: getLoyaltyProfileByTier('regular'),
+            effectiveTier: 'regular',
+            effectiveProfile: getLoyaltyProfileByTier('regular'),
+            earnedTier: 'regular',
+            earnedProfile: getLoyaltyProfileByTier('regular'),
             spends: { spend30: 0, spend60: 0, spend90: 0, spend365: 0 },
             progress,
-            nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null
+            nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null,
+            eligibility
         };
     }
     const spends = await getUserSpendWindows(userId);
@@ -293,6 +341,9 @@ const getUserLoyaltyStatus = async (userId) => {
     const storedTier = String(storedRows[0]?.tier || '').toLowerCase();
     const computedTier = computeTierFromSpends(spends);
     const tier = TIER_ORDER.includes(storedTier) ? storedTier : computedTier;
+    const user = await User.findById(userId);
+    const eligibility = evaluateProfileCompletion(user || {});
+    const effectiveTier = eligibility.isEligible ? tier : 'regular';
     const progress = buildProgress({
         tier,
         spend30: spends.spend30,
@@ -302,47 +353,60 @@ const getUserLoyaltyStatus = async (userId) => {
     });
     return {
         tier,
-        profile: getLoyaltyProfileByTier(tier),
+        profile: getLoyaltyProfileByTier(effectiveTier),
+        effectiveTier,
+        effectiveProfile: getLoyaltyProfileByTier(effectiveTier),
+        earnedTier: tier,
+        earnedProfile: getLoyaltyProfileByTier(tier),
         spends,
         computedTier,
         progress,
-        nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null
+        nextTierProfile: progress?.nextTier ? getLoyaltyProfileByTier(progress.nextTier) : null,
+        eligibility
     };
 };
 
 const sendTierUpgradeMail = async ({ user, previousTier, newTier, status }) => {
     if (!user?.email) return;
-    await sendOrderLifecycleCommunication({
-        stage: 'processing',
-        customer: user,
-        order: { order_ref: `Tier Upgrade`, total: 0 }
-    }).catch(() => {});
     const label = getLoyaltyProfileByTier(newTier).label;
+    const newBenefits = (status?.profile?.benefits || getLoyaltyProfileByTier(newTier)?.benefits || [])
+        .slice(0, 5)
+        .map((line) => String(line || '').trim())
+        .filter(Boolean);
+    const gratitudeLine = [
+        'Thank you for your trust and continued support.',
+        'We are grateful for every order you place with us.',
+        'Your continued support means a lot to our team.'
+    ];
     const template = buildLoyaltyMailTemplate({
         user,
         seed: `tier-upgrade|${user.id}|${newTier}`,
-        subjects: Array.from({ length: 10 }, (_, i) => `Membership Upgrade: ${label} (${i + 1}/10)`),
+        subjects: Array.from({ length: 10 }, (_, i) => `Welcome to ${label} Membership | Thank You (${i + 1}/10)`),
         bodyBlocks: [
             `Great news. Your membership has been upgraded from <strong>${previousTier}</strong> to <strong>${label}</strong>.`,
-            status?.progress?.message || 'Your recent engagement unlocked this upgrade.',
-            'You now have access to enhanced tier benefits configured for your account.'
+            gratitudeLine[hashSeed(`${user.id}|${newTier}`) % gratitudeLine.length],
+            'As a welcome to your upgraded tier, these benefits are now available to you:',
+            newBenefits.length
+                ? `<ul style="margin:8px 0 12px 18px;padding:0;">${newBenefits.map((item) => `<li>${item}</li>`).join('')}</ul>`
+                : 'Enhanced member benefits are now active for your account.',
+            status?.progress?.message || 'Your recent engagement unlocked this upgrade.'
         ],
         actionItems: [
-            'Review your updated tier benefits in your profile.',
-            'Use your new benefits on upcoming orders.',
-            'Reply to this email if you want a benefit walkthrough.'
+            'Open your profile to review the updated tier details.',
+            'Use your new member benefits in your next order.',
+            'Reply to this email if you want a quick benefits walkthrough.'
         ],
         assuranceVariants: [
-            'Our loyalty team will continue to monitor your tier progression and keep you informed.',
-            'Need help understanding the new benefits? Reply and we will assist immediately.',
-            'Thank you for your loyalty. We are here for any membership support you need.',
-            'Our administration team is available for any membership clarification.',
-            'You can count on us for transparent membership updates at every milestone.',
-            'If anything looks incorrect, reply and we will verify your benefits promptly.',
-            'We appreciate your trust and remain available for support.',
-            'Our customer success team will help you maximize your new tier benefits.',
-            'Please keep this email for future membership reference.',
-            'We are committed to delivering a seamless loyalty experience.'
+            'Thank you once again for being a valued SSC Jewellery member.',
+            'We are grateful for your continued support and are always here to help.',
+            'Our team is happy to support you in maximizing your new tier benefits.',
+            'Please reply any time if you need help using your upgraded benefits.',
+            'We will keep you informed as you progress further in membership tiers.',
+            'Your loyalty is appreciated deeply by our entire team.',
+            'Need support? Our team is available for quick assistance.',
+            'We are committed to giving you a transparent and rewarding membership experience.',
+            'Thank you for choosing SSC Jewellery again and again.',
+            'We look forward to serving you with even better value ahead.'
         ]
     });
     await sendEmailCommunication({
@@ -555,7 +619,7 @@ const buildLoyaltyMailTemplate = ({
     return { subject, html, text };
 };
 
-const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendNotifications = false } = {}) => {
+const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendNotifications = false, notificationMode = 'full' } = {}) => {
     await ensureLoyaltyConfigLoaded();
     const spends = await getUserSpendWindows(userId);
     const nextTierComputed = computeTierFromSpends(spends);
@@ -618,11 +682,13 @@ const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendN
         const user = await User.findById(userId);
         if (previousTier !== nextTier && TIER_ORDER.indexOf(nextTier) > TIER_ORDER.indexOf(previousTier)) {
             await sendTierUpgradeMail({ user, previousTier, newTier: nextTier, status }).catch(() => {});
-        } else if (previousTier !== nextTier && TIER_ORDER.indexOf(nextTier) < TIER_ORDER.indexOf(previousTier)) {
+        } else if (notificationMode === 'full' && previousTier !== nextTier && TIER_ORDER.indexOf(nextTier) < TIER_ORDER.indexOf(previousTier)) {
             await sendTierDowngradeMail({ user, previousTier, newTier: nextTier, status }).catch(() => {});
         }
-        await sendFomoMailIfEligible({ user, status }).catch(() => {});
-        if (reason === 'monthly_reassessment') {
+        if (notificationMode === 'full') {
+            await sendFomoMailIfEligible({ user, status }).catch(() => {});
+        }
+        if (reason === 'monthly_reassessment' && notificationMode === 'full') {
             await sendMonthlyStatusSummaryMail({ user, status }).catch(() => {});
         }
     }
@@ -636,7 +702,7 @@ const runMonthlyLoyaltyReassessment = async () => {
     let upgraded = 0;
     let changed = 0;
     for (const row of rows) {
-        const result = await reassessUserTier(row.id, { reason: 'monthly_reassessment', sendNotifications: true });
+        const result = await reassessUserTier(row.id, { reason: 'monthly_reassessment', sendNotifications: true, notificationMode: 'full' });
         if (result.previousTier !== result.nextTier) {
             changed += 1;
             if (TIER_ORDER.indexOf(result.nextTier) > TIER_ORDER.indexOf(result.previousTier)) upgraded += 1;

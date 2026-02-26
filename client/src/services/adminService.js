@@ -245,6 +245,33 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    listLoyaltyPopupTemplates: async () => {
+        const res = await fetch(`${API_URL}/loyalty/popup/templates`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    createLoyaltyPopupTemplate: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/loyalty/popup/templates`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    updateLoyaltyPopupTemplate: async (templateId, payload = {}) => {
+        const res = await fetch(`${API_URL}/loyalty/popup/templates/${encodeURIComponent(templateId)}`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    deleteLoyaltyPopupTemplate: async (templateId) => {
+        const res = await fetch(`${API_URL}/loyalty/popup/templates/${encodeURIComponent(templateId)}`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
     uploadLoyaltyPopupImage: async (file) => {
         const token = localStorage.getItem('token');
         const formData = new FormData();

@@ -4,7 +4,7 @@ import { Package, ChevronRight, MessageCircle, Download, RefreshCw } from 'lucid
 import { useAuth } from '../context/AuthContext';
 import { useMyOrders } from '../context/OrderContext';
 import { useToast } from '../context/ToastContext';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { orderService } from '../services/orderService';
 import ordersIllustration from '../assets/orders.svg';
 
@@ -179,6 +179,7 @@ export default function Orders() {
     const { user, loading } = useAuth();
     const toast = useToast();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [duration, setDuration] = useState('latest_10');
@@ -236,6 +237,33 @@ export default function Orders() {
             setPage(Math.max(1, totalPages));
         }
     }, [page, pagination?.totalPages]);
+
+    useEffect(() => {
+        const targetOrderId = String(searchParams.get('order') || '').trim();
+        if (!targetOrderId || !orders.length) return;
+        const match = orders.find((order) => String(order.id) === targetOrderId);
+        if (!match) return;
+        setSelectedOrder(match);
+        setDetailsOpen(true);
+    }, [orders, searchParams]);
+
+    const openOrderDetails = (order) => {
+        if (!order?.id) return;
+        setSelectedOrder(order);
+        setDetailsOpen(true);
+        const next = new URLSearchParams(searchParams);
+        next.set('order', String(order.id));
+        setSearchParams(next, { replace: true });
+    };
+
+    const closeOrderDetails = () => {
+        setDetailsOpen(false);
+        const next = new URLSearchParams(searchParams);
+        if (next.has('order')) {
+            next.delete('order');
+            setSearchParams(next, { replace: true });
+        }
+    };
 
     const canDownloadInvoice = (order) => {
         const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
@@ -373,10 +401,7 @@ export default function Orders() {
                                                 </button>
                                             )}
                                             <button
-                                                onClick={() => {
-                                                    setSelectedOrder(order);
-                                                    setDetailsOpen(true);
-                                                }}
+                                                onClick={() => openOrderDetails(order)}
                                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50"
                                             >
                                                 View Details <ChevronRight size={16} />
@@ -431,7 +456,7 @@ export default function Orders() {
                         <div className="bg-white w-full max-w-md h-full shadow-2xl p-6 overflow-y-auto">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-xl font-semibold text-gray-900">{selectedOrder.order_ref}</h3>
-                                <button onClick={() => setDetailsOpen(false)} className="text-gray-400 hover:text-gray-600">Close</button>
+                                <button onClick={closeOrderDetails} className="text-gray-400 hover:text-gray-600">Close</button>
                             </div>
                             <p className="text-sm text-gray-500 mt-1">Placed on {formatDate(selectedOrder.created_at)}</p>
                             <p className="text-xs text-gray-500 mt-1">Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>

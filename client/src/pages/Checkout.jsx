@@ -543,6 +543,8 @@ export default function Checkout() {
         [checkoutSummary?.couponDiscountTotal, appliedCoupon?.discountTotal]
     );
     const estimatedLoyaltyDiscount = useMemo(() => {
+        const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible ?? true);
+        if (!isMembershipEligible) return 0;
         const tierKey = String(loyaltyStatus?.tier || user?.loyaltyTier || 'regular').toLowerCase();
         const memberPct = Number(
             loyaltyStatus?.profile?.extraDiscountPct
@@ -552,15 +554,17 @@ export default function Checkout() {
         );
         const eligibleBase = Math.max(0, Number(subtotal || 0) - Number(couponDiscount || 0));
         return Math.max(0, Number(((eligibleBase * memberPct) / 100).toFixed(2)));
-    }, [loyaltyStatus?.tier, loyaltyStatus?.profile?.extraDiscountPct, user?.loyaltyTier, user?.loyaltyProfile?.extraDiscountPct, subtotal, couponDiscount]);
+    }, [loyaltyStatus?.eligibility?.isEligible, loyaltyStatus?.tier, loyaltyStatus?.profile?.extraDiscountPct, user?.loyaltyTier, user?.loyaltyProfile?.extraDiscountPct, subtotal, couponDiscount]);
     const estimatedLoyaltyShippingDiscount = useMemo(() => {
+        const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible ?? true);
+        if (!isMembershipEligible) return 0;
         const shippingPct = Number(
             loyaltyStatus?.profile?.shippingDiscountPct
             ?? user?.loyaltyProfile?.shippingDiscountPct
             ?? 0
         );
         return Math.max(0, Number(((Number(shippingFee || 0) * shippingPct) / 100).toFixed(2)));
-    }, [loyaltyStatus?.profile?.shippingDiscountPct, user?.loyaltyProfile?.shippingDiscountPct, shippingFee]);
+    }, [loyaltyStatus?.eligibility?.isEligible, loyaltyStatus?.profile?.shippingDiscountPct, user?.loyaltyProfile?.shippingDiscountPct, shippingFee]);
     const loyaltyDiscount = useMemo(
         () => Number(checkoutSummary?.loyaltyDiscountTotal ?? estimatedLoyaltyDiscount ?? 0),
         [checkoutSummary?.loyaltyDiscountTotal, estimatedLoyaltyDiscount]
@@ -775,6 +779,10 @@ export default function Checkout() {
 
     if (!user) return null;
     const tier = String(loyaltyStatus?.tier || checkoutSummary?.loyaltyTier || user?.loyaltyTier || 'regular').toLowerCase();
+    const membershipEligibility = loyaltyStatus?.eligibility || null;
+    const isMembershipEligible = Boolean(membershipEligibility?.isEligible ?? true);
+    const profileCompletionPct = Number(membershipEligibility?.completionPct || 0);
+    const missingProfileFields = Array.isArray(membershipEligibility?.missingFields) ? membershipEligibility.missingFields : [];
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
     const tierLabel = formatTierLabel(loyaltyStatus?.profile?.label || tier);
     const progress = loyaltyStatus?.progress || checkoutSummary?.loyaltyMeta?.progress || {};
@@ -875,9 +883,21 @@ export default function Checkout() {
                                                 </p>
                                             </div>
                                             <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
-                                                <Sparkles size={14} /> Extra member pricing
+                                                <Sparkles size={14} /> {isMembershipEligible ? 'Extra member pricing' : 'Profile completion required'}
                                             </span>
                                         </div>
+                                        {!isMembershipEligible && (
+                                            <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
+                                                <p className="text-xs font-semibold !mb-0">
+                                                    Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
+                                                </p>
+                                                {missingProfileFields.length > 0 && (
+                                                    <p className="text-[11px] mt-1 !mb-0">
+                                                        Pending: {missingProfileFields.slice(0, 3).join(', ')}{missingProfileFields.length > 3 ? ', ...' : ''}.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                         <div className="mt-4">
                                             <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
                                                 <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />

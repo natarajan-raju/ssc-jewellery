@@ -2,7 +2,7 @@ const db = require('../config/db');
 const AbandonedCart = require('./AbandonedCart');
 const Coupon = require('./Coupon');
 const CompanyProfile = require('./CompanyProfile');
-const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments } = require('../services/loyaltyService');
+const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments, reassessUserTier } = require('../services/loyaltyService');
 
 const buildOrderRef = () => {
     const now = new Date();
@@ -214,9 +214,12 @@ class Order {
                 if (row.product_id) productIds.push(row.product_id);
             }
             const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const eligibleLoyaltyTier = loyaltyStatus?.eligibility?.isEligible
+                ? (loyaltyStatus?.tier || 'regular')
+                : 'regular';
             return Coupon.getAvailableCouponsForUser({
                 userId,
-                loyaltyTier: loyaltyStatus?.tier || 'regular',
+                loyaltyTier: eligibleLoyaltyTier,
                 cartTotalSubunits: toSubunits(subtotal),
                 cartProductIds: [...new Set(productIds)]
             });
@@ -288,13 +291,15 @@ class Order {
             let coupon = null;
             const cartProductIds = [...new Set(cartRows.map((row) => row.product_id).filter(Boolean))];
             const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible);
+            const eligibleLoyaltyTier = isMembershipEligible ? (loyaltyStatus?.tier || 'regular') : 'regular';
             if (couponCode) {
                 const discount = await Coupon.resolveRedeemableCoupon({
                     code: couponCode,
                     userId,
                     cartTotalSubunits: toSubunits(subtotal),
                     shippingFeeSubunits: toSubunits(shippingFee),
-                    loyaltyTier: loyaltyStatus?.tier || 'regular',
+                    loyaltyTier: eligibleLoyaltyTier,
                     cartProductIds,
                     connection
                 });
@@ -320,7 +325,8 @@ class Order {
                 subtotal,
                 shippingFee,
                 couponDiscount: couponDiscountTotal,
-                tier: loyaltyStatus?.tier || 'regular'
+                tier: eligibleLoyaltyTier,
+                membershipEligible: isMembershipEligible
             });
             const loyaltyDiscountTotal = Math.min(
                 Math.max(0, subtotal - couponDiscountTotal),
@@ -344,7 +350,7 @@ class Order {
                 total,
                 currency: 'INR',
                 coupon,
-                loyaltyTier: loyaltyStatus?.tier || 'regular',
+                loyaltyTier: eligibleLoyaltyTier,
                 loyaltyProfile: loyaltyStatus?.profile || null,
                 loyaltyMeta: {
                     profile: loyaltyAdjustments.profile || null,
@@ -504,13 +510,15 @@ class Order {
             let coupon = null;
             const cartProductIds = [...new Set(orderItems.map((item) => item.productId).filter(Boolean))];
             const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible);
+            const eligibleLoyaltyTier = isMembershipEligible ? (loyaltyStatus?.tier || 'regular') : 'regular';
             if (couponCode) {
                 const discount = await Coupon.resolveRedeemableCoupon({
                     code: couponCode,
                     userId,
                     cartTotalSubunits: toSubunits(subtotal),
                     shippingFeeSubunits: toSubunits(shippingFee),
-                    loyaltyTier: loyaltyStatus?.tier || 'regular',
+                    loyaltyTier: eligibleLoyaltyTier,
                     cartProductIds,
                     connection
                 });
@@ -536,7 +544,8 @@ class Order {
                 subtotal,
                 shippingFee,
                 couponDiscount: couponDiscountTotal,
-                tier: loyaltyStatus?.tier || 'regular'
+                tier: eligibleLoyaltyTier,
+                membershipEligible: isMembershipEligible
             });
             const loyaltyDiscountTotal = Math.min(
                 Math.max(0, subtotal - couponDiscountTotal),
@@ -563,7 +572,7 @@ class Order {
                 discountSubunits: coupon.discountSubunits || 0
             } : null;
             const isAbandonedRecovery = coupon?.journeyId ? 1 : 0;
-            const loyaltyTier = String(loyaltyStatus?.tier || 'regular').toLowerCase();
+            const loyaltyTier = String(eligibleLoyaltyTier || 'regular').toLowerCase();
             const loyaltyMeta = {
                 tierProfile: loyaltyStatus?.profile || null,
                 adjustmentProfile: loyaltyAdjustments.profile || null,
@@ -648,6 +657,7 @@ class Order {
             await connection.execute('DELETE FROM cart_items WHERE user_id = ?', [userId]);
 
             await connection.commit();
+            await reassessUserTier(userId, { reason: 'order_paid', sendNotifications: true, notificationMode: 'upgrade_welcome' }).catch(() => {});
 
             return {
                 id: orderId,
@@ -748,6 +758,8 @@ class Order {
             const settlementSnapshot = payment?.settlementSnapshot || null;
             const finalOrderRef = orderRef || buildOrderRef();
             const loyaltyStatus = await getUserLoyaltyStatus(userId);
+            const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible);
+            const eligibleLoyaltyTier = isMembershipEligible ? (loyaltyStatus?.tier || 'regular') : 'regular';
             const companyProfile = await CompanyProfile.get();
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
 
@@ -768,7 +780,7 @@ class Order {
                     null,
                     0,
                     null,
-                    String(loyaltyStatus?.tier || 'regular').toLowerCase(),
+                    String(eligibleLoyaltyTier || 'regular').toLowerCase(),
                     0,
                     0,
                     JSON.stringify({ tierProfile: loyaltyStatus?.profile || null, progress: loyaltyStatus?.progress || null }),
@@ -816,6 +828,7 @@ class Order {
 
             await connection.execute('DELETE FROM cart_items WHERE user_id = ?', [userId]);
             await connection.commit();
+            await reassessUserTier(userId, { reason: 'order_paid', sendNotifications: true, notificationMode: 'upgrade_welcome' }).catch(() => {});
             return Order.getById(orderId);
         } catch (error) {
             await connection.rollback();

@@ -682,8 +682,8 @@ export default function Customers({
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
             ) : (
                 <>
-                    <div className="relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                        <Users size={72} className="absolute right-2 bottom-2 text-gray-100 pointer-events-none" />
+                    <div className="emboss-card relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        <Users size={72} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
                             <button onClick={() => setAddModalRole('customer')} className="w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95">

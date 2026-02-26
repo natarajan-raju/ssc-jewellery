@@ -213,7 +213,7 @@ export default function CartPage() {
                                     </p>
                                 </div>
                                 <Link
-                                    to="/store"
+                                    to="/shop"
                                     className="inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold px-6 py-3 hover:bg-primary/5 transition-colors"
                                 >
                                     Explore collection
@@ -343,7 +343,7 @@ export default function CartPage() {
                                 </div>
                                 <div className="mt-4 flex justify-center">
                                     <Link
-                                        to="/store"
+                                        to="/shop"
                                         className="inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold px-5 py-2.5 hover:bg-primary/5 transition-colors"
                                     >
                                         Explore collection
@@ -404,7 +404,7 @@ export default function CartPage() {
                                             <div className="h-full bg-emerald-500" style={{ width: `${freeProgress.pct}%` }} />
                                         </div>
                                         <Link
-                                            to="/store"
+                                            to="/shop"
                                             className="mt-3 inline-flex items-center justify-center w-full rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
                                         >
                                             Explore collection

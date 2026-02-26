@@ -1035,6 +1035,15 @@ const initDB = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS loyalty_popup_templates (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                template_name VARCHAR(120) NOT NULL UNIQUE,
+                payload_json JSON NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
         // Ensure singleton rows exist (Primary + Secondary)
         const [bannerRows] = await connection.execute('SELECT id FROM home_banner WHERE id IN (1, 2, 3)');
         const existingIds = new Set(bannerRows.map(r => r.id));

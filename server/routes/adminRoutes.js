@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
+const { getUsers, createUser, deleteUser, resetUserPassword, getUserCart, verifyEmailChannel, sendTestEmail, getCompanyInfo, updateCompanyInfo, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listLoyaltyPopupTemplates, createLoyaltyPopupTemplate, updateLoyaltyPopupTemplate, deleteLoyaltyPopupTemplate, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -62,6 +62,10 @@ router.get('/loyalty/config', getLoyaltyConfig);
 router.put('/loyalty/config', updateLoyaltyConfig);
 router.get('/loyalty/popup', getLoyaltyPopupConfig);
 router.put('/loyalty/popup', updateLoyaltyPopupConfig);
+router.get('/loyalty/popup/templates', listLoyaltyPopupTemplates);
+router.post('/loyalty/popup/templates', createLoyaltyPopupTemplate);
+router.put('/loyalty/popup/templates/:id', updateLoyaltyPopupTemplate);
+router.delete('/loyalty/popup/templates/:id', deleteLoyaltyPopupTemplate);
 router.get('/loyalty/coupons', listCoupons);
 router.post('/loyalty/coupons', createCoupon);
 router.delete('/loyalty/coupons/:couponId', deleteCoupon);
