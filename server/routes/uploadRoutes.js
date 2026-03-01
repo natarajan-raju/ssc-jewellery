@@ -6,6 +6,7 @@ const router = express.Router();
 const uploadProfile = createUploader('profile');
 const uploadPopup = createUploader('popup');
 const uploadContact = createUploader('contact');
+const uploadCarousel = createUploader('carousel');
 
 router.post('/profile-image', protect, uploadProfile.single('image'), (req, res) => {
     if (!req.file) {
@@ -36,6 +37,14 @@ router.post('/contact-jumbotron-image', protect, authorize('admin', 'staff'), up
         return res.status(400).json({ message: 'No image uploaded' });
     }
     const url = `/uploads/contact/${req.file.filename}`;
+    return res.json({ url });
+});
+
+router.post('/carousel-card-image', protect, authorize('admin', 'staff'), uploadCarousel.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No image uploaded' });
+    }
+    const url = `/uploads/carousel/${req.file.filename}`;
     return res.json({ url });
 });
 

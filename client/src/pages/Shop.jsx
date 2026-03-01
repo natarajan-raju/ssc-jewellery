@@ -2,12 +2,33 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
-import { ChevronDown, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter, Send, Copy, ArrowUp, Home, LayoutGrid } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter, Send, Copy, ArrowUp, Home, LayoutGrid } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { useCms } from '../hooks/useCms';
 
 const PAGE_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 150;
 const SEARCH_LIMIT = 60;
+
+const PROMO_TITLE_FONTS = [
+    '"Impact", "Arial Black", sans-serif',
+    '"Playfair Display", Georgia, serif',
+    '"Trebuchet MS", "Segoe UI", sans-serif',
+    '"Palatino Linotype", "Book Antiqua", serif',
+    '"Franklin Gothic Medium", "Arial Narrow", sans-serif'
+];
+
+const stableHash = (value) => {
+    const input = String(value || '');
+    let hash = 0;
+    for (let i = 0; i < input.length; i += 1) {
+        hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash);
+};
+
+const getPromoTitleFont = (value) => PROMO_TITLE_FONTS[stableHash(value) % PROMO_TITLE_FONTS.length];
+const isExternalLink = (url) => /^https?:\/\//i.test(url || '');
 
 const mergeUniqueProducts = (base = [], incoming = []) => {
     const map = new Map();
@@ -19,6 +40,7 @@ const mergeUniqueProducts = (base = [], incoming = []) => {
 };
 
 export default function Shop() {
+    const { getCarouselCards } = useCms();
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [products, setProducts] = useState([]);
@@ -40,7 +62,12 @@ export default function Shop() {
     const shareRef = useRef(null);
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [isCategoryOpen, setIsCategoryOpen] = useState(false);
+    const [bottomCarouselCards, setBottomCarouselCards] = useState([]);
+    const [isLoadingBottomCarousel, setIsLoadingBottomCarousel] = useState(true);
+    const [activeBottomCarouselIndex, setActiveBottomCarouselIndex] = useState(0);
     const categoryDropdownRef = useRef(null);
+    const bottomCarouselTrackRef = useRef(null);
+    const bottomCarouselAutoIndexRef = useRef(0);
     const loadedPagesRef = useRef(new Set());
     const searchAbortRef = useRef(null);
     const searchDebounceRef = useRef(null);
@@ -71,6 +98,19 @@ export default function Shop() {
             console.error('Failed to load categories', err);
         }
     }, []);
+
+    const fetchBottomCarouselCards = useCallback(async () => {
+        try {
+            const data = await getCarouselCards(false);
+            setBottomCarouselCards(Array.isArray(data) ? data : []);
+            setActiveBottomCarouselIndex(0);
+            bottomCarouselAutoIndexRef.current = 0;
+        } catch (err) {
+            setBottomCarouselCards([]);
+        } finally {
+            setIsLoadingBottomCarousel(false);
+        }
+    }, [getCarouselCards]);
 
     const shareUrl = window.location.href;
     const shareText = `I found this category in SSC Impo jewellery website - ${shareUrl}`;
@@ -107,6 +147,39 @@ export default function Shop() {
         setIsShareOpen((prev) => !prev);
     };
 
+    const updateActiveBottomCard = useCallback(() => {
+        const track = bottomCarouselTrackRef.current;
+        if (!track) return;
+        const cards = Array.from(track.querySelectorAll('[data-bottom-carousel-card="true"]'));
+        if (cards.length === 0) {
+            setActiveBottomCarouselIndex(0);
+            return;
+        }
+        const center = track.scrollLeft + track.clientWidth / 2;
+        let closestIndex = 0;
+        let minDistance = Number.POSITIVE_INFINITY;
+        cards.forEach((card, index) => {
+            const cardCenter = card.offsetLeft + card.clientWidth / 2;
+            const distance = Math.abs(center - cardCenter);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = index;
+            }
+        });
+        setActiveBottomCarouselIndex(closestIndex);
+    }, []);
+
+    const scrollBottomCarouselTo = useCallback((nextIndex) => {
+        const track = bottomCarouselTrackRef.current;
+        if (!track) return;
+        const cards = Array.from(track.querySelectorAll('[data-bottom-carousel-card="true"]'));
+        if (!cards[nextIndex]) return;
+        track.scrollTo({
+            left: cards[nextIndex].offsetLeft,
+            behavior: 'smooth'
+        });
+    }, []);
+
     useEffect(() => {
         if (!isShareOpen) return;
         const handleClickOutside = (event) => {
@@ -117,6 +190,36 @@ export default function Shop() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isShareOpen]);
+
+    useEffect(() => {
+        updateActiveBottomCard();
+    }, [bottomCarouselCards, updateActiveBottomCard]);
+
+    useEffect(() => {
+        bottomCarouselAutoIndexRef.current = activeBottomCarouselIndex;
+    }, [activeBottomCarouselIndex]);
+
+    useEffect(() => {
+        const track = bottomCarouselTrackRef.current;
+        if (!track) return;
+        const handleScroll = () => updateActiveBottomCard();
+        track.addEventListener('scroll', handleScroll, { passive: true });
+        window.addEventListener('resize', handleScroll);
+        return () => {
+            track.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('resize', handleScroll);
+        };
+    }, [bottomCarouselCards, updateActiveBottomCard]);
+
+    useEffect(() => {
+        if (bottomCarouselCards.length <= 1) return;
+        const interval = setInterval(() => {
+            const next = (bottomCarouselAutoIndexRef.current + 1) % bottomCarouselCards.length;
+            bottomCarouselAutoIndexRef.current = next;
+            scrollBottomCarouselTo(next);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [bottomCarouselCards.length, scrollBottomCarouselTo]);
 
     useEffect(() => {
         if (!isCategoryOpen) return;
@@ -184,7 +287,8 @@ export default function Shop() {
 
     useEffect(() => {
         loadCategories();
-    }, [loadCategories]);
+        fetchBottomCarouselCards();
+    }, [loadCategories, fetchBottomCarouselCards]);
 
     useEffect(() => {
         setPage(1);
@@ -409,7 +513,8 @@ export default function Shop() {
         'product:create': handleProductCreate,
         'product:update': handleProductUpdate,
         'product:delete': handleProductDelete,
-        'product:category_change': handleCategoryChange
+        'product:category_change': handleCategoryChange,
+        'cms:carousel_cards_update': fetchBottomCarouselCards
     });
 
     useEffect(() => {
@@ -725,7 +830,11 @@ export default function Shop() {
                             <>
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
                                     {displayProducts.map((product) => (
-                                        <ProductCard key={product.id} product={product} />
+                                        <ProductCard
+                                            key={product.id}
+                                            product={product}
+                                            displayCategory={selectedCategory === 'all' ? '' : selectedCategory}
+                                        />
                                     ))}
                                 </div>
                                 {isSearchLoading && searchTerm.trim() && (
@@ -749,6 +858,128 @@ export default function Shop() {
                     </section>
                 </div>
             </div>
+
+            {(isLoadingBottomCarousel || bottomCarouselCards.length > 0) && (
+                <section className="container mx-auto px-4 py-8 md:py-10 bg-gray-50">
+                    <div className="flex items-center justify-between gap-4 mb-5">
+                        <div>
+                            <p className="text-[11px] uppercase tracking-[0.32em] text-gray-500 font-semibold">Featured for you</p>
+                            <h3 className="text-2xl font-serif text-primary mt-1">Discover More</h3>
+                        </div>
+                        {bottomCarouselCards.length > 1 && (
+                            <div className="hidden md:flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => scrollBottomCarouselTo(Math.max(0, activeBottomCarouselIndex - 1))}
+                                    className="h-9 w-9 rounded-full border border-gray-200 bg-white text-gray-600 hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center"
+                                    aria-label="Previous featured card"
+                                >
+                                    <ChevronLeft size={18} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => scrollBottomCarouselTo(Math.min(bottomCarouselCards.length - 1, activeBottomCarouselIndex + 1))}
+                                    className="h-9 w-9 rounded-full border border-gray-200 bg-white text-gray-600 hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center"
+                                    aria-label="Next featured card"
+                                >
+                                    <ChevronRight size={18} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    {isLoadingBottomCarousel ? (
+                        <div className="flex gap-4 overflow-hidden">
+                            {[...Array(3)].map((_, index) => (
+                                <div key={`shop-bottom-carousel-skeleton-${index}`} className="w-full md:w-[calc((100%-2rem)/3.3)] aspect-video rounded-3xl bg-gray-100 animate-pulse shrink-0" />
+                            ))}
+                        </div>
+                    ) : (
+                        <>
+                            <div
+                                ref={bottomCarouselTrackRef}
+                                className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                            >
+                                {bottomCarouselCards.map((card) => {
+                                    const imageUrl = String(card?.resolved_image_url || card?.image_url || '').trim();
+                                    const title = String(card?.title || '').trim();
+                                    const description = String(card?.description || '').trim();
+                                    const buttonLabel = String(card?.button_label || '').trim();
+                                    const buttonLink = String(card?.resolved_button_link || card?.button_link || '').trim();
+                                    const hasCopy = Boolean(title || description || buttonLabel);
+                                    const titleFont = getPromoTitleFont(card?.id || title || 'promo');
+
+                                    const cardBody = (
+                                        <article className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-sm border border-gray-100 bg-slate-900">
+                                            {imageUrl && (
+                                                <img
+                                                    src={imageUrl}
+                                                    alt={title || 'Feature'}
+                                                    className="absolute inset-0 h-full w-full object-cover"
+                                                    loading="lazy"
+                                                />
+                                            )}
+                                            <div className={`absolute inset-0 ${hasCopy ? 'bg-gradient-to-t from-black/80 via-black/65 to-black/35' : 'bg-black/20'}`} />
+                                            <div className="relative h-full p-5 md:p-6 flex flex-col text-white">
+                                                {title && (
+                                                    <h4
+                                                        className="text-xl md:text-2xl font-bold leading-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
+                                                        style={{ fontFamily: titleFont, letterSpacing: '0.02em' }}
+                                                    >
+                                                        {title}
+                                                    </h4>
+                                                )}
+                                                {description && (
+                                                    <p className="text-sm md:text-base mt-2 line-clamp-3 text-white drop-shadow-[0_1px_8px_rgba(0,0,0,0.95)]">
+                                                        {description}
+                                                    </p>
+                                                )}
+                                                {buttonLabel && (
+                                                    <div className="mt-auto pt-4">
+                                                        <span className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold bg-white text-gray-900 shadow-md">
+                                                            {buttonLabel}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </article>
+                                    );
+
+                                    return (
+                                        <div
+                                            key={`shop-bottom-carousel-card-${card.id}`}
+                                            data-bottom-carousel-card="true"
+                                            className="shrink-0 w-full md:w-[calc((100%-2rem)/3.3)] snap-start"
+                                        >
+                                            {buttonLink ? (
+                                                isExternalLink(buttonLink) ? (
+                                                    <a href={buttonLink} target="_blank" rel="noreferrer" className="block">{cardBody}</a>
+                                                ) : (
+                                                    <Link to={buttonLink} className="block">{cardBody}</Link>
+                                                )
+                                            ) : cardBody}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            {bottomCarouselCards.length > 1 && (
+                                <div className="mt-3 flex items-center justify-center gap-3 md:hidden">
+                                    <div className="inline-flex items-center gap-1.5">
+                                        {bottomCarouselCards.map((card, index) => (
+                                            <span
+                                                key={`shop-bottom-carousel-dot-${card.id || index}`}
+                                                className={`h-2 w-2 rounded-full transition-all ${index === activeBottomCarouselIndex ? 'bg-gray-700 scale-110' : 'bg-gray-300'}`}
+                                            />
+                                        ))}
+                                    </div>
+                                    <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
+                                        {activeBottomCarouselIndex + 1}/{bottomCarouselCards.length}
+                                    </span>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </section>
+            )}
 
             {/* Back to top */}
             {showTopBtn && (

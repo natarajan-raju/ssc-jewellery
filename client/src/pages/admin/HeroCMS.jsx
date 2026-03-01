@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
-import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2, PanelBottom, Pencil } from 'lucide-react';
+import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2, PanelBottom, Pencil, Search } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import { productService } from '../../services/productService';
+import { adminService } from '../../services/adminService';
 
 function AccordionSection({
     id,
@@ -112,8 +113,15 @@ export default function HeroCMS() {
     const [carouselCards, setCarouselCards] = useState([]);
     const [isCarouselLoading, setIsCarouselLoading] = useState(false);
     const [isCarouselSaving, setIsCarouselSaving] = useState(false);
-    const [carouselProducts, setCarouselProducts] = useState([]);
+    const [isCarouselImageUploading, setIsCarouselImageUploading] = useState(false);
     const [carouselCategories, setCarouselCategories] = useState([]);
+    const [sourceProductQuery, setSourceProductQuery] = useState('');
+    const [sourceProductResults, setSourceProductResults] = useState([]);
+    const [isSourceProductLoading, setIsSourceProductLoading] = useState(false);
+    const [targetProductQuery, setTargetProductQuery] = useState('');
+    const [targetProductResults, setTargetProductResults] = useState([]);
+    const [isTargetProductLoading, setIsTargetProductLoading] = useState(false);
+    const [carouselProductLookup, setCarouselProductLookup] = useState({});
     const [editingCarouselCardId, setEditingCarouselCardId] = useState(null);
     const [carouselForm, setCarouselForm] = useState({
         title: '',
@@ -122,7 +130,8 @@ export default function HeroCMS() {
         sourceId: '',
         imageUrl: '',
         buttonLabel: '',
-        buttonLink: '',
+        linkTargetType: 'store',
+        linkTargetId: '',
         status: 'active',
         displayOrder: ''
     });
@@ -131,6 +140,8 @@ export default function HeroCMS() {
     const secondaryBannerLinkDirtyRef = useRef(false);
     const tertiaryBannerLinkDirtyRef = useRef(false);
     const featuredDraftDirtyRef = useRef(false);
+    const sourceSearchTimerRef = useRef(null);
+    const targetSearchTimerRef = useRef(null);
 const [modalConfig, setModalConfig] = useState({
     isOpen: false,
     type: 'delete',
@@ -150,6 +161,13 @@ const [modalConfig, setModalConfig] = useState({
         loadCarouselCards();
         loadCarouselSources();
         loadAutopilotConfig();
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            if (sourceSearchTimerRef.current) clearTimeout(sourceSearchTimerRef.current);
+            if (targetSearchTimerRef.current) clearTimeout(targetSearchTimerRef.current);
+        };
     }, []);
 
     const loadSlides = async () => {
@@ -260,15 +278,72 @@ const [modalConfig, setModalConfig] = useState({
 
     const loadCarouselSources = async () => {
         try {
-            const [productRes, categoryRes] = await Promise.all([
-                productService.getProducts(1, 'all', 'all', 'newest', 250),
-                productService.getCategoryStats(true)
-            ]);
-            setCarouselProducts(Array.isArray(productRes?.products) ? productRes.products : []);
+            const categoryRes = await productService.getCategoryStats(true);
             setCarouselCategories(Array.isArray(categoryRes) ? categoryRes : []);
         } catch (error) {
             toast.error("Failed to load product/category sources");
         }
+    };
+
+    const putProductsInLookup = (list = []) => {
+        const safe = Array.isArray(list) ? list : [];
+        if (!safe.length) return;
+        setCarouselProductLookup((prev) => {
+            const next = { ...prev };
+            safe.forEach((product) => {
+                const id = String(product?.id || '').trim();
+                if (!id) return;
+                next[id] = product;
+            });
+            return next;
+        });
+    };
+
+    const runCarouselProductSearch = async (query = '', setResults, setLoading) => {
+        const text = String(query || '').trim();
+        if (text.length < 2) {
+            setResults([]);
+            return;
+        }
+        setLoading(true);
+        try {
+            const data = await productService.searchProducts({
+                query: text,
+                page: 1,
+                limit: 20,
+                status: 'all',
+                sort: 'relevance'
+            });
+            const products = Array.isArray(data?.products) ? data.products : [];
+            putProductsInLookup(products);
+            setResults(products);
+        } catch (error) {
+            setResults([]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const ensureProductInLookup = async (productId) => {
+        const id = String(productId || '').trim();
+        if (!id) return;
+        if (carouselProductLookup[id]) return;
+        try {
+            const product = await productService.getProduct(id);
+            if (product?.id) putProductsInLookup([product]);
+        } catch {
+            // ignore missing/removed products
+        }
+    };
+
+    const getProductLabel = (productId) => {
+        const id = String(productId || '').trim();
+        if (!id) return '';
+        const product = carouselProductLookup[id];
+        if (!product) return `Selected product: ${id}`;
+        const title = String(product?.title || '').trim() || 'Untitled Product';
+        const sku = String(product?.sku || '').trim();
+        return sku ? `${title} (${sku})` : title;
     };
 
     useAdminCrudSync({
@@ -665,6 +740,10 @@ const [modalConfig, setModalConfig] = useState({
 
     const resetCarouselForm = () => {
         setEditingCarouselCardId(null);
+        setSourceProductQuery('');
+        setSourceProductResults([]);
+        setTargetProductQuery('');
+        setTargetProductResults([]);
         setCarouselForm({
             title: '',
             description: '',
@@ -672,10 +751,27 @@ const [modalConfig, setModalConfig] = useState({
             sourceId: '',
             imageUrl: '',
             buttonLabel: '',
-            buttonLink: '',
+            linkTargetType: 'store',
+            linkTargetId: '',
             status: 'active',
             displayOrder: ''
         });
+    };
+
+    const handleSourceProductSearch = (value) => {
+        setSourceProductQuery(value);
+        if (sourceSearchTimerRef.current) clearTimeout(sourceSearchTimerRef.current);
+        sourceSearchTimerRef.current = setTimeout(() => {
+            runCarouselProductSearch(value, setSourceProductResults, setIsSourceProductLoading);
+        }, 250);
+    };
+
+    const handleTargetProductSearch = (value) => {
+        setTargetProductQuery(value);
+        if (targetSearchTimerRef.current) clearTimeout(targetSearchTimerRef.current);
+        targetSearchTimerRef.current = setTimeout(() => {
+            runCarouselProductSearch(value, setTargetProductResults, setIsTargetProductLoading);
+        }, 250);
     };
 
     const handleCarouselFormSubmit = async (e) => {
@@ -684,8 +780,12 @@ const [modalConfig, setModalConfig] = useState({
             toast.error("Select a source");
             return;
         }
+        if ((carouselForm.linkTargetType === 'product' || carouselForm.linkTargetType === 'category') && !carouselForm.linkTargetId) {
+            toast.error("Select a link target");
+            return;
+        }
         if (carouselForm.sourceType === 'manual' && !carouselForm.imageUrl.trim()) {
-            toast.error("Image URL is required for manual cards");
+            toast.error("Own image is required");
             return;
         }
         setIsCarouselSaving(true);
@@ -697,7 +797,8 @@ const [modalConfig, setModalConfig] = useState({
                 sourceId: carouselForm.sourceId || null,
                 imageUrl: carouselForm.sourceType === 'manual' ? carouselForm.imageUrl.trim() : '',
                 buttonLabel: carouselForm.buttonLabel.trim(),
-                buttonLink: carouselForm.buttonLink.trim(),
+                linkTargetType: carouselForm.linkTargetType,
+                linkTargetId: carouselForm.linkTargetId || null,
                 status: carouselForm.status,
                 displayOrder: carouselForm.displayOrder === '' ? null : Number(carouselForm.displayOrder)
             };
@@ -718,19 +819,58 @@ const [modalConfig, setModalConfig] = useState({
     };
 
     const handleEditCarouselCard = (card) => {
+        const sourceType = card.source_type || 'manual';
+        const sourceId = card.source_id ? String(card.source_id) : '';
+        const linkTargetType = card.link_target_type || 'store';
+        const linkTargetId = card.link_target_id ? String(card.link_target_id) : '';
         setEditingCarouselCardId(card.id);
         setCarouselForm({
             title: card.title || '',
             description: card.description || '',
-            sourceType: card.source_type || 'manual',
-            sourceId: card.source_id ? String(card.source_id) : '',
+            sourceType,
+            sourceId,
             imageUrl: card.image_url || '',
             buttonLabel: card.button_label || '',
-            buttonLink: card.button_link || '',
+            linkTargetType,
+            linkTargetId,
             status: card.status || 'active',
             displayOrder: Number.isFinite(Number(card.display_order)) ? String(card.display_order) : ''
         });
+        setSourceProductResults([]);
+        setTargetProductResults([]);
+        if (sourceType === 'product' && sourceId) {
+            ensureProductInLookup(sourceId);
+            setSourceProductQuery(getProductLabel(sourceId));
+        } else {
+            setSourceProductQuery('');
+        }
+        if (linkTargetType === 'product' && linkTargetId) {
+            ensureProductInLookup(linkTargetId);
+            setTargetProductQuery(getProductLabel(linkTargetId));
+        } else {
+            setTargetProductQuery('');
+        }
         setOpenCmsSection('bottom-carousel');
+    };
+
+    const handleCarouselImageUpload = async (file) => {
+        if (!file) return;
+        if (!String(file.type || '').startsWith('image/')) {
+            toast.error('Please select an image file');
+            return;
+        }
+        setIsCarouselImageUploading(true);
+        try {
+            const data = await adminService.uploadCarouselCardImage(file);
+            const url = String(data?.url || '').trim();
+            if (!url) throw new Error('Upload failed');
+            setCarouselForm((prev) => ({ ...prev, imageUrl: url }));
+            toast.success('Own image uploaded');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to upload image');
+        } finally {
+            setIsCarouselImageUploading(false);
+        }
     };
 
     const sectionHasContent = (id) => {
@@ -1177,30 +1317,66 @@ const [modalConfig, setModalConfig] = useState({
                             <select
                                 className="input-field"
                                 value={carouselForm.sourceType}
-                                onChange={(e) => setCarouselForm((prev) => ({
-                                    ...prev,
-                                    sourceType: e.target.value,
-                                    sourceId: '',
-                                    imageUrl: e.target.value === 'manual' ? prev.imageUrl : ''
-                                }))}
+                                onChange={(e) => {
+                                    const nextType = e.target.value;
+                                    setCarouselForm((prev) => ({
+                                        ...prev,
+                                        sourceType: nextType,
+                                        sourceId: '',
+                                        imageUrl: nextType === 'manual' ? prev.imageUrl : ''
+                                    }));
+                                    if (nextType !== 'product') {
+                                        setSourceProductQuery('');
+                                        setSourceProductResults([]);
+                                    }
+                                }}
                             >
-                                <option value="manual">Manual image</option>
+                                <option value="manual">Own image</option>
                                 <option value="product">Product image</option>
                                 <option value="category">Category image</option>
                             </select>
                             {carouselForm.sourceType === 'product' && (
-                                <select
-                                    className="input-field md:col-span-2"
-                                    value={carouselForm.sourceId}
-                                    onChange={(e) => setCarouselForm((prev) => ({ ...prev, sourceId: e.target.value }))}
-                                >
-                                    <option value="">Select Product...</option>
-                                    {carouselProducts.map((product) => (
-                                        <option key={product.id} value={product.id}>
-                                            {product.title}
-                                        </option>
-                                    ))}
-                                </select>
+                                <div className="md:col-span-2 space-y-2">
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                        <input
+                                            className="input-field pl-10"
+                                            placeholder="Search product by name or SKU..."
+                                            value={sourceProductQuery}
+                                            onChange={(e) => handleSourceProductSearch(e.target.value)}
+                                        />
+                                    </div>
+                                    {carouselForm.sourceId && (
+                                        <p className="text-xs text-gray-500">
+                                            Selected:
+                                            {' '}
+                                            {getProductLabel(carouselForm.sourceId)}
+                                        </p>
+                                    )}
+                                    {isSourceProductLoading && (
+                                        <p className="text-xs text-gray-400">Searching products...</p>
+                                    )}
+                                    {!isSourceProductLoading && sourceProductResults.length > 0 && (
+                                        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
+                                            {sourceProductResults.map((product) => (
+                                                <button
+                                                    key={`source-prod-${product.id}`}
+                                                    type="button"
+                                                    className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                                                    onClick={() => {
+                                                        setCarouselForm((prev) => ({ ...prev, sourceId: String(product.id) }));
+                                                        setSourceProductQuery(getProductLabel(product.id));
+                                                        setSourceProductResults([]);
+                                                        putProductsInLookup([product]);
+                                                    }}
+                                                >
+                                                    <p className="text-sm font-semibold text-gray-800">{product.title || 'Untitled Product'}</p>
+                                                    <p className="text-xs text-gray-500">{product.sku || product.id}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             )}
                             {carouselForm.sourceType === 'category' && (
                                 <select
@@ -1216,24 +1392,133 @@ const [modalConfig, setModalConfig] = useState({
                                     ))}
                                 </select>
                             )}
-                            {carouselForm.sourceType === 'manual' && (
-                                <>
+                        </div>
+                        {carouselForm.sourceType === 'manual' && (
+                            <div className="space-y-2 -mt-1">
+                                <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                                    {isCarouselImageUploading ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+                                    {isCarouselImageUploading ? 'Uploading...' : 'Upload Own Image'}
                                     <input
-                                        className="input-field md:col-span-2"
-                                        placeholder="Manual image URL"
-                                        value={carouselForm.imageUrl}
-                                        onChange={(e) => setCarouselForm((prev) => ({ ...prev, imageUrl: e.target.value }))}
+                                        type="file"
+                                        className="hidden"
+                                        accept="image/*"
+                                        disabled={isCarouselImageUploading}
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) handleCarouselImageUpload(file);
+                                            e.target.value = '';
+                                        }}
                                     />
-                                </>
+                                </label>
+                                {carouselForm.imageUrl ? (
+                                    <div className="flex items-center gap-3">
+                                        <img
+                                            src={carouselForm.imageUrl}
+                                            alt="Own upload preview"
+                                            className="w-20 h-12 rounded-md border border-gray-200 object-cover"
+                                        />
+                                        <p className="text-xs text-gray-500 truncate">{carouselForm.imageUrl}</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCarouselForm((prev) => ({ ...prev, imageUrl: '' }))}
+                                            className="text-xs text-red-600 font-semibold hover:underline"
+                                        >
+                                            Remove
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <p className="text-xs text-gray-400">Upload image from your device for this card.</p>
+                                )}
+                            </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <select
+                                className="input-field"
+                                value={carouselForm.linkTargetType}
+                                onChange={(e) => {
+                                    const nextType = e.target.value;
+                                    setCarouselForm((prev) => ({
+                                        ...prev,
+                                        linkTargetType: nextType,
+                                        linkTargetId: ''
+                                    }));
+                                    if (nextType !== 'product') {
+                                        setTargetProductQuery('');
+                                        setTargetProductResults([]);
+                                    }
+                                }}
+                            >
+                                <option value="store">Link to entire store</option>
+                                <option value="category">Link to category</option>
+                                <option value="product">Link to product</option>
+                            </select>
+                            {carouselForm.linkTargetType === 'category' && (
+                                <select
+                                    className="input-field md:col-span-2"
+                                    value={carouselForm.linkTargetId}
+                                    onChange={(e) => setCarouselForm((prev) => ({ ...prev, linkTargetId: e.target.value }))}
+                                >
+                                    <option value="">Select Category...</option>
+                                    {carouselCategories.map((category) => (
+                                        <option key={category.id} value={category.id}>
+                                            {category.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                            {carouselForm.linkTargetType === 'product' && (
+                                <div className="md:col-span-2 space-y-2">
+                                    <div className="relative">
+                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                        <input
+                                            className="input-field pl-10"
+                                            placeholder="Search product by name or SKU..."
+                                            value={targetProductQuery}
+                                            onChange={(e) => handleTargetProductSearch(e.target.value)}
+                                        />
+                                    </div>
+                                    {carouselForm.linkTargetId && (
+                                        <p className="text-xs text-gray-500">
+                                            Selected:
+                                            {' '}
+                                            {getProductLabel(carouselForm.linkTargetId)}
+                                        </p>
+                                    )}
+                                    {isTargetProductLoading && (
+                                        <p className="text-xs text-gray-400">Searching products...</p>
+                                    )}
+                                    {!isTargetProductLoading && targetProductResults.length > 0 && (
+                                        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100 bg-white">
+                                            {targetProductResults.map((product) => (
+                                                <button
+                                                    key={`target-prod-${product.id}`}
+                                                    type="button"
+                                                    className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                                                    onClick={() => {
+                                                        setCarouselForm((prev) => ({ ...prev, linkTargetId: String(product.id) }));
+                                                        setTargetProductQuery(getProductLabel(product.id));
+                                                        setTargetProductResults([]);
+                                                        putProductsInLookup([product]);
+                                                    }}
+                                                >
+                                                    <p className="text-sm font-semibold text-gray-800">{product.title || 'Untitled Product'}</p>
+                                                    <p className="text-xs text-gray-500">{product.sku || product.id}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {carouselForm.linkTargetType === 'store' && (
+                                <input
+                                    className="input-field md:col-span-2"
+                                    value="/shop (auto)"
+                                    disabled
+                                    readOnly
+                                />
                             )}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <input
-                                className="input-field md:col-span-2"
-                                placeholder="Button link (e.g. /shop or https://...)"
-                                value={carouselForm.buttonLink}
-                                onChange={(e) => setCarouselForm((prev) => ({ ...prev, buttonLink: e.target.value }))}
-                            />
                             <input
                                 className="input-field"
                                 type="number"
@@ -1296,7 +1581,8 @@ const [modalConfig, setModalConfig] = useState({
                                         <p className="text-xs text-gray-500 mt-0.5 truncate">
                                             {String(card.source_type || 'manual').toUpperCase()}
                                             {card.source_id ? ` • ${card.source_id}` : ''}
-                                            {card.button_link ? ` • ${card.button_link}` : ''}
+                                            {card.link_target_type ? ` • LINK:${String(card.link_target_type).toUpperCase()}` : ''}
+                                            {card.resolved_button_link ? ` • ${card.resolved_button_link}` : ''}
                                         </p>
                                     </div>
                                     <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${card.status === 'active' ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-600 bg-gray-100 border-gray-200'}`}>

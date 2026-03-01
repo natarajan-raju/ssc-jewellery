@@ -348,6 +348,17 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    uploadCarouselCardImage: async (file) => {
+        const token = localStorage.getItem('token');
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch(`${UPLOAD_API_URL}/carousel-card-image`, {
+            method: 'POST',
+            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+        });
+        return handleResponse(res);
+    },
     getLoyaltyCoupons: async ({ page = 1, limit = 20, search = '', sourceType = 'all' } = {}) => {
         const cacheKey = `${page}::${limit}::${search}::${sourceType}`;
         const cached = loyaltyCouponCache[cacheKey];

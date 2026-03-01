@@ -986,6 +986,8 @@ const initDB = async () => {
                 image_url TEXT,
                 button_label VARCHAR(80) NOT NULL DEFAULT 'Explore',
                 button_link VARCHAR(255),
+                link_target_type VARCHAR(20) NOT NULL DEFAULT 'store',
+                link_target_id VARCHAR(60) NULL,
                 status VARCHAR(20) NOT NULL DEFAULT 'active',
                 display_order INT NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1009,6 +1011,12 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE cms_carousel_cards ADD COLUMN button_link VARCHAR(255)');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE cms_carousel_cards ADD COLUMN link_target_type VARCHAR(20) NOT NULL DEFAULT 'store'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE cms_carousel_cards ADD COLUMN link_target_id VARCHAR(60) NULL');
         } catch {}
         try {
             await connection.query("ALTER TABLE cms_carousel_cards ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'");

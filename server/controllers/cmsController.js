@@ -58,6 +58,8 @@ const parseMaybeJson = (value, fallback = null) => {
 const normalizeCarouselCardPayload = (payload = {}) => {
     const sourceTypeRaw = String(payload.sourceType ?? payload.source_type ?? 'manual').toLowerCase();
     const sourceType = ['manual', 'product', 'category'].includes(sourceTypeRaw) ? sourceTypeRaw : 'manual';
+    const linkTargetTypeRaw = String(payload.linkTargetType ?? payload.link_target_type ?? 'store').toLowerCase();
+    const linkTargetType = ['store', 'category', 'product', 'custom'].includes(linkTargetTypeRaw) ? linkTargetTypeRaw : 'store';
     const rawDisplay = payload.displayOrder ?? payload.display_order;
     const parsedDisplay = Number(rawDisplay);
     const hasDisplayOrder = rawDisplay !== undefined && rawDisplay !== null && String(rawDisplay).trim() !== '';
@@ -68,6 +70,8 @@ const normalizeCarouselCardPayload = (payload = {}) => {
         source_id: String(payload.sourceId ?? payload.source_id ?? '').trim() || null,
         image_url: String(payload.imageUrl ?? payload.image_url ?? '').trim() || null,
         button_label: String(payload.buttonLabel ?? payload.button_label ?? '').trim(),
+        link_target_type: linkTargetType,
+        link_target_id: String(payload.linkTargetId ?? payload.link_target_id ?? '').trim() || null,
         button_link: String(payload.buttonLink ?? payload.button_link ?? '').trim() || '',
         status: String(payload.status || 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active',
         display_order: Number.isFinite(parsedDisplay) ? Math.max(0, Math.trunc(parsedDisplay)) : 0,
@@ -94,6 +98,48 @@ const resolveCarouselCardImage = async (card = {}) => {
         }
     }
     return String(card?.image_url || '').trim() || null;
+};
+
+const resolveCarouselCardLink = async (card = {}) => {
+    const linkTargetType = String(card?.link_target_type || '').toLowerCase();
+    const linkTargetId = String(card?.link_target_id || '').trim();
+    if (linkTargetType === 'store') {
+        return '/shop';
+    }
+    if (linkTargetType === 'product' && linkTargetId) {
+        return `/product/${encodeURIComponent(linkTargetId)}`;
+    }
+    if (linkTargetType === 'category' && linkTargetId) {
+        const categoryId = Number(linkTargetId);
+        if (Number.isFinite(categoryId)) {
+            const [rows] = await db.execute('SELECT name FROM categories WHERE id = ? LIMIT 1', [categoryId]);
+            const categoryName = String(rows?.[0]?.name || '').trim();
+            if (categoryName) {
+                return `/shop/${encodeURIComponent(categoryName)}`;
+            }
+        }
+    }
+    if (linkTargetType === 'custom') {
+        return String(card?.button_link || '').trim() || '';
+    }
+
+    // Backward compatibility for old rows where link target columns are absent/null.
+    const sourceType = String(card?.source_type || 'manual').toLowerCase();
+    const sourceId = String(card?.source_id || '').trim();
+    if (sourceType === 'product' && sourceId) {
+        return `/product/${encodeURIComponent(sourceId)}`;
+    }
+    if (sourceType === 'category' && sourceId) {
+        const categoryId = Number(sourceId);
+        if (Number.isFinite(categoryId)) {
+            const [rows] = await db.execute('SELECT name FROM categories WHERE id = ? LIMIT 1', [categoryId]);
+            const categoryName = String(rows?.[0]?.name || '').trim();
+            if (categoryName) {
+                return `/shop/${encodeURIComponent(categoryName)}`;
+            }
+        }
+    }
+    return String(card?.button_link || '').trim() || '';
 };
 
 // 1. GET ALL SLIDES (Public & Admin)
@@ -254,7 +300,8 @@ const getCarouselCards = async (req, res) => {
         const cards = await Promise.all(
             (Array.isArray(rows) ? rows : []).map(async (row) => ({
                 ...row,
-                resolved_image_url: await resolveCarouselCardImage(row)
+                resolved_image_url: await resolveCarouselCardImage(row),
+                resolved_button_link: await resolveCarouselCardLink(row)
             }))
         );
         res.json(cards);
@@ -504,8 +551,8 @@ const createCarouselCard = async (req, res) => {
         }
         const [result] = await db.execute(
             `INSERT INTO cms_carousel_cards
-             (title, description, source_type, source_id, image_url, button_label, button_link, status, display_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             (title, description, source_type, source_id, image_url, button_label, link_target_type, link_target_id, button_link, status, display_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 payload.title,
                 payload.description,
@@ -513,7 +560,9 @@ const createCarouselCard = async (req, res) => {
                 payload.source_id,
                 payload.image_url,
                 payload.button_label,
-                payload.button_link,
+                payload.link_target_type,
+                payload.link_target_id,
+                await resolveCarouselCardLink(payload),
                 payload.status,
                 orderValue
             ]
@@ -540,7 +589,7 @@ const updateCarouselCard = async (req, res) => {
         const orderValue = payload.hasDisplayOrder ? payload.display_order : Number(existing.display_order || 0);
         await db.execute(
             `UPDATE cms_carousel_cards
-             SET title = ?, description = ?, source_type = ?, source_id = ?, image_url = ?, button_label = ?, button_link = ?, status = ?, display_order = ?
+             SET title = ?, description = ?, source_type = ?, source_id = ?, image_url = ?, button_label = ?, link_target_type = ?, link_target_id = ?, button_link = ?, status = ?, display_order = ?
              WHERE id = ?`,
             [
                 payload.title,
@@ -549,7 +598,9 @@ const updateCarouselCard = async (req, res) => {
                 payload.source_id,
                 payload.image_url,
                 payload.button_label,
-                payload.button_link,
+                payload.link_target_type,
+                payload.link_target_id,
+                await resolveCarouselCardLink(payload),
                 payload.status,
                 orderValue,
                 cardId

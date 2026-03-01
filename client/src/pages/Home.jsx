@@ -215,6 +215,7 @@ export default function Home() {
     const infoSectionRef = useRef(null);
     const bottomCarouselTrackRef = useRef(null);
     const activeBottomCarouselIndexRef = useRef(0);
+    const bottomCarouselAutoIndexRef = useRef(0);
     const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [showTopBtn, setShowTopBtn] = useState(false);
@@ -769,6 +770,10 @@ export default function Home() {
     }, [activeBottomCarouselIndex]);
 
     useEffect(() => {
+        bottomCarouselAutoIndexRef.current = activeBottomCarouselIndex;
+    }, [activeBottomCarouselIndex]);
+
+    useEffect(() => {
         const track = bottomCarouselTrackRef.current;
         if (!track) return;
         const handleScroll = () => updateActiveBottomCard();
@@ -783,8 +788,8 @@ export default function Home() {
     useEffect(() => {
         if (bottomCarouselCards.length <= 1) return;
         const interval = setInterval(() => {
-            const current = activeBottomCarouselIndexRef.current || 0;
-            const next = (current + 1) % bottomCarouselCards.length;
+            const next = (bottomCarouselAutoIndexRef.current + 1) % bottomCarouselCards.length;
+            bottomCarouselAutoIndexRef.current = next;
             scrollBottomCarouselTo(next);
         }, 3000);
         return () => clearInterval(interval);
@@ -1090,7 +1095,7 @@ export default function Home() {
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
                         {bestSellers.slice(0, 10).map((product) => (
-                            <ProductCard key={product.id} product={product} />
+                            <ProductCard key={product.id} product={product} displayCategory="Best Sellers" />
                         ))}
                         {bestSellers.length === 0 && (
                             <div className="col-span-full py-10 text-center text-gray-400">
@@ -1164,7 +1169,7 @@ export default function Home() {
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
                         {newArrivals.slice(0, 10).map((product) => (
-                            <ProductCard key={product.id} product={product} />
+                            <ProductCard key={product.id} product={product} displayCategory="New Arrivals" />
                         ))}
                         {newArrivals.length === 0 && (
                             <div className="col-span-full py-10 text-center text-gray-400">
@@ -1254,7 +1259,7 @@ export default function Home() {
 
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
                                     {featuredSectionProducts.slice(0, 10).map((product) => (
-                                        <ProductCard key={product.id} product={product} />
+                                        <ProductCard key={product.id} product={product} displayCategory={categoryName} />
                                     ))}
                                     {featuredSectionProducts.length === 0 && (
                                         <div className="col-span-full py-10 text-center text-gray-400">
@@ -1331,7 +1336,7 @@ export default function Home() {
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
                         {offersProducts.slice(0, 10).map((product) => (
-                            <ProductCard key={product.id} product={product} />
+                            <ProductCard key={product.id} product={product} displayCategory="Offers" />
                         ))}
                         {offersProducts.length === 0 && (
                             <div className="col-span-full py-10 text-center text-gray-400">
@@ -1374,7 +1379,7 @@ export default function Home() {
                     {isLoadingBottomCarousel ? (
                         <div className="flex gap-4 overflow-hidden">
                             {[...Array(3)].map((_, index) => (
-                                <div key={`bottom-carousel-skeleton-${index}`} className="w-full aspect-video rounded-3xl bg-gray-100 animate-pulse shrink-0" />
+                                <div key={`bottom-carousel-skeleton-${index}`} className="w-full md:w-[calc((100%-2rem)/3.3)] aspect-video rounded-3xl bg-gray-100 animate-pulse shrink-0" />
                             ))}
                         </div>
                     ) : (
@@ -1388,7 +1393,7 @@ export default function Home() {
                                     const title = String(card?.title || '').trim();
                                     const description = String(card?.description || '').trim();
                                     const buttonLabel = String(card?.button_label || '').trim();
-                                    const buttonLink = String(card?.button_link || '').trim();
+                                    const buttonLink = String(card?.resolved_button_link || card?.button_link || '').trim();
                                     const hasCopy = Boolean(title || description || buttonLabel);
                                     const titleFont = getPromoTitleFont(card?.id || title || 'promo');
 
@@ -1434,7 +1439,7 @@ export default function Home() {
                                         <div
                                             key={`bottom-carousel-card-${card.id}`}
                                             data-bottom-carousel-card="true"
-                                            className="shrink-0 w-full snap-start"
+                                            className="shrink-0 w-full md:w-[calc((100%-2rem)/3.3)] snap-start"
                                         >
                                             {buttonLink ? (
                                                 isExternalLink(buttonLink) ? (
@@ -1453,7 +1458,7 @@ export default function Home() {
                             </div>
 
                             {bottomCarouselCards.length > 1 && (
-                                <div className="mt-3 flex items-center justify-center gap-3">
+                                <div className="mt-3 flex items-center justify-center gap-3 md:hidden">
                                     <div className="inline-flex items-center gap-1.5">
                                         {bottomCarouselCards.map((card, index) => (
                                             <span

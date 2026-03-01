@@ -16,7 +16,7 @@ const EXTRA_DISCOUNT_BY_TIER = {
     platinum: 5
 };
 
-export default function ProductCard({ product }) {
+export default function ProductCard({ product, displayCategory = '' }) {
     const [isHovered, setIsHovered] = useState(false);
     const [quickAddAdded, setQuickAddAdded] = useState(false);
     const [isUpdatingQty, setIsUpdatingQty] = useState(false);
@@ -264,6 +264,10 @@ export default function ProductCard({ product }) {
         );
     };
 
+    const resolvedCategoryLabel = String(displayCategory || '').trim() || (
+        Array.isArray(product.categories) ? product.categories[0] : (product.categories || 'Collection')
+    );
+
     return (
         <div className={`group relative tier-card-surface rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate ${isOutOfStock ? 'grayscale opacity-80' : ''}`}
             onMouseEnter={() => setIsHovered(true)}
@@ -321,7 +325,7 @@ export default function ProductCard({ product }) {
             <div className="p-4">
                 {/* Categories */}
                 <p className="text-xs text-gray-400 uppercase tracking-wide mb-1 font-medium">
-                    {Array.isArray(product.categories) ? product.categories[0] : (product.categories || 'Collection')}
+                    {resolvedCategoryLabel}
                 </p>
                 
                 {/* Title */}
