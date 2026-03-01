@@ -124,6 +124,24 @@ export const useCms = () => {
         return res.json();
     }, [logout]);
 
+    const getCarouselCards = useCallback(async (isAdmin = false) => {
+        const token = localStorage.getItem('token');
+        const headers = {};
+        if (isAdmin && token && token !== "undefined") {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        const res = await fetch(`${API_URL}/carousel-cards?admin=${isAdmin}`, { headers });
+        if (res.status === 401 && isAdmin) {
+            logout();
+            throw new Error("Session expired");
+        }
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.message || 'API Error');
+        }
+        return res.json();
+    }, [logout]);
+
     const getTertiaryBanner = useCallback(async (isAdmin = false) => {
         const token = localStorage.getItem('token');
         const headers = {};
@@ -203,6 +221,28 @@ export const useCms = () => {
         });
     }, [authFetch]);
 
+    const createCarouselCard = useCallback(async (data) => {
+        return authFetch('/carousel-cards', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }, [authFetch]);
+
+    const updateCarouselCard = useCallback(async (id, data) => {
+        return authFetch(`/carousel-cards/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    }, [authFetch]);
+
+    const deleteCarouselCard = useCallback(async (id) => {
+        return authFetch(`/carousel-cards/${id}`, {
+            method: 'DELETE'
+        });
+    }, [authFetch]);
+
     const updateTertiaryBanner = useCallback(async (formData) => {
         return authFetch('/banner-tertiary', {
             method: 'PUT',
@@ -250,9 +290,9 @@ export const useCms = () => {
     }, [authFetch]);
 
     return { 
-        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getAutopilotConfig,
+        getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getCarouselCards, getAutopilotConfig,
         createSlide, deleteSlide, reorderSlides, updateSlide,
-        updateBanner, updateSecondaryBanner, updateTertiaryBanner, updateFeaturedCategory, updateAutopilotConfig,
+        updateBanner, updateSecondaryBanner, updateTertiaryBanner, updateFeaturedCategory, createCarouselCard, updateCarouselCard, deleteCarouselCard, updateAutopilotConfig,
         createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts
     };
 };

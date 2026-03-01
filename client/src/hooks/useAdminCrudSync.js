@@ -22,6 +22,7 @@ export const ADMIN_CRUD_EVENTS = [
     'cms:banner_secondary_update',
     'cms:banner_tertiary_update',
     'cms:featured_category_update',
+    'cms:carousel_cards_update',
     'cms:autopilot_update',
     'loyalty:config_update',
     'abandoned_cart:update',

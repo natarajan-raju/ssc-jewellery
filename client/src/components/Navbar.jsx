@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart, Search } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart, Search, Medal, Crown, Gem } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
@@ -40,6 +40,14 @@ const TIER_STYLES = {
         userBtnActive: 'text-white bg-sky-700',
         profileRing: 'border-sky-400'
     }
+};
+
+const TIER_ICON_CONFIG = {
+    regular: { Icon: User, className: 'text-slate-600' },
+    bronze: { Icon: Medal, className: 'text-amber-700' },
+    silver: { Icon: Medal, className: 'text-zinc-600' },
+    gold: { Icon: Crown, className: 'text-yellow-700' },
+    platinum: { Icon: Gem, className: 'text-sky-700' }
 };
 
 const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
@@ -360,6 +368,8 @@ export default function Navbar() {
     })();
     const tier = String(user?.loyaltyTier || cachedUser?.loyaltyTier || 'regular').toLowerCase();
     const tierStyle = TIER_STYLES[tier] || TIER_STYLES.regular;
+    const tierIconConfig = TIER_ICON_CONFIG[tier] || TIER_ICON_CONFIG.regular;
+    const TierIcon = tierIconConfig.Icon;
     const tierLabel = formatTierLabel(user?.loyaltyProfile?.label || cachedUser?.loyaltyProfile?.label || tier);
     const showTierBadge = (user || cachedUser) && tier !== 'regular';
     const effectiveUser = user || cachedUser;
@@ -572,6 +582,10 @@ export default function Navbar() {
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                                         <div className="px-4 py-2 border-b border-gray-50">
                                             <p className="text-xs text-gray-500 font-bold uppercase">Hi, {effectiveUser.name}</p>
+                                            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5">
+                                                <TierIcon size={12} className={tierIconConfig.className} />
+                                                <span className="text-[10px] font-bold uppercase tracking-wide text-gray-600">{tierLabel}</span>
+                                            </div>
                                         </div>
                                         <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Profile</Link>
                                         <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Wishlist</Link>

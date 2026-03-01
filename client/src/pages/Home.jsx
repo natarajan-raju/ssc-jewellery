@@ -131,6 +131,25 @@ const hasBannerImage = (imageUrl = '') => {
     return normalized !== '/placeholder_banner.jpg';
 };
 
+const PROMO_TITLE_FONTS = [
+    '"Impact", "Arial Black", sans-serif',
+    '"Playfair Display", Georgia, serif',
+    '"Trebuchet MS", "Segoe UI", sans-serif',
+    '"Palatino Linotype", "Book Antiqua", serif',
+    '"Franklin Gothic Medium", "Arial Narrow", sans-serif'
+];
+
+const stableHash = (value) => {
+    const input = String(value || '');
+    let hash = 0;
+    for (let i = 0; i < input.length; i += 1) {
+        hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash);
+};
+
+const getPromoTitleFont = (value) => PROMO_TITLE_FONTS[stableHash(value) % PROMO_TITLE_FONTS.length];
+
 const TextCarousel = ({ texts }) => {
     const [index, setIndex] = useState(0);
 
@@ -180,6 +199,9 @@ export default function Home() {
     const [featuredSection, setFeaturedSection] = useState(null);
     const [featuredSectionProducts, setFeaturedSectionProducts] = useState([]);
     const [heroTexts, setHeroTexts] = useState([]);
+    const [bottomCarouselCards, setBottomCarouselCards] = useState([]);
+    const [isLoadingBottomCarousel, setIsLoadingBottomCarousel] = useState(true);
+    const [activeBottomCarouselIndex, setActiveBottomCarouselIndex] = useState(0);
     const [isLoadingHero, setIsLoadingHero] = useState(true);
     const [isLoadingCats, setIsLoadingCats] = useState(true);
     const [isLoadingBest, setIsLoadingBest] = useState(true);
@@ -189,8 +211,10 @@ export default function Home() {
     const [isLoadingTertiaryBanner, setIsLoadingTertiaryBanner] = useState(true);
     const [isLoadingFeaturedSection, setIsLoadingFeaturedSection] = useState(true);
     const [isLoadingOffers, setIsLoadingOffers] = useState(true);
-    const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory } = useCms();
+    const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getCarouselCards } = useCms();
     const infoSectionRef = useRef(null);
+    const bottomCarouselTrackRef = useRef(null);
+    const activeBottomCarouselIndexRef = useRef(0);
     const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [showTopBtn, setShowTopBtn] = useState(false);
@@ -366,6 +390,19 @@ export default function Home() {
         }
     }, []);
 
+    const fetchBottomCarouselCards = useCallback(async () => {
+        try {
+            const data = await getCarouselCards(false);
+            setBottomCarouselCards(Array.isArray(data) ? data : []);
+            setActiveBottomCarouselIndex(0);
+        } catch (err) {
+            console.error("Bottom carousel cards load failed", err);
+            setBottomCarouselCards([]);
+        } finally {
+            setIsLoadingBottomCarousel(false);
+        }
+    }, [getCarouselCards]);
+
     // [FIX] Unified Parallel Data Loading
     useEffect(() => {
         const loadInitialData = async () => {
@@ -380,11 +417,12 @@ export default function Home() {
                 fetchSecondaryBanner(),
                 fetchTertiaryBanner(),
                 fetchFeaturedSection(),
-                fetchOffers()
+                fetchOffers(),
+                fetchBottomCarouselCards()
             ]);
         };
         loadInitialData();
-    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchOffers]);
+    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchOffers, fetchBottomCarouselCards]);
 
     useEffect(() => {
         if (!featuredSection) return;
@@ -658,6 +696,7 @@ export default function Home() {
         socket.on('cms:banner_secondary_update', fetchSecondaryBanner);
         socket.on('cms:banner_tertiary_update', fetchTertiaryBanner);
         socket.on('cms:featured_category_update', fetchFeaturedSection);
+        socket.on('cms:carousel_cards_update', fetchBottomCarouselCards);
         socket.on('cms:autopilot_update', fetchFeaturedSection);
 
         // D. Cleanup (Remove Listener ONLY)
@@ -673,9 +712,10 @@ export default function Home() {
             socket.off('cms:banner_secondary_update', fetchSecondaryBanner);
             socket.off('cms:banner_tertiary_update', fetchTertiaryBanner);
             socket.off('cms:featured_category_update', fetchFeaturedSection);
+            socket.off('cms:carousel_cards_update', fetchBottomCarouselCards);
             socket.off('cms:autopilot_update', fetchFeaturedSection);
         };
-    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchFeaturedSectionProducts, fetchOffers, featuredSection?.category_id]); // Depend on socket
+    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchBottomCarouselCards, fetchFeaturedSectionProducts, fetchOffers, featuredSection?.category_id]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
     const handleMouseMove = (e) => {
@@ -686,6 +726,69 @@ export default function Home() {
             y: e.clientY - rect.top
         });
     };
+
+    const updateActiveBottomCard = useCallback(() => {
+        const track = bottomCarouselTrackRef.current;
+        if (!track) return;
+        const cards = Array.from(track.querySelectorAll('[data-bottom-carousel-card="true"]'));
+        if (cards.length === 0) {
+            setActiveBottomCarouselIndex(0);
+            return;
+        }
+        const center = track.scrollLeft + track.clientWidth / 2;
+        let closestIndex = 0;
+        let minDistance = Number.POSITIVE_INFINITY;
+        cards.forEach((card, index) => {
+            const cardCenter = card.offsetLeft + card.clientWidth / 2;
+            const distance = Math.abs(center - cardCenter);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = index;
+            }
+        });
+        setActiveBottomCarouselIndex(closestIndex);
+    }, []);
+
+    const scrollBottomCarouselTo = useCallback((nextIndex) => {
+        const track = bottomCarouselTrackRef.current;
+        if (!track) return;
+        const cards = Array.from(track.querySelectorAll('[data-bottom-carousel-card="true"]'));
+        if (!cards[nextIndex]) return;
+        track.scrollTo({
+            left: cards[nextIndex].offsetLeft,
+            behavior: 'smooth'
+        });
+    }, []);
+
+    useEffect(() => {
+        updateActiveBottomCard();
+    }, [bottomCarouselCards, updateActiveBottomCard]);
+
+    useEffect(() => {
+        activeBottomCarouselIndexRef.current = activeBottomCarouselIndex;
+    }, [activeBottomCarouselIndex]);
+
+    useEffect(() => {
+        const track = bottomCarouselTrackRef.current;
+        if (!track) return;
+        const handleScroll = () => updateActiveBottomCard();
+        track.addEventListener('scroll', handleScroll, { passive: true });
+        window.addEventListener('resize', handleScroll);
+        return () => {
+            track.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('resize', handleScroll);
+        };
+    }, [bottomCarouselCards, updateActiveBottomCard]);
+
+    useEffect(() => {
+        if (bottomCarouselCards.length <= 1) return;
+        const interval = setInterval(() => {
+            const current = activeBottomCarouselIndexRef.current || 0;
+            const next = (current + 1) % bottomCarouselCards.length;
+            scrollBottomCarouselTo(next);
+        }, 3000);
+        return () => clearInterval(interval);
+    }, [bottomCarouselCards.length, scrollBottomCarouselTo]);
 
     return (
         <div className="pb-0">
@@ -1238,6 +1341,136 @@ export default function Home() {
                     </div>
                 )}
             </section>
+
+            {(isLoadingBottomCarousel || bottomCarouselCards.length > 0) && (
+                <section className="container mx-auto px-4 md:px-6 py-8 md:py-12 tier-surface">
+                    <div className="flex items-center justify-between gap-4 mb-5">
+                        <div>
+                            <p className="text-[11px] uppercase tracking-[0.32em] text-gray-500 font-semibold">Featured for you</p>
+                            <h3 className="text-2xl font-serif text-primary mt-1">Discover More</h3>
+                        </div>
+                        {bottomCarouselCards.length > 1 && (
+                            <div className="hidden md:flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => scrollBottomCarouselTo(Math.max(0, activeBottomCarouselIndex - 1))}
+                                    className="h-9 w-9 rounded-full border border-gray-200 bg-white text-gray-600 hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center"
+                                    aria-label="Previous featured card"
+                                >
+                                    <ChevronLeft size={18} />
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => scrollBottomCarouselTo(Math.min(bottomCarouselCards.length - 1, activeBottomCarouselIndex + 1))}
+                                    className="h-9 w-9 rounded-full border border-gray-200 bg-white text-gray-600 hover:text-primary hover:border-primary/30 transition-colors flex items-center justify-center"
+                                    aria-label="Next featured card"
+                                >
+                                    <ChevronRight size={18} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {isLoadingBottomCarousel ? (
+                        <div className="flex gap-4 overflow-hidden">
+                            {[...Array(3)].map((_, index) => (
+                                <div key={`bottom-carousel-skeleton-${index}`} className="w-full aspect-video rounded-3xl bg-gray-100 animate-pulse shrink-0" />
+                            ))}
+                        </div>
+                    ) : (
+                        <>
+                            <div
+                                ref={bottomCarouselTrackRef}
+                                className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                            >
+                                {bottomCarouselCards.map((card) => {
+                                    const imageUrl = String(card?.resolved_image_url || card?.image_url || '').trim();
+                                    const title = String(card?.title || '').trim();
+                                    const description = String(card?.description || '').trim();
+                                    const buttonLabel = String(card?.button_label || '').trim();
+                                    const buttonLink = String(card?.button_link || '').trim();
+                                    const hasCopy = Boolean(title || description || buttonLabel);
+                                    const titleFont = getPromoTitleFont(card?.id || title || 'promo');
+
+                                    const cardBody = (
+                                        <article className="relative w-full aspect-video rounded-3xl overflow-hidden shadow-sm border border-gray-100 bg-slate-900">
+                                            {imageUrl && (
+                                                <>
+                                                    <img
+                                                        src={imageUrl}
+                                                        alt={card?.title || 'Feature'}
+                                                        className="absolute inset-0 h-full w-full object-cover"
+                                                        loading="lazy"
+                                                    />
+                                                </>
+                                            )}
+                                            <div className={`absolute inset-0 ${hasCopy ? 'bg-gradient-to-t from-black/80 via-black/65 to-black/35' : 'bg-black/20'}`} />
+                                            <div className="relative h-full p-5 md:p-6 flex flex-col text-white">
+                                                {title && (
+                                                    <h4
+                                                        className="text-xl md:text-2xl font-bold leading-tight text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.95)]"
+                                                        style={{ fontFamily: titleFont, letterSpacing: '0.02em' }}
+                                                    >
+                                                        {title}
+                                                    </h4>
+                                                )}
+                                                {description && (
+                                                    <p className="text-sm md:text-base mt-2 line-clamp-3 text-white drop-shadow-[0_1px_8px_rgba(0,0,0,0.95)]">
+                                                        {description}
+                                                    </p>
+                                                )}
+                                                {buttonLabel && (
+                                                    <div className="mt-auto pt-4">
+                                                        <span className="inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold bg-white text-gray-900 shadow-md">
+                                                            {buttonLabel}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </article>
+                                    );
+
+                                    return (
+                                        <div
+                                            key={`bottom-carousel-card-${card.id}`}
+                                            data-bottom-carousel-card="true"
+                                            className="shrink-0 w-full snap-start"
+                                        >
+                                            {buttonLink ? (
+                                                isExternalLink(buttonLink) ? (
+                                                    <a href={buttonLink} target="_blank" rel="noreferrer" className="block">
+                                                        {cardBody}
+                                                    </a>
+                                                ) : (
+                                                    <Link to={buttonLink} className="block">
+                                                        {cardBody}
+                                                    </Link>
+                                                )
+                                            ) : cardBody}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {bottomCarouselCards.length > 1 && (
+                                <div className="mt-3 flex items-center justify-center gap-3">
+                                    <div className="inline-flex items-center gap-1.5">
+                                        {bottomCarouselCards.map((card, index) => (
+                                            <span
+                                                key={`bottom-carousel-dot-${card.id || index}`}
+                                                className={`h-2 w-2 rounded-full transition-all ${index === activeBottomCarouselIndex ? 'bg-gray-700 scale-110' : 'bg-gray-300'}`}
+                                            />
+                                        ))}
+                                    </div>
+                                    <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
+                                        {activeBottomCarouselIndex + 1}/{bottomCarouselCards.length}
+                                    </span>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </section>
+            )}
 
             {/* Back to top */}
             {showTopBtn && (

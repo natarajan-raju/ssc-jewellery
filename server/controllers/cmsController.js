@@ -45,6 +45,57 @@ const hashText = (text = '') => {
     return hash;
 };
 
+const parseMaybeJson = (value, fallback = null) => {
+    if (value == null) return fallback;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return fallback;
+    }
+};
+
+const normalizeCarouselCardPayload = (payload = {}) => {
+    const sourceTypeRaw = String(payload.sourceType ?? payload.source_type ?? 'manual').toLowerCase();
+    const sourceType = ['manual', 'product', 'category'].includes(sourceTypeRaw) ? sourceTypeRaw : 'manual';
+    const rawDisplay = payload.displayOrder ?? payload.display_order;
+    const parsedDisplay = Number(rawDisplay);
+    const hasDisplayOrder = rawDisplay !== undefined && rawDisplay !== null && String(rawDisplay).trim() !== '';
+    return {
+        title: String(payload.title || '').trim(),
+        description: String(payload.description || '').trim(),
+        source_type: sourceType,
+        source_id: String(payload.sourceId ?? payload.source_id ?? '').trim() || null,
+        image_url: String(payload.imageUrl ?? payload.image_url ?? '').trim() || null,
+        button_label: String(payload.buttonLabel ?? payload.button_label ?? '').trim(),
+        button_link: String(payload.buttonLink ?? payload.button_link ?? '').trim() || '',
+        status: String(payload.status || 'active').toLowerCase() === 'inactive' ? 'inactive' : 'active',
+        display_order: Number.isFinite(parsedDisplay) ? Math.max(0, Math.trunc(parsedDisplay)) : 0,
+        hasDisplayOrder
+    };
+};
+
+const resolveCarouselCardImage = async (card = {}) => {
+    const sourceType = String(card?.source_type || 'manual').toLowerCase();
+    const sourceId = String(card?.source_id || '').trim();
+    if (sourceType === 'product' && sourceId) {
+        const [rows] = await db.execute('SELECT media FROM products WHERE id = ? LIMIT 1', [sourceId]);
+        const media = parseMaybeJson(rows?.[0]?.media, []);
+        const mediaList = Array.isArray(media) ? media : [];
+        const firstImage = mediaList.find((entry) => entry && (entry.type === 'image' || !entry.type) && entry.url);
+        if (firstImage?.url) return firstImage.url;
+    }
+    if (sourceType === 'category' && sourceId) {
+        const categoryId = Number(sourceId);
+        if (Number.isFinite(categoryId)) {
+            const [rows] = await db.execute('SELECT image_url FROM categories WHERE id = ? LIMIT 1', [categoryId]);
+            const imageUrl = String(rows?.[0]?.image_url || '').trim();
+            if (imageUrl) return imageUrl;
+        }
+    }
+    return String(card?.image_url || '').trim() || null;
+};
+
 // 1. GET ALL SLIDES (Public & Admin)
 const getSlides = async (req, res) => {
     try {
@@ -188,6 +239,27 @@ const getFeaturedCategory = async (req, res) => {
         return res.json(response);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch featured category' });
+    }
+};
+
+const getCarouselCards = async (req, res) => {
+    try {
+        const auth = getOptionalAuthContext(req);
+        const canViewAdmin = auth.role === 'admin' || auth.role === 'staff';
+        const isAdmin = req.query.admin === 'true' && canViewAdmin;
+        const query = isAdmin
+            ? 'SELECT * FROM cms_carousel_cards ORDER BY display_order ASC, id ASC'
+            : "SELECT * FROM cms_carousel_cards WHERE status = 'active' ORDER BY display_order ASC, id ASC";
+        const [rows] = await db.execute(query);
+        const cards = await Promise.all(
+            (Array.isArray(rows) ? rows : []).map(async (row) => ({
+                ...row,
+                resolved_image_url: await resolveCarouselCardImage(row)
+            }))
+        );
+        res.json(cards);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch carousel cards' });
     }
 };
 
@@ -422,6 +494,88 @@ const updateFeaturedCategory = async (req, res) => {
     }
 };
 
+const createCarouselCard = async (req, res) => {
+    try {
+        const payload = normalizeCarouselCardPayload(req.body || {});
+        let orderValue = payload.display_order;
+        if (!payload.hasDisplayOrder) {
+            const [maxRows] = await db.execute('SELECT MAX(display_order) AS maxOrder FROM cms_carousel_cards');
+            orderValue = Number(maxRows?.[0]?.maxOrder ?? -1) + 1;
+        }
+        const [result] = await db.execute(
+            `INSERT INTO cms_carousel_cards
+             (title, description, source_type, source_id, image_url, button_label, button_link, status, display_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                payload.title,
+                payload.description,
+                payload.source_type,
+                payload.source_id,
+                payload.image_url,
+                payload.button_label,
+                payload.button_link,
+                payload.status,
+                orderValue
+            ]
+        );
+        notifyClients(req, 'cms:carousel_cards_update', { action: 'create', id: result.insertId });
+        res.status(201).json({ message: 'Carousel card created', id: result.insertId });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to create carousel card' });
+    }
+};
+
+const updateCarouselCard = async (req, res) => {
+    try {
+        const cardId = Number(req.params.id);
+        if (!Number.isFinite(cardId)) {
+            return res.status(400).json({ message: 'Invalid card id' });
+        }
+        const [existingRows] = await db.execute('SELECT * FROM cms_carousel_cards WHERE id = ? LIMIT 1', [cardId]);
+        const existing = existingRows?.[0];
+        if (!existing) {
+            return res.status(404).json({ message: 'Carousel card not found' });
+        }
+        const payload = normalizeCarouselCardPayload(req.body || {});
+        const orderValue = payload.hasDisplayOrder ? payload.display_order : Number(existing.display_order || 0);
+        await db.execute(
+            `UPDATE cms_carousel_cards
+             SET title = ?, description = ?, source_type = ?, source_id = ?, image_url = ?, button_label = ?, button_link = ?, status = ?, display_order = ?
+             WHERE id = ?`,
+            [
+                payload.title,
+                payload.description,
+                payload.source_type,
+                payload.source_id,
+                payload.image_url,
+                payload.button_label,
+                payload.button_link,
+                payload.status,
+                orderValue,
+                cardId
+            ]
+        );
+        notifyClients(req, 'cms:carousel_cards_update', { action: 'update', id: cardId });
+        res.json({ message: 'Carousel card updated', id: cardId });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update carousel card' });
+    }
+};
+
+const deleteCarouselCard = async (req, res) => {
+    try {
+        const cardId = Number(req.params.id);
+        if (!Number.isFinite(cardId)) {
+            return res.status(400).json({ message: 'Invalid card id' });
+        }
+        await db.execute('DELETE FROM cms_carousel_cards WHERE id = ?', [cardId]);
+        notifyClients(req, 'cms:carousel_cards_update', { action: 'delete', id: cardId });
+        res.json({ message: 'Carousel card deleted' });
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to delete carousel card' });
+    }
+};
+
 // HERO TEXTS: CREATE
 const createHeroText = async (req, res) => {
     try {
@@ -549,6 +703,7 @@ module.exports = {
     getSecondaryBanner,
     getTertiaryBanner,
     getFeaturedCategory,
+    getCarouselCards,
     getAutopilotConfig,
     submitContactForm,
     getCompanyInfo,
@@ -557,6 +712,9 @@ module.exports = {
     updateSecondaryBanner,
     updateTertiaryBanner,
     updateFeaturedCategory,
+    createCarouselCard,
+    updateCarouselCard,
+    deleteCarouselCard,
     updateAutopilotConfig,
     createHeroText,
     updateHeroText,

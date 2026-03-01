@@ -977,6 +977,49 @@ const initDB = async () => {
             )
         `);
         await connection.query(`
+            CREATE TABLE IF NOT EXISTS cms_carousel_cards (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                source_type VARCHAR(20) NOT NULL DEFAULT 'manual',
+                source_id VARCHAR(60) NULL,
+                image_url TEXT,
+                button_label VARCHAR(80) NOT NULL DEFAULT 'Explore',
+                button_link VARCHAR(255),
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
+                display_order INT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        try {
+            await connection.query("ALTER TABLE cms_carousel_cards ADD COLUMN source_type VARCHAR(20) NOT NULL DEFAULT 'manual'");
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE cms_carousel_cards MODIFY COLUMN source_type VARCHAR(20) NOT NULL DEFAULT 'manual'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE cms_carousel_cards ADD COLUMN source_id VARCHAR(60) NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE cms_carousel_cards ADD COLUMN image_url TEXT');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE cms_carousel_cards ADD COLUMN button_label VARCHAR(80) NOT NULL DEFAULT 'Explore'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE cms_carousel_cards ADD COLUMN button_link VARCHAR(255)');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE cms_carousel_cards ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE cms_carousel_cards ADD COLUMN display_order INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE cms_carousel_cards ADD INDEX idx_cms_carousel_cards_status_order (status, display_order)');
+        } catch {}
+        await connection.query(`
             CREATE TABLE IF NOT EXISTS company_profile (
                 id INT PRIMARY KEY,
                 display_name VARCHAR(255) NOT NULL DEFAULT 'SSC Jewellery',

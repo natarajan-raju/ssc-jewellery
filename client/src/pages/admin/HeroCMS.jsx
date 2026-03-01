@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
-import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2, PanelBottom, Pencil } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
@@ -77,6 +77,7 @@ export default function HeroCMS() {
     const { 
         getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getAutopilotConfig,
         createSlide, updateBanner, updateSecondaryBanner, updateTertiaryBanner, updateFeaturedCategory, updateAutopilotConfig,
+        getCarouselCards, createCarouselCard, updateCarouselCard, deleteCarouselCard,
         createHeroText, updateHeroText, deleteHeroText, reorderHeroTexts,
         deleteSlide, reorderSlides 
     } = useCms();
@@ -108,13 +109,35 @@ export default function HeroCMS() {
     const [heroTextInput, setHeroTextInput] = useState('');
     const [isHeroTextLoading, setIsHeroTextLoading] = useState(false);
     const [draggedTextIndex, setDraggedTextIndex] = useState(null);
+    const [carouselCards, setCarouselCards] = useState([]);
+    const [isCarouselLoading, setIsCarouselLoading] = useState(false);
+    const [isCarouselSaving, setIsCarouselSaving] = useState(false);
+    const [carouselProducts, setCarouselProducts] = useState([]);
+    const [carouselCategories, setCarouselCategories] = useState([]);
+    const [editingCarouselCardId, setEditingCarouselCardId] = useState(null);
+    const [carouselForm, setCarouselForm] = useState({
+        title: '',
+        description: '',
+        sourceType: 'manual',
+        sourceId: '',
+        imageUrl: '',
+        buttonLabel: '',
+        buttonLink: '',
+        status: 'active',
+        displayOrder: ''
+    });
     const [openCmsSection, setOpenCmsSection] = useState('hero-carousel');
     const bannerLinkDirtyRef = useRef(false);
     const secondaryBannerLinkDirtyRef = useRef(false);
     const tertiaryBannerLinkDirtyRef = useRef(false);
     const featuredDraftDirtyRef = useRef(false);
-const [modalConfig, setModalConfig] = useState({ 
-    isOpen: false, type: 'delete', title: '', message: '', targetId: null 
+const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    type: 'delete',
+    title: '',
+    message: '',
+    targetId: null,
+    targetKind: 'slide'
     });
     useEffect(() => { 
         loadSlides(); 
@@ -124,6 +147,8 @@ const [modalConfig, setModalConfig] = useState({
         loadTertiaryBanner();
         loadFeaturedConfig();
         loadFeaturedCategories();
+        loadCarouselCards();
+        loadCarouselSources();
         loadAutopilotConfig();
     }, []);
 
@@ -221,6 +246,31 @@ const [modalConfig, setModalConfig] = useState({
         }
     };
 
+    const loadCarouselCards = async () => {
+        setIsCarouselLoading(true);
+        try {
+            const data = await getCarouselCards(true);
+            setCarouselCards(Array.isArray(data) ? data : []);
+        } catch (error) {
+            toast.error("Failed to load carousel cards");
+        } finally {
+            setIsCarouselLoading(false);
+        }
+    };
+
+    const loadCarouselSources = async () => {
+        try {
+            const [productRes, categoryRes] = await Promise.all([
+                productService.getProducts(1, 'all', 'all', 'newest', 250),
+                productService.getCategoryStats(true)
+            ]);
+            setCarouselProducts(Array.isArray(productRes?.products) ? productRes.products : []);
+            setCarouselCategories(Array.isArray(categoryRes) ? categoryRes : []);
+        } catch (error) {
+            toast.error("Failed to load product/category sources");
+        }
+    };
+
     useAdminCrudSync({
         'cms:hero_update': () => loadSlides(),
         'cms:texts_update': () => loadHeroTexts(),
@@ -231,10 +281,15 @@ const [modalConfig, setModalConfig] = useState({
             loadFeaturedConfig();
             loadFeaturedCategories();
         },
+        'cms:carousel_cards_update': () => {
+            loadCarouselCards();
+            loadCarouselSources();
+        },
         'cms:autopilot_update': () => loadAutopilotConfig(),
         'refresh:categories': () => {
             loadFeaturedConfig();
             loadFeaturedCategories();
+            loadCarouselSources();
         }
     });
 
@@ -535,37 +590,53 @@ const [modalConfig, setModalConfig] = useState({
         }
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm("Delete this slide?")) return;
-        try {
-            await deleteSlide(id);
-            setSlides(prev => prev.filter(s => s.id !== id));
-            toast.success("Slide deleted");
-        } catch (error) {
-            toast.error("Delete failed");
-        }
-    };
-    // 1. Open the modal (replaces the old immediate delete call)
     const openDeleteModal = (id) => {
         setModalConfig({
             isOpen: true,
             type: 'delete',
             title: 'Delete Slide?',
             message: 'Are you sure you want to remove this slide from the carousel?',
-            targetId: id
+            targetId: id,
+            targetKind: 'slide'
         });
     };
 
-    // 2. The actual API call (executes when user clicks "Delete" in modal)
+    const openDeleteCarouselModal = (id) => {
+        setModalConfig({
+            isOpen: true,
+            type: 'delete',
+            title: 'Delete Carousel Card?',
+            message: 'Are you sure you want to remove this carousel card?',
+            targetId: id,
+            targetKind: 'carousel'
+        });
+    };
+
     const handleConfirmDelete = async () => {
         try {
-            await deleteSlide(modalConfig.targetId);
-            setSlides(prev => prev.filter(s => s.id !== modalConfig.targetId));
-            toast.success("Slide deleted");
+            if (modalConfig.targetKind === 'carousel') {
+                await deleteCarouselCard(modalConfig.targetId);
+                setCarouselCards((prev) => prev.filter((card) => String(card.id) !== String(modalConfig.targetId)));
+                if (editingCarouselCardId && String(editingCarouselCardId) === String(modalConfig.targetId)) {
+                    resetCarouselForm();
+                }
+                toast.success("Carousel card deleted");
+            } else {
+                await deleteSlide(modalConfig.targetId);
+                setSlides(prev => prev.filter(s => s.id !== modalConfig.targetId));
+                toast.success("Slide deleted");
+            }
         } catch (error) {
             toast.error("Delete failed");
         } finally {
-            setModalConfig({ ...modalConfig, isOpen: false });
+            setModalConfig({
+                isOpen: false,
+                type: 'delete',
+                title: '',
+                message: '',
+                targetId: null,
+                targetKind: 'slide'
+            });
         }
     };
 
@@ -592,6 +663,76 @@ const [modalConfig, setModalConfig] = useState({
         }
     };
 
+    const resetCarouselForm = () => {
+        setEditingCarouselCardId(null);
+        setCarouselForm({
+            title: '',
+            description: '',
+            sourceType: 'manual',
+            sourceId: '',
+            imageUrl: '',
+            buttonLabel: '',
+            buttonLink: '',
+            status: 'active',
+            displayOrder: ''
+        });
+    };
+
+    const handleCarouselFormSubmit = async (e) => {
+        e.preventDefault();
+        if ((carouselForm.sourceType === 'product' || carouselForm.sourceType === 'category') && !carouselForm.sourceId) {
+            toast.error("Select a source");
+            return;
+        }
+        if (carouselForm.sourceType === 'manual' && !carouselForm.imageUrl.trim()) {
+            toast.error("Image URL is required for manual cards");
+            return;
+        }
+        setIsCarouselSaving(true);
+        try {
+            const payload = {
+                title: carouselForm.title.trim(),
+                description: carouselForm.description.trim(),
+                sourceType: carouselForm.sourceType,
+                sourceId: carouselForm.sourceId || null,
+                imageUrl: carouselForm.sourceType === 'manual' ? carouselForm.imageUrl.trim() : '',
+                buttonLabel: carouselForm.buttonLabel.trim(),
+                buttonLink: carouselForm.buttonLink.trim(),
+                status: carouselForm.status,
+                displayOrder: carouselForm.displayOrder === '' ? null : Number(carouselForm.displayOrder)
+            };
+            if (editingCarouselCardId) {
+                await updateCarouselCard(editingCarouselCardId, payload);
+                toast.success("Carousel card updated");
+            } else {
+                await createCarouselCard(payload);
+                toast.success("Carousel card created");
+            }
+            resetCarouselForm();
+            await loadCarouselCards();
+        } catch (error) {
+            toast.error("Failed to save carousel card");
+        } finally {
+            setIsCarouselSaving(false);
+        }
+    };
+
+    const handleEditCarouselCard = (card) => {
+        setEditingCarouselCardId(card.id);
+        setCarouselForm({
+            title: card.title || '',
+            description: card.description || '',
+            sourceType: card.source_type || 'manual',
+            sourceId: card.source_id ? String(card.source_id) : '',
+            imageUrl: card.image_url || '',
+            buttonLabel: card.button_label || '',
+            buttonLink: card.button_link || '',
+            status: card.status || 'active',
+            displayOrder: Number.isFinite(Number(card.display_order)) ? String(card.display_order) : ''
+        });
+        setOpenCmsSection('bottom-carousel');
+    };
+
     const sectionHasContent = (id) => {
         if (id === 'hero-carousel') return slides.length > 0;
         if (id === 'hero-texts') return heroTexts.length > 0;
@@ -599,6 +740,7 @@ const [modalConfig, setModalConfig] = useState({
         if (id === 'home-banner-2') return Boolean(secondaryBannerData?.image_url && secondaryBannerData.image_url !== '/placeholder_banner.jpg');
         if (id === 'home-banner-3') return Boolean(tertiaryBannerData?.image_url && tertiaryBannerData.image_url !== '/placeholder_banner.jpg');
         if (id === 'featured-category') return Boolean(featuredCategoryId);
+        if (id === 'bottom-carousel') return carouselCards.length > 0;
         return false;
     };
 
@@ -606,7 +748,14 @@ const [modalConfig, setModalConfig] = useState({
         <div className="animate-fade-in space-y-8 max-w-5xl mx-auto">
             <Modal 
                 isOpen={modalConfig.isOpen}
-                onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+                onClose={() => setModalConfig({
+                    isOpen: false,
+                    type: 'delete',
+                    title: '',
+                    message: '',
+                    targetId: null,
+                    targetKind: 'slide'
+                })}
                 onConfirm={handleConfirmDelete}
                 title={modalConfig.title}
                 message={modalConfig.message}
@@ -991,6 +1140,187 @@ const [modalConfig, setModalConfig] = useState({
                         )}
                     </div>
                 </form>
+            </AccordionSection>
+
+            <AccordionSection
+                id="bottom-carousel"
+                title="Bottom Carousel Cards"
+                subtitle="Swiggy-style card slider shown before footer on home page."
+                icon={PanelBottom}
+                openCmsSection={openCmsSection}
+                setOpenCmsSection={setOpenCmsSection}
+                sectionHasContent={sectionHasContent}
+            >
+                <div className="space-y-5">
+                    <form onSubmit={handleCarouselFormSubmit} className="space-y-4 bg-white border border-gray-200 rounded-xl p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input
+                                className="input-field"
+                                placeholder="Card title"
+                                value={carouselForm.title}
+                                onChange={(e) => setCarouselForm((prev) => ({ ...prev, title: e.target.value }))}
+                            />
+                            <input
+                                className="input-field"
+                                placeholder="Button label (optional)"
+                                value={carouselForm.buttonLabel}
+                                onChange={(e) => setCarouselForm((prev) => ({ ...prev, buttonLabel: e.target.value }))}
+                            />
+                        </div>
+                        <textarea
+                            className="input-field min-h-[90px]"
+                            placeholder="Description"
+                            value={carouselForm.description}
+                            onChange={(e) => setCarouselForm((prev) => ({ ...prev, description: e.target.value }))}
+                        />
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <select
+                                className="input-field"
+                                value={carouselForm.sourceType}
+                                onChange={(e) => setCarouselForm((prev) => ({
+                                    ...prev,
+                                    sourceType: e.target.value,
+                                    sourceId: '',
+                                    imageUrl: e.target.value === 'manual' ? prev.imageUrl : ''
+                                }))}
+                            >
+                                <option value="manual">Manual image</option>
+                                <option value="product">Product image</option>
+                                <option value="category">Category image</option>
+                            </select>
+                            {carouselForm.sourceType === 'product' && (
+                                <select
+                                    className="input-field md:col-span-2"
+                                    value={carouselForm.sourceId}
+                                    onChange={(e) => setCarouselForm((prev) => ({ ...prev, sourceId: e.target.value }))}
+                                >
+                                    <option value="">Select Product...</option>
+                                    {carouselProducts.map((product) => (
+                                        <option key={product.id} value={product.id}>
+                                            {product.title}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                            {carouselForm.sourceType === 'category' && (
+                                <select
+                                    className="input-field md:col-span-2"
+                                    value={carouselForm.sourceId}
+                                    onChange={(e) => setCarouselForm((prev) => ({ ...prev, sourceId: e.target.value }))}
+                                >
+                                    <option value="">Select Category...</option>
+                                    {carouselCategories.map((category) => (
+                                        <option key={category.id} value={category.id}>
+                                            {category.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                            {carouselForm.sourceType === 'manual' && (
+                                <>
+                                    <input
+                                        className="input-field md:col-span-2"
+                                        placeholder="Manual image URL"
+                                        value={carouselForm.imageUrl}
+                                        onChange={(e) => setCarouselForm((prev) => ({ ...prev, imageUrl: e.target.value }))}
+                                    />
+                                </>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <input
+                                className="input-field md:col-span-2"
+                                placeholder="Button link (e.g. /shop or https://...)"
+                                value={carouselForm.buttonLink}
+                                onChange={(e) => setCarouselForm((prev) => ({ ...prev, buttonLink: e.target.value }))}
+                            />
+                            <input
+                                className="input-field"
+                                type="number"
+                                min="0"
+                                placeholder="Display order"
+                                value={carouselForm.displayOrder}
+                                onChange={(e) => setCarouselForm((prev) => ({ ...prev, displayOrder: e.target.value }))}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <select
+                                className="input-field"
+                                value={carouselForm.status}
+                                onChange={(e) => setCarouselForm((prev) => ({ ...prev, status: e.target.value }))}
+                            >
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                            <div className="md:col-span-2 flex md:justify-end gap-2">
+                                {editingCarouselCardId && (
+                                    <button
+                                        type="button"
+                                        onClick={resetCarouselForm}
+                                        className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 font-semibold hover:bg-gray-50"
+                                    >
+                                        Cancel edit
+                                    </button>
+                                )}
+                                <button
+                                    type="submit"
+                                    disabled={isCarouselSaving}
+                                    className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {isCarouselSaving ? <Loader2 className="animate-spin"/> : <Save size={18} />}
+                                    {editingCarouselCardId ? 'Update Card' : 'Create Card'}
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    {isCarouselLoading ? (
+                        <div className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+                    ) : carouselCards.length === 0 ? (
+                        <div className="text-sm text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4 text-center">
+                            No carousel cards yet. Add one above.
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {carouselCards.map((card) => (
+                                <div key={card.id} className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3">
+                                    <div className="w-24 h-16 rounded-lg overflow-hidden border border-gray-100 bg-gray-50 shrink-0">
+                                        {card.resolved_image_url || card.image_url ? (
+                                            <img src={card.resolved_image_url || card.image_url} alt={card.title} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">No image</div>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-semibold text-gray-800 truncate">{card.title}</p>
+                                        <p className="text-xs text-gray-500 mt-0.5 truncate">
+                                            {String(card.source_type || 'manual').toUpperCase()}
+                                            {card.source_id ? ` • ${card.source_id}` : ''}
+                                            {card.button_link ? ` • ${card.button_link}` : ''}
+                                        </p>
+                                    </div>
+                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full border ${card.status === 'active' ? 'text-green-700 bg-green-50 border-green-200' : 'text-gray-600 bg-gray-100 border-gray-200'}`}>
+                                        {card.status}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className="p-2 text-gray-500 hover:text-primary hover:bg-gray-100 rounded-lg"
+                                        onClick={() => handleEditCarouselCard(card)}
+                                    >
+                                        <Pencil size={16} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                                        onClick={() => openDeleteCarouselModal(card.id)}
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </AccordionSection>
 
             {/* FEATURED CATEGORY SECTION */}

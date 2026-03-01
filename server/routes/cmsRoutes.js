@@ -11,6 +11,7 @@ const {
     getSecondaryBanner,
     getTertiaryBanner,
     getFeaturedCategory,
+    getCarouselCards,
     getAutopilotConfig,
     submitContactForm,
     getCompanyInfo,
@@ -19,6 +20,9 @@ const {
     updateSecondaryBanner,
     updateTertiaryBanner,
     updateFeaturedCategory,
+    createCarouselCard,
+    updateCarouselCard,
+    deleteCarouselCard,
     updateAutopilotConfig,
     createHeroText,
     updateHeroText,
@@ -65,6 +69,7 @@ router.get('/banner', getBanner);
 router.get('/banner-secondary', getSecondaryBanner);
 router.get('/banner-tertiary', getTertiaryBanner);
 router.get('/featured-category', getFeaturedCategory);
+router.get('/carousel-cards', getCarouselCards);
 router.get('/autopilot', getAutopilotConfig);
 router.get('/company-info', getCompanyInfo);
 router.post('/contact', submitContactForm);
@@ -79,6 +84,9 @@ router.put('/banner', protect, admin, uploadBanner.single('image'), updateBanner
 router.put('/banner-secondary', protect, admin, uploadBanner.single('image'), updateSecondaryBanner);
 router.put('/banner-tertiary', protect, admin, uploadBanner.single('image'), updateTertiaryBanner);
 router.put('/featured-category', protect, admin, updateFeaturedCategory);
+router.post('/carousel-cards', protect, admin, createCarouselCard);
+router.put('/carousel-cards/:id', protect, admin, updateCarouselCard);
+router.delete('/carousel-cards/:id', protect, admin, deleteCarouselCard);
 router.put('/autopilot', protect, admin, updateAutopilotConfig);
 router.put('/hero/reorder', protect, admin, reorderSlides);
 router.put('/hero/:id', protect, admin, updateSlide);
