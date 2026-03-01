@@ -2213,11 +2213,16 @@ const triggerOrderLifecycleEmail = async ({
 } = {}) => {
     if (!order?.user_id) return;
     try {
-        const customer = await User.findById(order.user_id);
-        if (!customer?.email) return;
+        const hydratedOrder = order?.id ? await Order.getById(order.id) : null;
+        const orderForCommunication = hydratedOrder || order;
+        const customer = await User.findById(orderForCommunication.user_id);
+        if (!customer?.email) {
+            console.warn(`Order lifecycle email skipped for order ${orderForCommunication?.id || order?.id || 'unknown'}: missing customer email`);
+            return;
+        }
         let invoiceAttachment = null;
         const stageKey = String(stage || '').trim().toLowerCase();
-        const paymentStatus = String(order?.payment_status || '').trim().toLowerCase();
+        const paymentStatus = String(orderForCommunication?.payment_status || '').trim().toLowerCase();
         const shouldAttachInvoice = Boolean(includeInvoice)
             || (
                 ['confirmed', 'confirmation', 'processing', 'shipped', 'shipped_followup', 'completed', 'delivered', 'cancelled', 'updated']
@@ -2225,22 +2230,33 @@ const triggerOrderLifecycleEmail = async ({
                 && ['paid', 'refunded'].includes(paymentStatus)
             );
         if (shouldAttachInvoice) {
-            const orderForInvoice = await hydrateOrderForInvoice(order);
-            const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
-            const invoiceRef = String(order?.order_ref || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
-            invoiceAttachment = {
-                filename: `invoice-${invoiceRef}.pdf`,
-                content: pdfBuffer,
-                contentType: 'application/pdf'
-            };
+            try {
+                const orderForInvoice = await hydrateOrderForInvoice(orderForCommunication);
+                const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
+                const invoiceRef = String(orderForCommunication?.order_ref || orderForCommunication?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
+                invoiceAttachment = {
+                    filename: `invoice-${invoiceRef}.pdf`,
+                    content: pdfBuffer,
+                    contentType: 'application/pdf'
+                };
+            } catch (invoiceError) {
+                console.error(`Invoice attachment generation failed for order ${orderForCommunication?.id || 'unknown'}:`, invoiceError?.message || invoiceError);
+            }
         }
-        await sendOrderLifecycleCommunication({
+        const includeInvoiceInMail = shouldAttachInvoice && Boolean(invoiceAttachment);
+        const result = await sendOrderLifecycleCommunication({
             stage,
             customer,
-            order,
-            includeInvoice: shouldAttachInvoice,
+            order: orderForCommunication,
+            includeInvoice: includeInvoiceInMail,
             invoiceAttachment
         });
+        if (result?.email?.ok !== true) {
+            console.error(
+                `Order lifecycle email send failed for order ${orderForCommunication?.id || 'unknown'}:`,
+                result?.email?.reason || result?.email?.message || 'unknown_reason'
+            );
+        }
     } catch (error) {
         console.error(`Order lifecycle email failed for order ${order?.id || 'unknown'}:`, error?.message || error);
     }

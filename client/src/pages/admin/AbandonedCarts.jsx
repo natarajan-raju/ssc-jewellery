@@ -59,6 +59,12 @@ const statusClass = (status) => {
     return 'bg-gray-100 text-gray-600';
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
+const formatCustomerContacts = (journey) => {
+    const email = String(journey?.customer_email || '').trim();
+    const mobile = String(journey?.customer_mobile || '').trim();
+    if (email && mobile) return `${email} | ${mobile}`;
+    return email || mobile || '—';
+};
 const JOURNEY_PAGE_SIZE = 20;
 const MAX_CAMPAIGN_ATTEMPTS = 6;
 const RECOVERY_WINDOW_BUFFER_HOURS = 2;
@@ -748,7 +754,7 @@ export default function AbandonedCarts() {
                                         <td className="px-5 py-3 text-sm font-semibold text-gray-800">#{journey.id}</td>
                                         <td className="px-5 py-3 text-sm text-gray-700">
                                             <p className="font-medium">{journey.customer_name || 'Guest'}</p>
-                                            <p className="text-xs text-gray-400">{journey.customer_email || journey.customer_mobile || '—'}</p>
+                                            <p className="text-xs text-gray-400">{formatCustomerContacts(journey)}</p>
                                         </td>
                                         <td className="px-5 py-3 text-sm text-gray-700">{inr((Number(journey.cart_total_subunits || 0) / 100))}</td>
                                         <td className="px-5 py-3 text-sm">
@@ -784,7 +790,7 @@ export default function AbandonedCarts() {
                                         <p className="text-sm font-semibold text-gray-800">#{journey.id}</p>
                                         <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Customer</p>
                                         <p className="text-sm font-medium text-gray-700">{journey.customer_name || 'Guest'}</p>
-                                        <p className="text-xs text-gray-400">{journey.customer_email || journey.customer_mobile || '—'}</p>
+                                        <p className="text-xs text-gray-400">{formatCustomerContacts(journey)}</p>
                                         <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Cart Value</p>
                                         <p className="text-sm font-semibold text-gray-800">{inr((Number(journey.cart_total_subunits || 0) / 100))}</p>
                                     </div>

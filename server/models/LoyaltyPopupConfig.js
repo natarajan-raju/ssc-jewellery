@@ -18,6 +18,13 @@ const parseJson = (value, fallback = null) => {
     }
 };
 
+const toSqlDateTime = (value) => {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+};
+
 const normalizeRow = (row = {}) => ({
     id: Number(row.id || 1),
     isActive: toBool(row.is_active),
@@ -41,10 +48,28 @@ const normalizeRow = (row = {}) => ({
 class LoyaltyPopupConfig {
     static async purgeExpired() {
         await db.execute(
-            `DELETE FROM loyalty_popup_config
+            `UPDATE loyalty_popup_config
+             SET is_active = 0,
+                 updated_at = CURRENT_TIMESTAMP
              WHERE id = 1
+               AND is_active = 1
                AND ends_at IS NOT NULL
                AND ends_at < NOW()`
+        );
+        await db.execute(
+            `UPDATE loyalty_popup_config p
+             LEFT JOIN coupons c ON UPPER(COALESCE(c.code, '')) = UPPER(COALESCE(p.coupon_code, ''))
+             SET p.is_active = 0,
+                 p.updated_at = CURRENT_TIMESTAMP
+             WHERE p.id = 1
+               AND p.is_active = 1
+               AND p.coupon_code IS NOT NULL
+               AND (
+                    c.id IS NULL
+                    OR COALESCE(c.is_active, 0) <> 1
+                    OR (c.starts_at IS NOT NULL AND c.starts_at > NOW())
+                    OR (c.expires_at IS NOT NULL AND c.expires_at < NOW())
+               )`
         );
     }
 
@@ -72,7 +97,7 @@ class LoyaltyPopupConfig {
         };
         if (next.couponCode) {
             const [couponRows] = await db.execute(
-                `SELECT code, scope_type, is_active
+                `SELECT code, scope_type, is_active, starts_at, expires_at
                  FROM coupons
                  WHERE code = ?
                  LIMIT 1`,
@@ -84,6 +109,19 @@ class LoyaltyPopupConfig {
             const scope = String(couponRows[0].scope_type || 'generic').toLowerCase();
             if (scope === 'tier' || scope === 'customer') {
                 throw new Error('Tier and customer specific coupons cannot be used in popup');
+            }
+            const couponStartsAt = couponRows[0].starts_at ? new Date(couponRows[0].starts_at) : null;
+            const couponExpiresAt = couponRows[0].expires_at ? new Date(couponRows[0].expires_at) : null;
+            const now = Date.now();
+            if (couponStartsAt && couponStartsAt.getTime() > now) {
+                throw new Error('Selected coupon is not active yet');
+            }
+            if (couponExpiresAt && couponExpiresAt.getTime() < now) {
+                throw new Error('Selected coupon is expired');
+            }
+            // Keep popup expiry aligned with selected coupon expiry when coupon has one.
+            if (couponExpiresAt && !Number.isNaN(couponExpiresAt.getTime())) {
+                next.endsAt = couponExpiresAt;
             }
         }
         await db.execute(
@@ -121,7 +159,7 @@ class LoyaltyPopupConfig {
                 null,
                 next.couponCode,
                 null,
-                next.endsAt ? next.endsAt.toISOString().slice(0, 19).replace('T', ' ') : null,
+                toSqlDateTime(next.endsAt),
                 JSON.stringify(next.metadata || {})
             ]
         );
