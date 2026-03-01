@@ -247,8 +247,29 @@ const sortAdminOrders = (orders = [], query = {}) => {
     const list = [...orders];
     const quickRange = String(query.quickRange || 'all');
     const sortBy = String(query.sortBy || 'newest');
-    const byCreatedDesc = (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-    const byCreatedAsc = (a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    const getCreatedTs = (order = {}) => {
+        const candidates = [
+            order?.created_at,
+            order?.createdAt,
+            order?.updated_at,
+            order?.updatedAt
+        ];
+        for (const value of candidates) {
+            const ts = new Date(value || 0).getTime();
+            if (Number.isFinite(ts) && ts > 0) return ts;
+        }
+        const numericId = Number(order?.id || 0);
+        return Number.isFinite(numericId) ? numericId : 0;
+    };
+    const byCreatedDesc = (a, b) => getCreatedTs(b) - getCreatedTs(a);
+    const byCreatedAsc = (a, b) => getCreatedTs(a) - getCreatedTs(b);
+    const tierPriority = {
+        platinum: 4,
+        gold: 3,
+        silver: 2,
+        bronze: 1,
+        regular: 0
+    };
     if (quickRange === 'latest_10') return list.sort(byCreatedDesc);
     if (sortBy === 'oldest') return list.sort(byCreatedAsc);
     if (sortBy === 'amount_high') {
@@ -256,6 +277,15 @@ const sortAdminOrders = (orders = [], query = {}) => {
     }
     if (sortBy === 'amount_low') {
         return list.sort((a, b) => Number(a.total || 0) - Number(b.total || 0) || byCreatedDesc(a, b));
+    }
+    if (sortBy === 'priority') {
+        return list.sort((a, b) => {
+            const aTier = String(a?.loyalty_tier || a?.loyaltyTier || 'regular').toLowerCase();
+            const bTier = String(b?.loyalty_tier || b?.loyaltyTier || 'regular').toLowerCase();
+            const tierDiff = Number(tierPriority[bTier] ?? 0) - Number(tierPriority[aTier] ?? 0);
+            if (tierDiff !== 0) return tierDiff;
+            return byCreatedDesc(a, b);
+        });
     }
     return list.sort(byCreatedDesc);
 };
@@ -464,6 +494,17 @@ export const orderService = {
         const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(quickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
         const res = await fetch(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
+        data.orders = sortAdminOrders(Array.isArray(data?.orders) ? data.orders : [], {
+            page,
+            limit,
+            status,
+            search,
+            startDate,
+            endDate,
+            quickRange,
+            sortBy,
+            sourceChannel
+        });
         adminOrdersCache[cacheKey] = {
             ts: Date.now(),
             query: { page, limit, status, search, startDate, endDate, quickRange, sortBy, sourceChannel },

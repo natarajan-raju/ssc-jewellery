@@ -102,8 +102,16 @@ export const SocketProvider = ({ children }) => {
                 }
                 const orderRef = finalOrder?.order_ref || finalOrder?.orderRef || `#${finalOrder?.id || orderId || ''}`;
                 toast.success(`New order received: ${orderRef}`);
-                if (typeof window !== 'undefined' && finalOrder) {
-                    window.dispatchEvent(new CustomEvent('admin:new-order', { detail: finalOrder }));
+                const normalizedOrderForPopup = finalOrder || {
+                    id: orderId || payload?.order_id || null,
+                    order_ref: payload?.order_ref || payload?.orderRef || null,
+                    customer_name: payload?.customer_name || payload?.customerName || null,
+                    customer_mobile: payload?.customer_mobile || payload?.customerMobile || null,
+                    total: payload?.total || 0,
+                    payment_status: payload?.payment_status || payload?.paymentStatus || 'pending'
+                };
+                if (typeof window !== 'undefined' && (normalizedOrderForPopup?.id || normalizedOrderForPopup?.order_id)) {
+                    window.dispatchEvent(new CustomEvent('admin:new-order', { detail: normalizedOrderForPopup }));
                 }
             }
             orderService.clearAdminListCache();

@@ -114,6 +114,39 @@ const getCouponDiscountSplit = (order = {}) => {
     }
     return { productDiscount: couponTotal, shippingDiscount: 0 };
 };
+const getOrderCreatedTimestamp = (order = {}) => {
+    const candidates = [
+        order?.created_at,
+        order?.createdAt,
+        order?.updated_at,
+        order?.updatedAt
+    ];
+    for (const value of candidates) {
+        const ts = new Date(value || 0).getTime();
+        if (Number.isFinite(ts) && ts > 0) return ts;
+    }
+    const numericId = Number(order?.id || 0);
+    return Number.isFinite(numericId) ? numericId : 0;
+};
+const sortOrdersForView = (rows = [], sortBy = 'newest') => {
+    const list = [...rows];
+    const byCreatedDesc = (a, b) => getOrderCreatedTimestamp(b) - getOrderCreatedTimestamp(a);
+    const byCreatedAsc = (a, b) => getOrderCreatedTimestamp(a) - getOrderCreatedTimestamp(b);
+    if (sortBy === 'oldest') return list.sort(byCreatedAsc);
+    if (sortBy === 'amount_high') return list.sort((a, b) => Number(b.total || 0) - Number(a.total || 0) || byCreatedDesc(a, b));
+    if (sortBy === 'amount_low') return list.sort((a, b) => Number(a.total || 0) - Number(b.total || 0) || byCreatedDesc(a, b));
+    if (sortBy === 'priority') {
+        const tierPriority = { platinum: 4, gold: 3, silver: 2, bronze: 1, regular: 0 };
+        return list.sort((a, b) => {
+            const aTier = String(a?.loyalty_tier || a?.loyaltyTier || 'regular').toLowerCase();
+            const bTier = String(b?.loyalty_tier || b?.loyaltyTier || 'regular').toLowerCase();
+            const diff = Number(tierPriority[bTier] ?? 0) - Number(tierPriority[aTier] ?? 0);
+            if (diff !== 0) return diff;
+            return byCreatedDesc(a, b);
+        });
+    }
+    return list.sort(byCreatedDesc);
+};
 
 export default function Orders({
     focusOrderId = null,
@@ -551,14 +584,14 @@ export default function Orders({
             if (idx >= 0) {
                 const copy = [...prev];
                 copy[idx] = { ...copy[idx], ...nextOrder };
-                return copy;
+                return sortOrdersForView(copy, sortBy);
             }
             if (page === 1) {
-                return [{ ...nextOrder, entity_type: 'order', order_id: nextOrder.id }, ...prev];
+                return sortOrdersForView([{ ...nextOrder, entity_type: 'order', order_id: nextOrder.id }, ...prev], sortBy);
             }
             return prev;
         });
-    }, [page]);
+    }, [page, sortBy]);
     const patchAttemptRow = useCallback((attempt) => {
         if (!attempt?.id) return;
         setOrders((prev) => {
@@ -617,7 +650,7 @@ export default function Orders({
             ]);
             if (requestSeq !== fetchSeqRef.current) return;
 
-            setOrders(listData.orders || []);
+            setOrders(sortOrdersForView(listData.orders || [], sortBy));
             setSelectedStatusCount(Number(listData?.pagination?.totalOrders || 0));
             const resolvedMetrics = (statusFilter === 'all' ? listData.metrics : metricsData?.metrics) || null;
             setMetrics(resolvedMetrics);
@@ -1970,9 +2003,9 @@ export default function Orders({
                                                 className="rounded border-gray-300 text-primary focus:ring-primary"
                                             />
                                         </th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Order Ref</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Customer</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Name</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
+                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Order ID</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Total</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Payment</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
@@ -1999,11 +2032,6 @@ export default function Orders({
                                                     className="rounded border-gray-300 text-primary focus:ring-primary"
                                                 />
                                             </td>
-                                            <td className="px-6 py-4 text-sm font-semibold text-gray-800">
-                                                <div className="flex items-center gap-2">
-                                                    <span>{order.order_ref}</span>
-                                                </div>
-                                            </td>
                                             <td className="px-6 py-4 text-sm text-gray-700">
                                                 <div className="font-medium">{order.customer_name || 'Guest'}</div>
                                                 <div className="flex items-center gap-2 mt-0.5">
@@ -2014,6 +2042,11 @@ export default function Orders({
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{formatAdminDate(order.created_at)}</td>
+                                            <td className="px-6 py-4 text-sm font-semibold text-gray-800">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{order.order_ref}</span>
+                                                </div>
+                                            </td>
                                             <td className="px-6 py-4 text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</td>
                                             <td className="px-6 py-4">
                                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${

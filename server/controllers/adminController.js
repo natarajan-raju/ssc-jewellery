@@ -1926,6 +1926,13 @@ const createCoupon = async (req, res) => {
         if (payload.expiresAt && new Date(payload.expiresAt).getTime() < new Date(payload.startsAt).getTime()) {
             return res.status(400).json({ message: 'end date must be on or after start date' });
         }
+        const discountType = String(payload.discountType || 'percent').toLowerCase();
+        if (discountType === 'percent') {
+            const maxDiscountValue = Number(payload.maxDiscount ?? payload.maxDiscountValue ?? payload.max_discount_value ?? 0);
+            if (!Number.isFinite(maxDiscountValue) || maxDiscountValue <= 0) {
+                return res.status(400).json({ message: 'max discount is required for percentage coupons' });
+            }
+        }
         const coupon = await Coupon.createCoupon(payload, { createdBy: req.user?.id || null });
         emitCouponChanged(req, {
             action: 'created',
@@ -1955,6 +1962,13 @@ const issueCouponToUser = async (req, res) => {
         if (body.expiresAt && new Date(body.expiresAt).getTime() < new Date(body.startsAt).getTime()) {
             return res.status(400).json({ message: 'end date must be on or after start date' });
         }
+        const discountType = String(body.discountType || 'percent').toLowerCase();
+        if (discountType === 'percent') {
+            const maxDiscountValue = Number(body.maxDiscount ?? body.maxDiscountValue ?? body.max_discount_value ?? 0);
+            if (!Number.isFinite(maxDiscountValue) || maxDiscountValue <= 0) {
+                return res.status(400).json({ message: 'max discount is required for percentage coupons' });
+            }
+        }
         const requestedScopeType = String(body.scopeType || 'customer').toLowerCase();
         const scopeType = requestedScopeType === 'category' ? 'category' : 'customer';
         const categoryIds = scopeType === 'category'
@@ -1970,7 +1984,7 @@ const issueCouponToUser = async (req, res) => {
             scopeType,
             discountType: body.discountType || 'percent',
             discountValue: Number(body.discountValue || 0),
-            maxDiscount: body.maxDiscount != null ? Number(body.maxDiscount) : null,
+            maxDiscount: body.maxDiscount ?? body.maxDiscountValue ?? body.max_discount_value ?? null,
             minCartValue: body.minCartValue != null ? Number(body.minCartValue) : 0,
             usageLimitTotal: body.usageLimitTotal != null ? Number(body.usageLimitTotal) : null,
             usageLimitPerUser: Math.max(1, Number(body.usageLimitPerUser || 1)),

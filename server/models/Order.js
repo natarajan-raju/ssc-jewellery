@@ -4,11 +4,37 @@ const Coupon = require('./Coupon');
 const CompanyProfile = require('./CompanyProfile');
 const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments, reassessUserTier } = require('../services/loyaltyService');
 
-const buildOrderRef = () => {
-    const now = new Date();
-    const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-    const randomPart = Math.random().toString(36).substring(2, 8).toUpperCase();
-    return `SSC-${datePart}-${randomPart}`;
+const ORDER_REF_ALPHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+const ORDER_REF_DIGIT_CHARS = '0123456789';
+const randomChars = (chars, length) => {
+    let out = '';
+    const safeLength = Math.max(0, Number(length || 0));
+    for (let i = 0; i < safeLength; i += 1) {
+        out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
+};
+const buildOrderRefCandidate = (digitCount = 4) => {
+    const safeDigits = Math.max(1, Number(digitCount || 4));
+    const alphaPart = randomChars(ORDER_REF_ALPHA_CHARS, 3);
+    const digitPart = randomChars(ORDER_REF_DIGIT_CHARS, safeDigits);
+    return `${alphaPart}${digitPart}`;
+};
+const buildOrderRef = async (connection = db) => {
+    let digitCount = 4;
+    while (digitCount <= 12) {
+        const attemptLimit = 200;
+        for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+            const candidate = buildOrderRefCandidate(digitCount);
+            const [rows] = await connection.execute(
+                'SELECT id FROM orders WHERE order_ref = ? LIMIT 1',
+                [candidate]
+            );
+            if (!rows.length) return candidate;
+        }
+        digitCount += 1;
+    }
+    throw new Error('Unable to generate unique order reference');
 };
 
 const normalizeAddress = (address) => {
@@ -721,7 +747,7 @@ class Order {
             );
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
             const total = Math.max(0, subtotal + shippingFee - discountTotal);
-            const orderRef = buildOrderRef();
+            const orderRef = await buildOrderRef(connection);
             const paymentStatus = payment?.paymentStatus || 'created';
             const paymentGateway = payment?.gateway || 'razorpay';
             const razorpayOrderId = payment?.razorpayOrderId || null;
@@ -920,7 +946,7 @@ class Order {
             const razorpayPaymentId = payment?.razorpayPaymentId || null;
             const settlementId = payment?.settlementId || null;
             const settlementSnapshot = payment?.settlementSnapshot || null;
-            const finalOrderRef = orderRef || buildOrderRef();
+            const finalOrderRef = orderRef || await buildOrderRef(connection);
             const loyaltyStatus = await getUserLoyaltyStatus(userId);
             const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible);
             const eligibleLoyaltyTier = isMembershipEligible ? (loyaltyStatus?.tier || 'regular') : 'regular';
@@ -1113,7 +1139,7 @@ class Order {
             } = await Order.getAdminManualQuote(userId, { shippingAddress, couponCode, items });
 
             await buildOrderItemsFromSelections(connection, items, { deductStock: true });
-            const orderRef = buildOrderRef();
+            const orderRef = await buildOrderRef(connection);
             const paymentStatus = payment?.paymentStatus || 'paid';
             const paymentGateway = payment?.gateway || 'manual';
             const paymentReference = String(payment?.paymentReference || '').trim();
@@ -1319,7 +1345,7 @@ class Order {
             await connection.beginTransaction();
             const companyProfile = await CompanyProfile.get();
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
-            const orderRef = buildOrderRef();
+            const orderRef = await buildOrderRef(connection);
             const loyaltyMeta = {
                 ...(loyalty?.meta && typeof loyalty.meta === 'object' ? loyalty.meta : {}),
                 source: 'attempt_snapshot_conversion',

@@ -77,6 +77,7 @@ class Coupon {
         const [existing] = await connection.execute('SELECT id FROM coupons WHERE code = ? LIMIT 1', [code]);
         if (existing.length) throw new Error('Coupon code already exists');
 
+        const normalizedMaxDiscount = payload.maxDiscount ?? payload.maxDiscountValue ?? payload.max_discount_value;
         const [result] = await connection.execute(
             `INSERT INTO coupons
                 (code, name, description, source_type, scope_type, discount_type, discount_value, max_discount_subunits, min_cart_subunits, tier_scope, category_scope_json, starts_at, expires_at, usage_limit_total, usage_limit_per_user, metadata_json, is_active, created_by)
@@ -89,7 +90,7 @@ class Coupon {
                 scopeType,
                 discountType,
                 discountValue,
-                payload.maxDiscount != null ? toSubunits(payload.maxDiscount) : null,
+                normalizedMaxDiscount != null ? toSubunits(normalizedMaxDiscount) : null,
                 payload.minCartValue != null ? toSubunits(payload.minCartValue) : 0,
                 payload.tierScope ? String(payload.tierScope).toLowerCase() : null,
                 categoryIds.length ? JSON.stringify(categoryIds) : null,
@@ -237,6 +238,7 @@ class Coupon {
         return {
             coupons: rows.map((row) => ({
                 ...row,
+                max_discount_value: row.max_discount_subunits != null ? fromSubunits(row.max_discount_subunits) : null,
                 category_scope_json: parseJson(row.category_scope_json, []),
                 metadata_json: parseJson(row.metadata_json, null),
                 used_count: Number(row.used_count || 0),
@@ -449,6 +451,7 @@ class Coupon {
                 scopeType: row.scope_type,
                 discountType: row.discount_type,
                 discountValue: Number(row.discount_value || 0),
+                maxDiscountValue: row.max_discount_subunits != null ? fromSubunits(row.max_discount_subunits) : null,
                 minCartValue: fromSubunits(row.min_cart_subunits || 0),
                 requiredCartValue: fromSubunits(requiredCartSubunits),
                 currentCartValue: fromSubunits(currentCartSubunits),

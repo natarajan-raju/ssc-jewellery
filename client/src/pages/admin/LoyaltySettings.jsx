@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Calendar, Crown, Gem, Megaphone, Medal, Pencil, Plus, Search, Shield, Sparkles, Star, Save, TicketPercent, Trash2, X, CircleOff } from 'lucide-react';
+import { ArrowLeft, Calendar, Crown, Gem, Megaphone, Pencil, Plus, Search, Shield, Sparkles, Star, Save, TicketPercent, Trash2, X, CircleOff } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -8,7 +8,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import { formatAdminDate } from '../../utils/dateFormat';
 
-const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
+const ORDER = ['regular', 'silver', 'gold', 'platinum'];
 
 const getTodayDateInput = () => {
     const now = new Date();
@@ -85,6 +85,14 @@ const sanitizeCouponCode = (value = '') => String(value || '')
     .toUpperCase()
     .replace(/[^A-Z0-9-]/g, '')
     .slice(0, 15);
+const buildCouponCodeOptions = (count = 8) => {
+    const target = Math.max(1, Number(count) || 1);
+    const out = new Set();
+    while (out.size < target) {
+        out.add(buildCouponCodeDraft());
+    }
+    return Array.from(out);
+};
 
 const shippingPriorityLabel = (value = 'standard') => {
     const map = {
@@ -109,7 +117,6 @@ const SHIPPING_PRIORITY_OPTIONS = [
 
 const TIER_STYLE = {
     regular: { card: 'from-slate-100 via-slate-50 to-slate-100 text-slate-800', stat: 'bg-white/80 border-slate-200', icon: Shield },
-    bronze: { card: 'from-orange-100 via-amber-50 to-orange-100 text-amber-900', stat: 'bg-white/75 border-amber-200', icon: Medal },
     silver: { card: 'from-gray-100 via-slate-50 to-gray-100 text-slate-800', stat: 'bg-white/80 border-gray-200', icon: Star },
     gold: { card: 'from-yellow-100 via-amber-50 to-yellow-100 text-amber-950', stat: 'bg-white/75 border-yellow-300', icon: Crown },
     platinum: { card: 'from-sky-100 via-blue-50 to-sky-100 text-sky-900', stat: 'bg-white/75 border-sky-200', icon: Gem }
@@ -133,9 +140,10 @@ const getDefaultCouponForm = () => ({
     scopeType: 'generic',
     discountType: 'percent',
     discountValue: 5,
+    maxDiscountValue: 1000,
     minCartValue: 0,
     usageLimitPerUser: 1,
-    tierScope: 'regular',
+    tierScope: 'silver',
     categoryIds: [],
     startsAt: getTodayDateInput(),
     expiresAt: ''
@@ -223,6 +231,7 @@ export default function LoyaltySettings({ onBack }) {
 
     const [couponForm, setCouponForm] = useState(getDefaultCouponForm());
     const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
+    const [couponCodeOptions, setCouponCodeOptions] = useState(() => buildCouponCodeOptions());
     const [categories, setCategories] = useState([]);
     const [couponList, setCouponList] = useState([]);
     const [couponPage, setCouponPage] = useState(1);
@@ -470,8 +479,19 @@ export default function LoyaltySettings({ onBack }) {
             toast.error('Coupon code cannot exceed 15 characters');
             return;
         }
+        if (String(couponForm.discountType || '').toLowerCase() === 'percent') {
+            const maxDiscountValue = Number(couponForm.maxDiscountValue || 0);
+            if (!Number.isFinite(maxDiscountValue) || maxDiscountValue <= 0) {
+                toast.error('Maximum discount must be greater than 0 for percentage coupons');
+                return;
+            }
+        }
         setCouponCreating(true);
         try {
+            const normalizedDiscountType = String(couponForm.discountType || '').toLowerCase();
+            const normalizedMaxDiscount = normalizedDiscountType === 'percent'
+                ? Math.max(0, Number(couponForm.maxDiscountValue || 0))
+                : 0;
             const payload = {
                 code: sanitizeCouponCode(couponForm.code || ''),
                 name: couponForm.name || 'Admin Coupon',
@@ -480,6 +500,8 @@ export default function LoyaltySettings({ onBack }) {
                 discountValue: couponForm.discountType === 'shipping_full'
                     ? 0
                     : Number(couponForm.discountValue || 0),
+                maxDiscountValue: normalizedMaxDiscount,
+                max_discount_value: normalizedMaxDiscount,
                 minCartValue: Math.max(0, Number(couponForm.minCartValue || 0)),
                 usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
                 tierScope: couponForm.scopeType === 'tier' ? couponForm.tierScope : undefined,
@@ -492,6 +514,7 @@ export default function LoyaltySettings({ onBack }) {
             toast.success(`Coupon created: ${res?.coupon?.code || ''}`);
             setCouponRefreshKey((v) => v + 1);
             setCouponForm(getDefaultCouponForm());
+            setCouponCodeOptions(buildCouponCodeOptions());
             setIsCouponModalOpen(false);
         } catch (error) {
             toast.error(error?.message || 'Failed to create coupon');
@@ -876,6 +899,7 @@ export default function LoyaltySettings({ onBack }) {
                                 type="button"
                                 onClick={() => {
                                     setCouponForm(getDefaultCouponForm());
+                                    setCouponCodeOptions(buildCouponCodeOptions());
                                     setIsCouponModalOpen(true);
                                 }}
                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
@@ -1217,13 +1241,25 @@ export default function LoyaltySettings({ onBack }) {
                         </div>
                         <div className="p-5 space-y-4 overflow-y-auto">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <label className="text-sm text-gray-600">Coupon Code<input maxLength={15} className="input-field mt-1" placeholder="SSC-AB12-CD34" value={couponForm.code} onChange={(e) => setCouponForm((p) => ({ ...p, code: sanitizeCouponCode(e.target.value) }))} /></label>
+                                <label className="text-sm text-gray-600">
+                                    Coupon Code
+                                    <input
+                                        list="coupon-code-options"
+                                        maxLength={15}
+                                        className="input-field mt-1"
+                                        placeholder="SSC-AB12-CD34"
+                                        value={couponForm.code}
+                                        onChange={(e) => setCouponForm((p) => ({ ...p, code: sanitizeCouponCode(e.target.value) }))}
+                                    />
+                                    <datalist id="coupon-code-options">
+                                        {couponCodeOptions.map((code) => <option key={code} value={code} />)}
+                                    </datalist>
+                                </label>
                                 <label className="text-sm text-gray-600">Coupon Name<input className="input-field mt-1" placeholder="Coupon name" value={couponForm.name} onChange={(e) => setCouponForm((p) => ({ ...p, name: e.target.value }))} /></label>
-                                <label className="text-sm text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
-                                <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value, discountValue: e.target.value === 'shipping_full' ? 0 : p.discountValue }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
+                                <label className="text-sm text-gray-600">Discount Type<select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value, discountValue: e.target.value === 'shipping_full' ? 0 : p.discountValue, maxDiscountValue: e.target.value === 'percent' ? (Number(p.maxDiscountValue || 0) || 1000) : 0 }))}><option value="percent">Percent</option><option value="fixed">Fixed INR</option><option value="shipping_full">Shipping Full</option><option value="shipping_partial">Shipping Partial (%)</option></select></label>
                                 <label className="text-sm text-gray-600">Discount Value<input className="input-field mt-1" type="number" disabled={couponForm.discountType === 'shipping_full'} value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">Minimum Cart Value (INR)<input className="input-field mt-1" type="number" min="0" value={couponForm.minCartValue} onChange={(e) => setCouponForm((p) => ({ ...p, minCartValue: e.target.value }))} /></label>
-                                <label className="text-sm text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
+                                <label className="text-sm text-gray-600">Maximum Discount (INR)<input className="input-field mt-1" type="number" min="0" disabled={couponForm.discountType !== 'percent'} value={couponForm.maxDiscountValue} onChange={(e) => setCouponForm((p) => ({ ...p, maxDiscountValue: e.target.value }))} /></label>
                                 <label className="text-sm text-gray-600">
                                     Start Date <span className="text-red-500">*</span>
                                     <input
@@ -1268,9 +1304,21 @@ export default function LoyaltySettings({ onBack }) {
                                         {couponForm.expiresAt ? formatAdminDate(`${couponForm.expiresAt}T00:00:00`) : 'End Date'}
                                     </button>
                                 </label>
+                                <label className="text-sm text-gray-600">Coupon Scope<select className="input-field mt-1" value={couponForm.scopeType} onChange={(e) => setCouponForm((p) => ({ ...p, scopeType: e.target.value }))}><option value="generic">Generic</option><option value="category">Category specific</option><option value="tier">Tier specific</option></select></label>
+                                <label className="text-sm text-gray-600">Usage Limit Per User<input className="input-field mt-1" type="number" value={couponForm.usageLimitPerUser} onChange={(e) => setCouponForm((p) => ({ ...p, usageLimitPerUser: e.target.value }))} /></label>
                                 {couponForm.scopeType === 'tier' && (
                                     <label className="text-sm text-gray-600">Tier Scope<select className="input-field mt-1" value={couponForm.tierScope} onChange={(e) => setCouponForm((p) => ({ ...p, tierScope: e.target.value }))}>{ORDER.map((tier) => <option key={tier} value={tier}>{tierLabel(tier).toUpperCase()}</option>)}</select></label>
                                 )}
+                            </div>
+                            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                <p className="text-xs text-gray-500">Coupon code suggestions are dynamic. Pick from dropdown or type your own code.</p>
+                                <button
+                                    type="button"
+                                    onClick={() => setCouponCodeOptions(buildCouponCodeOptions())}
+                                    className="text-xs font-semibold text-primary hover:text-primary-light"
+                                >
+                                    Regenerate codes
+                                </button>
                             </div>
                             {couponForm.scopeType === 'category' && (
                                 <label className="text-sm text-gray-600 block">Category Scope (Multi-select)
@@ -1361,6 +1409,7 @@ export default function LoyaltySettings({ onBack }) {
                             <p><span className="text-gray-500">Scope Details:</span> {formatScopeSummary(selectedCoupon, categories)}</p>
                             <p><span className="text-gray-500">Tier Scope:</span> {selectedCoupon.tier_scope || '—'}</p>
                             <p><span className="text-gray-500">Discount:</span> {formatDiscountOffer(selectedCoupon.discount_type, selectedCoupon.discount_value)}</p>
+                            <p><span className="text-gray-500">Max Discount:</span> ₹{Number(selectedCoupon.max_discount_value ?? selectedCoupon.maxDiscountValue ?? ((selectedCoupon.max_discount_subunits ?? selectedCoupon.maxDiscountSubunits) != null ? Number(selectedCoupon.max_discount_subunits ?? selectedCoupon.maxDiscountSubunits) / 100 : 0)).toLocaleString('en-IN')}</p>
                             <p><span className="text-gray-500">Discount Applies To:</span> {formatShippingApplicability(selectedCoupon.discount_type)}</p>
                             <p><span className="text-gray-500">Min Cart Value:</span> ₹{Number(selectedCoupon.min_cart_value || 0).toLocaleString('en-IN')}</p>
                             <p><span className="text-gray-500">Usage Limit / User:</span> {Number(selectedCoupon.usage_limit_per_user || 0)}</p>

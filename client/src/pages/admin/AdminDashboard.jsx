@@ -28,6 +28,21 @@ import { useToast } from '../../context/ToastContext';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const SHIPPING_POPUP_COOLDOWN_MS = 90 * 1000;
+const formatAddressPreview = (value) => {
+    if (!value) return '—';
+    const parsed = typeof value === 'string' ? (() => {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return null;
+        }
+    })() : value;
+    if (!parsed || typeof parsed !== 'object') return '—';
+    const parts = [parsed.line1, parsed.city, parsed.state, parsed.zip]
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean);
+    return parts.length ? parts.join(', ') : '—';
+};
 
 export default function AdminDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
@@ -245,13 +260,14 @@ export default function AdminDashboard() {
         if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
         const handleNewOrder = (event) => {
             const order = event?.detail;
-            if (!order?.id) return;
+            const orderId = order?.id || order?.order_id || order?.orderId;
+            if (!orderId) return;
             if (activePopupType === 'shipping' && activeShippingSummary) {
                 setShippingPopupQueue((prev) => [activeShippingSummary, ...prev]);
             }
             setIncomingOrders((prev) => {
-                if (prev.some((entry) => String(entry.id) === String(order.id))) return prev;
-                return [order, ...prev];
+                if (prev.some((entry) => String(entry.id || entry.order_id || entry.orderId) === String(orderId))) return prev;
+                return [{ ...order, id: orderId }, ...prev];
             });
             showOrderPopup();
         };
@@ -263,6 +279,12 @@ export default function AdminDashboard() {
         const count = incomingOrders.length;
         const totalValue = incomingOrders.reduce((sum, order) => sum + Number(order?.total || 0), 0);
         return { count, totalValue };
+    }, [incomingOrders]);
+    const pendingOrderRefsPreview = useMemo(() => {
+        return incomingOrders
+            .slice(0, 6)
+            .map((order) => String(order?.order_ref || order?.orderRef || order?.id || '').trim())
+            .filter(Boolean);
     }, [incomingOrders]);
 
     useEffect(() => {
@@ -518,7 +540,16 @@ export default function AdminDashboard() {
                                                 Customer: {incomingOrders[0]?.customer_name || 'Guest'} {incomingOrders[0]?.customer_mobile ? `(${incomingOrders[0].customer_mobile})` : ''}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Total: ₹{Number(incomingOrders[0]?.total || 0).toLocaleString()}
+                                                Total Order Value: ₹{Number(incomingOrders[0]?.total || 0).toLocaleString()}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Discounts: ₹{Number(incomingOrders[0]?.discount_total || 0).toLocaleString()}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Shipping: ₹{Number(incomingOrders[0]?.shipping_fee || 0).toLocaleString()}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
+                                                Ship To: {formatAddressPreview(incomingOrders[0]?.shipping_address || incomingOrders[0]?.shippingAddress)}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
                                                 Payment: {String(incomingOrders[0]?.payment_status || 'pending').toUpperCase()}
@@ -526,11 +557,20 @@ export default function AdminDashboard() {
                                         </>
                                     ) : (
                                         <>
-                                            <p className="text-sm text-gray-500">Multiple orders received while you were offline.</p>
-                                            <p className="mt-1 text-2xl font-bold text-gray-900">{incomingSummary.count} orders</p>
+                                            <p className="text-sm text-gray-500">Multiple pending orders are in queue.</p>
+                                            <p className="mt-1 text-2xl font-bold text-gray-900">{incomingSummary.count} pending orders</p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Combined value: ₹{incomingSummary.totalValue.toLocaleString()}
+                                                Total pending order value: ₹{incomingSummary.totalValue.toLocaleString()}
                                             </p>
+                                            {pendingOrderRefsPreview.length > 0 && (
+                                                <div className="mt-2">
+                                                    <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Pending Order IDs</p>
+                                                    <p className="mt-1 text-sm text-gray-700">
+                                                        {pendingOrderRefsPreview.join(', ')}
+                                                        {incomingSummary.count > pendingOrderRefsPreview.length ? ` +${incomingSummary.count - pendingOrderRefsPreview.length} more` : ''}
+                                                    </p>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                 </div>

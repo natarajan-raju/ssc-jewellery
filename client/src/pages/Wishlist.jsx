@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, Trash2 } from 'lucide-react';
+import { Heart, ShoppingCart, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
+import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
 import wishlistIllustration from '../assets/wishlist.svg';
@@ -10,6 +11,7 @@ import wishlistIllustration from '../assets/wishlist.svg';
 export default function Wishlist() {
     const { user, loading } = useAuth();
     const { wishlistItems, loading: wishlistLoading, removeFromWishlist } = useWishlist();
+    const { addItem, openQuickAdd } = useCart();
     const { socket } = useSocket();
     const navigate = useNavigate();
     const [productLookup, setProductLookup] = useState({});
@@ -88,6 +90,8 @@ export default function Wishlist() {
                     key: `${entry.productId}__${entry.variantId || 'base'}`,
                     productId: entry.productId,
                     variantId: entry.variantId || '',
+                    product,
+                    variant,
                     title: product.title,
                     variantTitle: variant?.variant_title || '',
                     imageUrl,
@@ -195,18 +199,39 @@ export default function Wishlist() {
                                         <span className={`text-xs font-semibold ${entry.status === 'active' ? 'text-emerald-600' : 'text-amber-600'}`}>
                                             {entry.status === 'active' ? 'Active' : 'Unavailable'}
                                         </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => removeFromWishlist({
-                                                productId: entry.productId,
-                                                variantId: entry.variantId,
-                                                productTitle: entry.title,
-                                                variantTitle: entry.variantTitle
-                                            })}
-                                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
-                                        >
-                                            <Trash2 size={12} /> Remove
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={entry.status !== 'active'}
+                                                onClick={() => {
+                                                    const variants = Array.isArray(entry.product?.variants) ? entry.product.variants : [];
+                                                    if (entry.variant) {
+                                                        addItem({ product: entry.product, variant: entry.variant, quantity: 1 });
+                                                        return;
+                                                    }
+                                                    if (variants.length > 0) {
+                                                        openQuickAdd(entry.product);
+                                                        return;
+                                                    }
+                                                    addItem({ product: entry.product, quantity: 1 });
+                                                }}
+                                                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                <ShoppingCart size={12} /> Add to Cart
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeFromWishlist({
+                                                    productId: entry.productId,
+                                                    variantId: entry.variantId,
+                                                    productTitle: entry.title,
+                                                    variantTitle: entry.variantTitle
+                                                })}
+                                                className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                                            >
+                                                <Trash2 size={12} /> Remove
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

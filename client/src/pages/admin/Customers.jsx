@@ -149,6 +149,7 @@ export default function Customers({
         name: '',
         discountType: 'percent',
         discountValue: 5,
+        maxDiscountValue: 1000,
         minCartValue: 0,
         usageLimitPerUser: 1,
         startsAt: getTodayDateInput(),
@@ -335,6 +336,7 @@ export default function Customers({
             name: `Offer for ${user.name || 'Customer'}`,
             discountType: 'percent',
             discountValue: 5,
+            maxDiscountValue: 1000,
             minCartValue: 0,
             usageLimitPerUser: 1,
             startsAt: getTodayDateInput(),
@@ -359,6 +361,12 @@ export default function Customers({
         if (couponForm.code && String(couponForm.code).length > 15) {
             return toast.error('Coupon code cannot exceed 15 characters');
         }
+        if (String(couponForm.discountType || '').toLowerCase() === 'percent') {
+            const maxDiscountValue = Number(couponForm.maxDiscountValue || 0);
+            if (!Number.isFinite(maxDiscountValue) || maxDiscountValue <= 0) {
+                return toast.error('Maximum discount must be greater than 0 for percentage coupons');
+            }
+        }
         setCouponSaving(true);
         try {
             const payload = {
@@ -366,6 +374,9 @@ export default function Customers({
                 name: couponForm.name || `Offer for ${couponModalUser.name || ''}`,
                 discountType: couponForm.discountType,
                 discountValue: Number(couponForm.discountValue || 0),
+                maxDiscountValue: String(couponForm.discountType || '').toLowerCase() === 'percent'
+                    ? Number(couponForm.maxDiscountValue || 0)
+                    : 0,
                 minCartValue: Number(couponForm.minCartValue || 0),
                 usageLimitPerUser: Math.max(1, Number(couponForm.usageLimitPerUser || 1)),
                 startsAt: new Date(`${couponForm.startsAt}T00:00:00`).toISOString(),
@@ -473,7 +484,7 @@ export default function Customers({
                             </label>
                             <label className="text-xs text-gray-600">
                                 Discount Type
-                                <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value, discountValue: e.target.value === 'shipping_full' ? 0 : p.discountValue }))}>
+                                <select className="input-field mt-1" value={couponForm.discountType} onChange={(e) => setCouponForm((p) => ({ ...p, discountType: e.target.value, discountValue: e.target.value === 'shipping_full' ? 0 : p.discountValue, maxDiscountValue: e.target.value === 'percent' ? (Number(p.maxDiscountValue || 0) || 1000) : 0 }))}>
                                     <option value="percent">Percent</option>
                                     <option value="fixed">Fixed INR</option>
                                     <option value="shipping_full">Shipping Full</option>
@@ -483,6 +494,10 @@ export default function Customers({
                             <label className="text-xs text-gray-600">
                                 Discount Value
                                 <input className="input-field mt-1" type="number" disabled={couponForm.discountType === 'shipping_full'} placeholder="Discount value" value={couponForm.discountValue} onChange={(e) => setCouponForm((p) => ({ ...p, discountValue: e.target.value }))} />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                                Maximum Discount (INR)
+                                <input className="input-field mt-1" type="number" min="0" disabled={couponForm.discountType !== 'percent'} placeholder="Maximum discount" value={couponForm.maxDiscountValue} onChange={(e) => setCouponForm((p) => ({ ...p, maxDiscountValue: e.target.value }))} />
                             </label>
                             <label className="text-xs text-gray-600">
                                 Minimum Cart Value (INR)
@@ -702,7 +717,6 @@ export default function Customers({
                     <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} className="px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none">
                         <option value="all">All Tiers</option>
                         <option value="regular">Basic</option>
-                        <option value="bronze">Bronze</option>
                         <option value="silver">Silver</option>
                         <option value="gold">Gold</option>
                         <option value="platinum">Platinum</option>
