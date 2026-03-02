@@ -780,21 +780,42 @@ class AbandonedCart {
         const stamp = Date.now().toString(36).toUpperCase().slice(-4);
         const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
         const code = `REC-${String(journeyId).slice(-2).padStart(2, '0')}${String(attemptNo)}-${stamp}${rand}`.slice(0, 24);
-        await db.execute(
-            `INSERT INTO abandoned_cart_discounts
-                (journey_id, user_id, attempt_no, code, discount_type, discount_percent, max_discount_subunits, min_cart_subunits, status, expires_at)
-             VALUES (?, ?, ?, ?, 'percent', ?, ?, ?, 'active', ?)`,
-            [
-                safeJourneyId,
-                userId,
-                safeAttemptNo,
-                code,
-                Number(percent || 0),
-                maxDiscountSubunits != null ? Number(maxDiscountSubunits) : null,
-                minCartSubunits != null ? Number(minCartSubunits) : null,
-                expiresAt || null
-            ]
-        );
+        try {
+            await db.execute(
+                `INSERT INTO abandoned_cart_discounts
+                    (journey_id, user_id, attempt_no, code, discount_type, discount_percent, max_discount_subunits, min_cart_subunits, status, expires_at)
+                 VALUES (?, ?, ?, ?, 'percent', ?, ?, ?, 'active', ?)`,
+                [
+                    safeJourneyId,
+                    userId,
+                    safeAttemptNo,
+                    code,
+                    Number(percent || 0),
+                    maxDiscountSubunits != null ? Number(maxDiscountSubunits) : null,
+                    minCartSubunits != null ? Number(minCartSubunits) : null,
+                    expiresAt || null
+                ]
+            );
+        } catch (error) {
+            const duplicateAttempt = Number(error?.errno) === 1062
+                && String(error?.sqlMessage || '').includes('uniq_ac_discount_attempt');
+            if (!duplicateAttempt) throw error;
+            const [retryRows] = await db.execute(
+                `SELECT code, discount_percent
+                 FROM abandoned_cart_discounts
+                 WHERE journey_id = ? AND attempt_no = ?
+                 ORDER BY id DESC
+                 LIMIT 1`,
+                [safeJourneyId, safeAttemptNo]
+            );
+            if (retryRows.length) {
+                return {
+                    code: retryRows[0].code,
+                    percent: Number(retryRows[0].discount_percent || percent || 0)
+                };
+            }
+            throw error;
+        }
         await db.execute(
             `UPDATE abandoned_cart_discounts
              SET status = 'invalidated',

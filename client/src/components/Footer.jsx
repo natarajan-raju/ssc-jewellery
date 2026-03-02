@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
 import { productService } from '../services/productService';
@@ -56,12 +56,27 @@ export default function Footer() {
     useAdminCrudSync({
         'refresh:categories': () => loadCategories(true),
         'product:category_change': () => loadCategories(true),
+        'product:create': () => loadCategories(true),
+        'product:update': () => loadCategories(true),
+        'product:delete': () => loadCategories(true),
         'company:info_update': () => loadCompanyInfo()
     });
 
     const categoryLinks = categories
-        .filter(c => c?.name)
+        .filter((c) => {
+            if (!c?.name) return false;
+            if (c?.product_count == null) return true;
+            return Number(c.product_count) > 0;
+        })
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    const categoryColumns = useMemo(() => {
+        const chunkSize = 10;
+        const columns = [];
+        for (let i = 0; i < categoryLinks.length; i += chunkSize) {
+            columns.push(categoryLinks.slice(i, i + chunkSize));
+        }
+        return columns;
+    }, [categoryLinks]);
     const whatsappLink = company.whatsappNumber
         ? `https://wa.me/${String(company.whatsappNumber).replace(/\D/g, '')}`
         : '';
@@ -104,12 +119,19 @@ export default function Footer() {
 
                     <div>
                         <h4 className="text-sm font-bold uppercase tracking-widest text-white/70 mb-2 inline-block border-b-2 border-accent pb-1">Categories</h4>
-                        <div className="space-y-2">
-                            {categoryLinks.slice(0, 5).map((cat) => (
-                                <Link key={cat.id || cat.name} to={`/shop/${encodeURIComponent(cat.name)}`} className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors">
-                                    <SearchIcon size={14} className="text-white/40" />
-                                    {cat.name}
-                                </Link>
+                        <div
+                            className="grid gap-x-6 gap-y-2"
+                            style={{ gridTemplateColumns: `repeat(${Math.max(1, categoryColumns.length)}, minmax(0, 1fr))` }}
+                        >
+                            {categoryColumns.map((column, columnIndex) => (
+                                <div key={`category-column-${columnIndex}`} className="space-y-2">
+                                    {column.map((cat) => (
+                                        <Link key={cat.id || cat.name} to={`/shop/${encodeURIComponent(cat.name)}`} className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors">
+                                            <SearchIcon size={14} className="text-white/40" />
+                                            {cat.name}
+                                        </Link>
+                                    ))}
+                                </div>
                             ))}
                         </div>
                     </div>

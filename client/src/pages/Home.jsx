@@ -604,6 +604,7 @@ export default function Home() {
         };
 
         const handleProductCreate = (product) => {
+            fetchCategories();
             if (isBestSellerProduct(product) && product.status === 'active') {
                 setBestSellers(prev => {
                     if (prev.find(p => String(p.id) === String(product.id))) return prev;
@@ -634,6 +635,7 @@ export default function Home() {
 
         const handleProductUpdate = (product) => {
             if (!product) return;
+            fetchCategories();
             const isBest = isBestSellerProduct(product);
             const isNewArrival = isNewArrivalProduct(product);
             const isOffer = isOfferProduct(product);
@@ -675,6 +677,7 @@ export default function Home() {
         };
 
         const handleProductDelete = ({ id }) => {
+            fetchCategories();
             setBestSellers(prev => prev.filter(p => String(p.id) !== String(id)));
             setNewArrivals(prev => prev.filter(p => String(p.id) !== String(id)));
             setOffersProducts(prev => prev.filter(p => String(p.id) !== String(id)));
@@ -716,7 +719,7 @@ export default function Home() {
             socket.off('cms:carousel_cards_update', fetchBottomCarouselCards);
             socket.off('cms:autopilot_update', fetchFeaturedSection);
         };
-    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchBottomCarouselCards, fetchFeaturedSectionProducts, fetchOffers, featuredSection?.category_id]); // Depend on socket
+    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchBottomCarouselCards, fetchFeaturedSectionProducts, fetchOffers, fetchCategories, featuredSection?.category_id]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
     const handleMouseMove = (e) => {

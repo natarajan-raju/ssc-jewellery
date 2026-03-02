@@ -182,6 +182,28 @@ const parseProductMedia = (mediaInput) => {
         return [];
     }
 };
+const getPrimaryCategoryName = (categoriesInput) => {
+    if (!categoriesInput) return null;
+    if (typeof categoriesInput === 'string') {
+        const raw = categoriesInput.trim();
+        if (!raw) return null;
+        try {
+            return getPrimaryCategoryName(JSON.parse(raw));
+        } catch {
+            return raw;
+        }
+    }
+    if (Array.isArray(categoriesInput)) {
+        for (const entry of categoriesInput) {
+            if (typeof entry === 'string' && entry.trim()) return entry.trim();
+            if (entry && typeof entry === 'object') {
+                const name = String(entry.name || entry.label || entry.title || '').trim();
+                if (name) return name;
+            }
+        }
+    }
+    return null;
+};
 
 export default function ProductPage() {
     const { id } = useParams();
@@ -817,12 +839,7 @@ export default function ProductPage() {
     // Status Check: Product must be active. If tracking is on, qty must be > 0.
     const isOutOfStock = product.status !== 'active' || (!!shouldTrackQty && currentQty <= 0);
     const isLowStock = !isOutOfStock && !!shouldTrackLowStock && currentQty <= stockThreshold;
-    const breadcrumbCategory = (() => {
-        const cats = product?.categories;
-        if (Array.isArray(cats) && cats.length > 0) return cats[0];
-        if (typeof cats === 'string' && cats.trim()) return cats.trim();
-        return null;
-    })();
+    const breadcrumbCategory = getPrimaryCategoryName(product?.categories);
     const currentYoutubeKey = String(videoModal?.item?.videoId || videoModal?.item?.url || '').trim();
     const youtubeAspect = currentYoutubeKey ? youtubeAspectCache[currentYoutubeKey] : null;
     const fallbackYoutubeRatio = videoModal?.item?.isPortrait ? (9 / 16) : (16 / 9);

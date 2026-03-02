@@ -206,6 +206,24 @@ export default function Navbar() {
             refreshTimerRef.current = setTimeout(() => {
                 loadCategories(true);
             }, 120);
+        },
+        'product:create': () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => {
+                loadCategories(true);
+            }, 120);
+        },
+        'product:update': () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => {
+                loadCategories(true);
+            }, 120);
+        },
+        'product:delete': () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = setTimeout(() => {
+                loadCategories(true);
+            }, 120);
         }
     });
 

@@ -573,6 +573,19 @@ const initDB = async () => {
                 FOREIGN KEY (redeemed_order_id) REFERENCES orders(id) ON DELETE SET NULL
             )
         `);
+        try {
+            await connection.query(`
+                DELETE d1
+                FROM abandoned_cart_discounts d1
+                INNER JOIN abandoned_cart_discounts d2
+                    ON d1.journey_id = d2.journey_id
+                    AND d1.attempt_no = d2.attempt_no
+                    AND d1.id < d2.id
+            `);
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE abandoned_cart_discounts ADD UNIQUE KEY uniq_ac_discount_attempt (journey_id, attempt_no)');
+        } catch {}
 
         await connection.execute(
             `INSERT INTO abandoned_cart_campaigns

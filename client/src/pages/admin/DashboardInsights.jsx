@@ -370,10 +370,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     );
 
     const cards = [
-        { label: 'Net Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', cardClass: 'bg-emerald-50 border-emerald-100', iconClass: 'text-emerald-700' },
-        { label: 'Gross Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales', cardClass: 'bg-sky-50 border-sky-100', iconClass: 'text-sky-700' },
+        { label: 'Final Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', cardClass: 'bg-emerald-50 border-emerald-100', iconClass: 'text-emerald-700' },
+        { label: 'Total Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales', cardClass: 'bg-sky-50 border-sky-100', iconClass: 'text-sky-700' },
         { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', cardClass: 'bg-violet-50 border-violet-100', iconClass: 'text-violet-700' },
-        { label: 'AOV', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov', cardClass: 'bg-amber-50 border-amber-100', iconClass: 'text-amber-700' },
+        { label: 'Average order value', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov', cardClass: 'bg-amber-50 border-amber-100', iconClass: 'text-amber-700' },
         { label: 'Cancelled', value: Number(overview.cancelledOrders || 0).toLocaleString('en-IN'), icon: AlertTriangle, target: { tab: 'orders', status: 'cancelled' }, widgetId: 'kpi_cancelled_orders', cardClass: 'bg-red-50 border-red-100', iconClass: 'text-red-700' },
         { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate', cardClass: 'bg-cyan-50 border-cyan-100', iconClass: 'text-cyan-700' }
     ];
@@ -785,7 +785,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
                         <div className="xl:col-span-3 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <div className="flex items-center justify-between gap-2">
-                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><BarChart3 size={16} />Revenue Trend</h3>
+                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><BarChart3 size={16} />{trendGranularity.charAt(0).toUpperCase() + trendGranularity.slice(1, trendGranularity[length-1])} Sales</h3>
                                 <select value={trendGranularity} onChange={(e) => setTrendGranularity(e.target.value)} className="px-2 py-1 rounded-md border border-gray-200 text-xs bg-white">
                                     <option value="daily">Daily</option>
                                     <option value="weekly">Weekly</option>
@@ -835,7 +835,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                         </div>
 
                         <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
-                            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Funnel size={16} />Order Funnel</h3>
+                            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Funnel size={16} />Order Summary</h3>
                             <div className="mt-4 space-y-2">
                                 {[
                                     { label: 'Attempted', value: funnel.attempted, target: { tab: 'orders', status: 'failed', quickRange: 'last_30_days' } },

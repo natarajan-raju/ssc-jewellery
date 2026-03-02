@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { productService } from '../../services/productService';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
-import { useProducts } from '../../context/ProductContext';
 import emptyIllustration from '../../assets/closed.svg';
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
@@ -23,15 +22,97 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 
+const ADMIN_CATEGORY_CACHE_PREFIX = 'admin_products_category_cache_v1';
+const ADMIN_CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
+const ADMIN_FETCH_PAGE_LIMIT = 500;
+
+const readCategoryCache = (category = '') => {
+    const cleanCategory = String(category || '').trim().toLowerCase();
+    if (!cleanCategory) return null;
+    const key = `${ADMIN_CATEGORY_CACHE_PREFIX}:${cleanCategory}`;
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.products) || !parsed.timestamp) return null;
+        if (Date.now() - Number(parsed.timestamp || 0) > ADMIN_CATEGORY_CACHE_TTL_MS) return null;
+        return parsed.products;
+    } catch {
+        return null;
+    }
+};
+
+const writeCategoryCache = (category = '', products = []) => {
+    const cleanCategory = String(category || '').trim().toLowerCase();
+    if (!cleanCategory) return;
+    const key = `${ADMIN_CATEGORY_CACHE_PREFIX}:${cleanCategory}`;
+    try {
+        localStorage.setItem(key, JSON.stringify({ products, timestamp: Date.now() }));
+    } catch {
+        // Ignore storage errors
+    }
+};
+
+const clearCategoryCache = (category = '') => {
+    const cleanCategory = String(category || '').trim().toLowerCase();
+    if (!cleanCategory) return;
+    try {
+        localStorage.removeItem(`${ADMIN_CATEGORY_CACHE_PREFIX}:${cleanCategory}`);
+    } catch {
+        // Ignore storage errors
+    }
+};
+
+const clearAllCategoryCaches = () => {
+    try {
+        const keysToDelete = [];
+        for (let i = 0; i < localStorage.length; i += 1) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(`${ADMIN_CATEGORY_CACHE_PREFIX}:`)) {
+                keysToDelete.push(key);
+            }
+        }
+        keysToDelete.forEach((key) => localStorage.removeItem(key));
+    } catch {
+        // Ignore storage errors
+    }
+};
+
+const extractCategoryNames = (value) => {
+    const input = value && typeof value === 'object' && value.product ? value.product.categories : value;
+    if (!input) return [];
+    let parsed = input;
+    if (typeof parsed === 'string') {
+        try {
+            parsed = JSON.parse(parsed);
+        } catch {
+            parsed = [parsed];
+        }
+    }
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+        .map((entry) => {
+            if (typeof entry === 'string') return entry.trim();
+            if (entry && typeof entry === 'object') {
+                const name = String(entry.name || entry.label || entry.title || '').trim();
+                return name;
+            }
+            return '';
+        })
+        .filter(Boolean);
+};
+
 export default function Products({ onNavigate, focusProductId = null, onFocusHandled = () => {} }) {
-    const { allProducts, isDownloading, ensureAllProducts, refreshAllProducts } = useProducts();
+    const [allProducts, setAllProducts] = useState([]);
+    const [isDownloading, setIsDownloading] = useState(false);
     
     // Pagination & Filters
     const [page, setPage] = useState(1);
-    const [filterCategory, setFilterCategory] = useState('all');
+    const [filterCategory, setFilterCategory] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [categories, setCategories] = useState([]); // <--- New State
+    const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
 
     // Modals State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -39,25 +120,128 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const [productToDelete, setProductToDelete] = useState(null); // For Delete Confirmation
     const toast = useToast();
 
-    // --- FETCH CATEGORIES FOR FILTER ---
-    useEffect(() => {
-        productService.getCategories()
-            .then(data => setCategories(data))
-            .catch(err => console.error("Failed to load categories", err));
+    const loadCategories = useCallback(async () => {
+        setIsCategoriesLoading(true);
+        try {
+            const data = await productService.getCategories();
+            const nextCategories = Array.isArray(data) ? data : [];
+            setCategories(nextCategories);
+            if (!nextCategories.length) {
+                setFilterCategory('');
+                setAllProducts([]);
+                return;
+            }
+            setFilterCategory((prev) => {
+                if (prev && nextCategories.includes(prev)) return prev;
+                return nextCategories[0];
+            });
+        } catch (error) {
+            console.error('Failed to load categories', error);
+            setCategories([]);
+            setFilterCategory('');
+            setAllProducts([]);
+        } finally {
+            setIsCategoriesLoading(false);
+        }
     }, []);
 
+    const fetchCategoryProducts = useCallback(async ({ category, force = false, silent = false } = {}) => {
+        const selected = String(category || '').trim();
+        if (!selected) {
+            setAllProducts([]);
+            return [];
+        }
+        const cached = !force ? readCategoryCache(selected) : null;
+        if (cached) {
+            setAllProducts(cached);
+            return cached;
+        }
+        if (!silent) setIsDownloading(true);
+        try {
+            const first = await productService.getProducts(1, selected, 'all', 'newest', ADMIN_FETCH_PAGE_LIMIT);
+            const totalPages = Math.max(1, Number(first?.totalPages || 1));
+            let combined = Array.isArray(first?.products) ? [...first.products] : [];
+            for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
+                const pageData = await productService.getProducts(pageNo, selected, 'all', 'newest', ADMIN_FETCH_PAGE_LIMIT);
+                const chunk = Array.isArray(pageData?.products) ? pageData.products : [];
+                combined = combined.concat(chunk);
+            }
+            setAllProducts(combined);
+            writeCategoryCache(selected, combined);
+            return combined;
+        } catch (error) {
+            console.error('Failed to load products for category', selected, error);
+            setAllProducts([]);
+            return [];
+        } finally {
+            if (!silent) setIsDownloading(false);
+        }
+    }, []);
+
+    const patchCurrentCategoryList = useCallback((updater) => {
+        setAllProducts((prev) => {
+            const next = typeof updater === 'function' ? updater(prev) : prev;
+            writeCategoryCache(filterCategory, next);
+            return next;
+        });
+    }, [filterCategory]);
+
+    useEffect(() => {
+        loadCategories();
+    }, [loadCategories]);
+
+    useEffect(() => {
+        setPage(1);
+        fetchCategoryProducts({ category: filterCategory, force: false });
+    }, [filterCategory, fetchCategoryProducts]);
+
     useAdminCrudSync({
-        'refresh:categories': () => {
-            productService.getCategories()
-                .then(data => setCategories(data))
-                .catch(() => {});
+        'refresh:categories': (payload = {}) => {
+            if (String(payload?.action || '').toLowerCase() === 'sync_all') {
+                clearAllCategoryCaches();
+            } else if (payload?.category?.name) {
+                clearCategoryCache(payload.category.name);
+            }
+            loadCategories();
+            fetchCategoryProducts({ category: filterCategory, force: true, silent: true });
+        },
+        'product:create': (payload = {}) => {
+            const product = payload && payload.id ? payload : payload?.product;
+            const categoryNames = extractCategoryNames(product);
+            categoryNames.forEach(clearCategoryCache);
+            if (!product?.id) return;
+            const isInCurrent = categoryNames.some((name) => name.toLowerCase() === String(filterCategory || '').toLowerCase());
+            if (!isInCurrent) return;
+            patchCurrentCategoryList((prev) => {
+                const exists = prev.some((item) => String(item?.id || '') === String(product.id));
+                if (exists) return prev.map((item) => String(item?.id || '') === String(product.id) ? { ...item, ...product } : item);
+                return [product, ...prev];
+            });
+        },
+        'product:update': (payload = {}) => {
+            const product = payload && payload.id ? payload : payload?.product;
+            if (!product?.id) return;
+            const categoryNames = extractCategoryNames(product);
+            categoryNames.forEach(clearCategoryCache);
+            const isInCurrent = categoryNames.some((name) => name.toLowerCase() === String(filterCategory || '').toLowerCase());
+            patchCurrentCategoryList((prev) => {
+                const exists = prev.some((item) => String(item?.id || '') === String(product.id));
+                if (exists && !isInCurrent) {
+                    return prev.filter((item) => String(item?.id || '') !== String(product.id));
+                }
+                if (!exists && !isInCurrent) return prev;
+                if (exists) {
+                    return prev.map((item) => String(item?.id || '') === String(product.id) ? { ...item, ...product } : item);
+                }
+                return [product, ...prev];
+            });
+        },
+        'product:delete': ({ id } = {}) => {
+            clearAllCategoryCaches();
+            if (!id) return;
+            patchCurrentCategoryList((prev) => prev.filter((item) => String(item?.id || '') !== String(id)));
         }
     });
-
-    // --- DATA LOADING (Background) ---
-    useEffect(() => {
-        ensureAllProducts();
-    }, [ensureAllProducts]);
 
     // --- HANDLERS ---
     const handleSaveProduct = async (formData, id) => {
@@ -69,7 +253,8 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             toast.success("Product created successfully!");
         }
         productService.clearCache();
-        refreshAllProducts();
+        await loadCategories();
+        await fetchCategoryProducts({ category: filterCategory, force: true });
     };
 
     // Open Delete Confirmation Modal
@@ -84,7 +269,8 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             await productService.deleteProduct(productToDelete.id);
             toast.success(`"${productToDelete.title}" has been deleted.`);
             productService.clearCache();
-            refreshAllProducts();
+            await loadCategories();
+            await fetchCategoryProducts({ category: filterCategory, force: true });
         } catch {
             toast.error("Failed to delete product.");
         } finally {
@@ -101,10 +287,20 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
         const targetId = String(focusProductId || '').trim();
         if (!targetId) return;
         const targetProduct = (allProducts || []).find((product) => String(product?.id || '') === targetId);
-        if (!targetProduct) return;
-        setEditingProduct(targetProduct);
-        setIsAddModalOpen(true);
-        onFocusHandled(targetId);
+        if (targetProduct) {
+            setEditingProduct(targetProduct);
+            setIsAddModalOpen(true);
+            onFocusHandled(targetId);
+            return;
+        }
+        productService.getProduct(targetId)
+            .then((product) => {
+                if (!product) return;
+                setEditingProduct(product);
+                setIsAddModalOpen(true);
+                onFocusHandled(targetId);
+            })
+            .catch(() => {});
     }, [allProducts, focusProductId, onFocusHandled]);
 
     const handleCloseModal = () => {
@@ -116,13 +312,12 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const PAGE_SIZE = 10;
     const filteredProducts = useMemo(() => {
         return allProducts
-            .filter(p => filterCategory === 'all' || (p.categories || []).includes(filterCategory))
             .filter(p => filterStatus === 'all' || p.status === filterStatus)
             .filter(p =>
                 p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             );
-    }, [allProducts, filterCategory, filterStatus, searchTerm]);
+    }, [allProducts, filterStatus, searchTerm]);
 
     const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE));
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
@@ -206,8 +401,9 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                             value={filterCategory}
                             onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
                             className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer md:max-w-[200px]"
+                            disabled={isCategoriesLoading || categories.length === 0}
                         >
-                            <option value="all">All Categories</option>
+                            {!filterCategory && <option value="">Select Category</option>}
                             {categories.map(cat => (
                                 <option key={cat} value={cat}>{cat}</option>
                             ))}
@@ -467,7 +663,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                     <Loader2 className="animate-spin text-accent w-4 h-4 mr-2" />
                     Syncing products in background...
                 </div>
-            ) : allProducts.length > 0 ? (
+            ) : filterCategory && allProducts.length > 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 animate-fade-in">
                     <img
                         src={emptyIllustration}
@@ -479,7 +675,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                         Try adjusting filters or search terms to see results.
                     </p>
                     <button
-                        onClick={() => { setFilterCategory('all'); setFilterStatus('all'); setSearchTerm(''); setPage(1); }}
+                        onClick={() => { setFilterStatus('all'); setSearchTerm(''); setPage(1); }}
                         className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
                         Reset Filters
@@ -492,9 +688,13 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                         alt="No products" 
                         className="w-48 h-48 md:w-64 md:h-64 mb-6 opacity-90"
                     />
-                    <h3 className="text-xl font-bold text-gray-800 mb-2">No products available yet</h3>
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">
+                        {categories.length ? 'No products in selected category' : 'No categories available yet'}
+                    </h3>
                     <p className="text-gray-500 text-center max-w-md mb-6">
-                        Get started by adding your first product to the inventory.
+                        {categories.length
+                            ? 'Try another category or add products to this category.'
+                            : 'Create categories first, then add products to manage inventory.'}
                     </p>
                     <button 
                         onClick={() => setIsAddModalOpen(true)}

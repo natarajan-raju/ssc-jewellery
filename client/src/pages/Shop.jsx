@@ -434,6 +434,7 @@ export default function Shop() {
     }, [loadCategories, selectedCategory]);
 
     const handleProductCreate = useCallback((product) => {
+            loadCategories(true);
             if (!shouldItemBeVisible(product)) return;
             if (isManualSort) {
                 productService.clearProductsCache({ category: selectedCategory });
@@ -444,9 +445,10 @@ export default function Shop() {
                 if (sortBy === 'newest') return mergeUniqueProducts([product], prev);
                 return mergeUniqueProducts(prev, [product]);
             });
-    }, [isManualSort, scheduleManualRefresh, selectedCategory, shouldItemBeVisible, sortBy]);
+    }, [isManualSort, loadCategories, scheduleManualRefresh, selectedCategory, shouldItemBeVisible, sortBy]);
 
     const handleProductUpdate = useCallback((updated) => {
+            loadCategories(true);
             const currentCategory = selectedCategory.toLowerCase();
             const incomingCategories = normalizeCategoryList(updated?.categories);
             const touchesCurrentCategory = incomingCategories.some(
@@ -478,17 +480,19 @@ export default function Shop() {
         isManualSort,
         isStableSort,
         normalizeCategoryList,
+        loadCategories,
         scheduleManualRefresh,
         selectedCategory,
         shouldItemBeVisible
     ]);
 
     const handleProductDelete = useCallback(({ id }) => {
+            loadCategories(true);
             if (isManualSort) {
                 productService.clearProductsCache({ category: selectedCategory });
             }
             setProducts(prev => prev.filter(p => p.id !== id));
-    }, [isManualSort, selectedCategory]);
+    }, [isManualSort, loadCategories, selectedCategory]);
 
     const handleCategoryChange = useCallback((payload = {}) => {
             if (!payload.product) return;
