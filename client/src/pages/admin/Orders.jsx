@@ -351,11 +351,11 @@ export default function Orders({
     const manualItemPayload = useMemo(() => (
         (manualOrderItems || [])
             .map((row) => ({
-                productId: Number(row?.productId || 0),
-                variantId: row?.variantId ? Number(row.variantId) : null,
+                productId: String(row?.productId || '').trim(),
+                variantId: String(row?.variantId || '').trim(),
                 quantity: Number(row?.quantity || 0)
             }))
-            .filter((row) => Number.isFinite(row.productId) && row.productId > 0 && Number.isFinite(row.quantity) && row.quantity > 0)
+            .filter((row) => row.productId && Number.isFinite(row.quantity) && row.quantity > 0)
     ), [manualOrderItems]);
     const isVariantInStock = (variant = {}) => {
         const track = String(variant?.track_quantity) === '1' || variant?.track_quantity === true;
@@ -391,9 +391,9 @@ export default function Orders({
         (manualOrderItems || [])
             .filter((row) => String(row?.productId || '').trim())
             .map((row, idx) => {
-            const product = (manualProducts || []).find((entry) => Number(entry?.id) === Number(row?.productId));
+            const product = (manualProducts || []).find((entry) => String(entry?.id || '') === String(row?.productId || ''));
             const variants = Array.isArray(product?.variants) ? product.variants : [];
-            const variant = variants.find((entry) => Number(entry?.id) === Number(row?.variantId || 0));
+            const variant = variants.find((entry) => String(entry?.id || '') === String(row?.variantId || ''));
             const qty = Math.max(1, Number(row?.quantity || 1));
             const unitPrice = Number(row?.unitPrice ?? getManualUnitPrice(product, variant));
             return {
@@ -532,11 +532,11 @@ export default function Orders({
     }, [effectiveBillingAddress, manualItemPayload.length, manualOrderForm.shippingAddress, manualOrderForm.userId]);
     const hasManualVariantGaps = useMemo(() => {
         for (const row of (manualOrderItems || [])) {
-            const productId = Number(row?.productId || 0);
+            const productId = String(row?.productId || '').trim();
             if (!productId) continue;
-            const selectedProduct = (manualProducts || []).find((p) => Number(p?.id) === productId);
+            const selectedProduct = (manualProducts || []).find((p) => String(p?.id || '') === productId);
             const hasVariants = Array.isArray(selectedProduct?.variants) && selectedProduct.variants.length > 0;
-            if (hasVariants && !row?.variantId) return true;
+            if (hasVariants && !String(row?.variantId || '').trim()) return true;
         }
         return false;
     }, [manualOrderItems, manualProducts]);
