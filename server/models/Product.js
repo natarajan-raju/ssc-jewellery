@@ -452,8 +452,8 @@ class Product {
             // 1. Insert Main Product
             const query = `
                 INSERT INTO products 
-                (id, title, subtitle, description, ribbon_tag, media, categories,related_products, additional_info, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, title, subtitle, description, ribbon_tag, media, categories,related_products, additional_info, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, tax_config_id, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             await connection.execute(query, [
@@ -465,6 +465,7 @@ class Product {
                 JSON.stringify(data.options || []), // [NEW]
                 data.mrp, data.discount_price || null, data.sku || null, data.weight_kg || null,
                 data.track_quantity ? 1 : 0, data.quantity || 0, data.track_low_stock ? 1 : 0, data.low_stock_threshold || 0,
+                data.tax_config_id || null,
                 data.status || 'active'
             ]);
             // [NEW] Sync Relational Categories

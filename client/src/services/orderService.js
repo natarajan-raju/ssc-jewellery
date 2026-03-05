@@ -112,6 +112,11 @@ const normalizeOrderForCache = (order) => {
             quantity: Number(item.quantity ?? item.item_snapshot?.quantity ?? item.snapshot?.quantity ?? 0),
             price: Number(item.price ?? item.item_snapshot?.unitPrice ?? item.snapshot?.unitPrice ?? 0),
             line_total: Number(item.line_total ?? item.lineTotal ?? item.item_snapshot?.lineTotal ?? item.snapshot?.lineTotal ?? 0),
+            tax_rate_percent: Number(item.tax_rate_percent ?? item.taxRatePercent ?? item.item_snapshot?.taxRatePercent ?? item.snapshot?.taxRatePercent ?? 0),
+            tax_amount: Number(item.tax_amount ?? item.taxAmount ?? item.item_snapshot?.taxAmount ?? item.snapshot?.taxAmount ?? 0),
+            tax_name: item.tax_name || item.taxName || item.item_snapshot?.taxName || item.snapshot?.taxName || null,
+            tax_code: item.tax_code || item.taxCode || item.item_snapshot?.taxCode || item.snapshot?.taxCode || null,
+            tax_snapshot_json: item.tax_snapshot_json || item.taxSnapshotJson || item.taxSnapshot || item.item_snapshot?.taxSnapshot || item.snapshot?.taxSnapshot || null,
             original_price: Number(item.original_price ?? item.item_snapshot?.originalPrice ?? item.snapshot?.originalPrice ?? item.compare_at ?? item.mrp ?? 0),
             item_snapshot: item.item_snapshot || item.itemSnapshot || item.snapshot || null,
             image_url: item.image_url || item.imageUrl || item.item_snapshot?.imageUrl || item.snapshot?.imageUrl || null
@@ -169,6 +174,8 @@ const normalizeOrderForCache = (order) => {
         subtotal: Number(order.subtotal ?? order.subTotal ?? 0),
         shipping_fee: Number(order.shipping_fee ?? order.shippingFee ?? 0),
         discount_total: Number(order.discount_total ?? order.discountTotal ?? 0),
+        tax_total: Number(order.tax_total ?? order.taxTotal ?? 0),
+        tax_breakup_json: order.tax_breakup_json || order.taxBreakupJson || order.taxBreakup || [],
         total: Number(order.total ?? 0),
         items
     };

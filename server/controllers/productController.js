@@ -150,6 +150,9 @@ const createProduct = async (req, res) => {
 
         const productData = {
             ...req.body,
+            tax_config_id: Number.isFinite(Number(req.body.tax_config_id)) && Number(req.body.tax_config_id) > 0
+                ? Number(req.body.tax_config_id)
+                : null,
             track_quantity: req.body.track_quantity === 'true' || req.body.track_quantity === true ? 1 : 0,
             quantity: req.body.quantity || 0,
             track_low_stock: req.body.track_low_stock === 'true' || req.body.track_low_stock === true ? 1 : 0,
@@ -227,6 +230,9 @@ const updateProduct = async (req, res) => {
             sku: req.body.sku || null,
             weight_kg: req.body.weight_kg || null,
             status: req.body.status || 'active',
+            tax_config_id: Number.isFinite(Number(req.body.tax_config_id)) && Number(req.body.tax_config_id) > 0
+                ? Number(req.body.tax_config_id)
+                : null,
             
             track_quantity: req.body.track_quantity === 'true' || req.body.track_quantity === true ? 1 : 0,
             quantity: req.body.quantity || 0,

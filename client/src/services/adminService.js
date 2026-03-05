@@ -264,6 +264,33 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    getTaxConfigs: async () => {
+        const res = await fetch(`${API_URL}/taxes`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
+    createTaxConfig: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/taxes`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    updateTaxConfig: async (id, payload = {}) => {
+        const res = await fetch(`${API_URL}/taxes/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
+    deleteTaxConfig: async (id) => {
+        const res = await fetch(`${API_URL}/taxes/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
     getLoyaltyConfig: async () => {
         const res = await fetch(`${API_URL}/loyalty/config`, { headers: getAuthHeader() });
         return handleResponse(res);

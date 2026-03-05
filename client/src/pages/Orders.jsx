@@ -85,6 +85,18 @@ const getItemLineTotal = (item) => {
     const unitPrice = getItemUnitPrice(item);
     return toNumber(item?.line_total ?? snapshot?.lineTotal, unitPrice * quantity);
 };
+const getItemTaxAmount = (item) => {
+    const snapshot = getItemSnapshot(item);
+    return toNumber(item?.tax_amount ?? item?.taxAmount ?? snapshot?.taxAmount, 0);
+};
+const getItemTaxRate = (item) => {
+    const snapshot = getItemSnapshot(item);
+    return toNumber(item?.tax_rate_percent ?? item?.taxRatePercent ?? snapshot?.taxRatePercent, 0);
+};
+const getItemTaxLabel = (item) => {
+    const snapshot = getItemSnapshot(item);
+    return item?.tax_code || item?.taxCode || item?.tax_name || item?.taxName || snapshot?.taxCode || snapshot?.taxName || '';
+};
 const getItemTitle = (item) => {
     const snapshot = getItemSnapshot(item);
     return item?.title || snapshot?.title || 'Order item';
@@ -538,6 +550,11 @@ export default function Orders() {
                                         </div>
                                         <div className="text-sm font-semibold text-gray-800">
                                             ₹{getItemLineTotal(item).toLocaleString()}
+                                            {getItemTaxAmount(item) > 0 && (
+                                                <p className="text-[11px] text-gray-500 font-medium">
+                                                    Tax{getItemTaxLabel(item) ? ` (${getItemTaxLabel(item)}${getItemTaxRate(item) > 0 ? ` ${getItemTaxRate(item)}%` : ''})` : ''}: ₹{getItemTaxAmount(item).toLocaleString()}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -669,6 +686,10 @@ export default function Orders() {
                                 <div className="flex items-center justify-between text-gray-600">
                                     <span>Discount</span>
                                     <span>- ₹{toNumber(selectedOrder.discount_total).toLocaleString()}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Tax</span>
+                                    <span>₹{toNumber(selectedOrder.tax_total).toLocaleString()}</span>
                                 </div>
                                 {getOrderSavings(selectedOrder) > 0 && (
                                     <div className="flex items-center justify-between text-emerald-700">

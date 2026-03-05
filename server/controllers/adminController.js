@@ -4,6 +4,7 @@ const Cart = require('../models/Cart');
 const Order = require('../models/Order');
 const bcrypt = require('bcryptjs');
 const CompanyProfile = require('../models/CompanyProfile');
+const TaxConfig = require('../models/TaxConfig');
 const Coupon = require('../models/Coupon');
 const AbandonedCart = require('../models/AbandonedCart');
 const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
@@ -1726,8 +1727,11 @@ const sendTestEmail = async (req, res) => {
 
 const getCompanyInfo = async (_req, res) => {
     try {
-        const company = await CompanyProfile.get();
-        return res.json({ company });
+        const [company, taxes] = await Promise.all([
+            CompanyProfile.get(),
+            TaxConfig.listAll()
+        ]);
+        return res.json({ company, taxes });
     } catch (error) {
         return res.status(500).json({ message: 'Failed to fetch company info' });
     }
@@ -1766,6 +1770,9 @@ const updateCompanyInfo = async (req, res) => {
 
         if (!displayName) {
             return res.status(400).json({ message: 'Company display name is required' });
+        }
+        if (payload.gstNumber && !/^[0-9A-Za-z]{15}$/.test(String(payload.gstNumber || '').trim())) {
+            return res.status(400).json({ message: 'GST number must be 15 alphanumeric characters' });
         }
         if (supportEmail && !isValidEmail(supportEmail)) {
             return res.status(400).json({ message: 'Support email is invalid' });
@@ -1806,6 +1813,53 @@ const updateCompanyInfo = async (req, res) => {
         return res.json({ company });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update company info' });
+    }
+};
+
+const listTaxConfigs = async (_req, res) => {
+    try {
+        const taxes = await TaxConfig.listAll();
+        return res.json({ taxes });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to fetch tax rates' });
+    }
+};
+
+const createTaxConfig = async (req, res) => {
+    try {
+        const tax = await TaxConfig.create(req.body || {});
+        const taxes = await TaxConfig.listAll();
+        return res.status(201).json({ tax, taxes });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to create tax rate' });
+    }
+};
+
+const updateTaxConfig = async (req, res) => {
+    try {
+        const taxId = Number(req.params.id);
+        if (!Number.isFinite(taxId) || taxId <= 0) {
+            return res.status(400).json({ message: 'Invalid tax rate id' });
+        }
+        const tax = await TaxConfig.update(taxId, req.body || {});
+        const taxes = await TaxConfig.listAll();
+        return res.json({ tax, taxes });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to update tax rate' });
+    }
+};
+
+const deleteTaxConfig = async (req, res) => {
+    try {
+        const taxId = Number(req.params.id);
+        if (!Number.isFinite(taxId) || taxId <= 0) {
+            return res.status(400).json({ message: 'Invalid tax rate id' });
+        }
+        await TaxConfig.remove(taxId);
+        const taxes = await TaxConfig.listAll();
+        return res.json({ ok: true, taxes });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to delete tax rate' });
     }
 };
 
@@ -2219,6 +2273,10 @@ module.exports = {
     sendTestEmail,
     getCompanyInfo,
     updateCompanyInfo,
+    listTaxConfigs,
+    createTaxConfig,
+    updateTaxConfig,
+    deleteTaxConfig,
     getLoyaltyConfig,
     updateLoyaltyConfig,
     getLoyaltyPopupConfig,

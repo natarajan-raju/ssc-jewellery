@@ -96,11 +96,15 @@ const initDB = async () => {
                 quantity INT DEFAULT 0,
                 track_low_stock TINYINT(1) DEFAULT 0,
                 low_stock_threshold INT DEFAULT 0,
+                tax_config_id INT NULL,
                 status VARCHAR(20) DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        try {
+            await connection.query('ALTER TABLE products ADD COLUMN tax_config_id INT NULL');
+        } catch {}
         try {
             await connection.query('ALTER TABLE products ADD INDEX idx_products_status_created (status, created_at)');
         } catch {}
@@ -109,6 +113,9 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE products ADD INDEX idx_products_sku (sku)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE products ADD INDEX idx_products_tax_config_id (tax_config_id)');
         } catch {}
 
         // 3.1 CART ITEMS TABLE (User Cart Persistence)
@@ -219,6 +226,8 @@ const initDB = async () => {
                 subtotal DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 shipping_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                tax_breakup_json JSON,
                 total DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 currency VARCHAR(10) DEFAULT 'INR',
                 billing_address JSON,
@@ -314,6 +323,12 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN settlement_snapshot JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN tax_breakup_json JSON');
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN courier_partner VARCHAR(120)');
@@ -607,6 +622,11 @@ const initDB = async () => {
                 quantity INT NOT NULL DEFAULT 1,
                 price DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 line_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                tax_rate_percent DECIMAL(6, 2) NOT NULL DEFAULT 0,
+                tax_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                tax_name VARCHAR(80),
+                tax_code VARCHAR(40),
+                tax_snapshot_json JSON,
                 image_url TEXT,
                 sku VARCHAR(50),
                 item_snapshot JSON,
@@ -616,6 +636,21 @@ const initDB = async () => {
         `);
         try {
             await connection.query('ALTER TABLE order_items ADD COLUMN item_snapshot JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_items ADD COLUMN tax_rate_percent DECIMAL(6, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_items ADD COLUMN tax_amount DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_items ADD COLUMN tax_name VARCHAR(80)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_items ADD COLUMN tax_code VARCHAR(40)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_items ADD COLUMN tax_snapshot_json JSON');
         } catch {}
 
         // 10. ORDER STATUS EVENTS (Timeline)
@@ -1051,6 +1086,8 @@ const initDB = async () => {
                 youtube_url VARCHAR(255),
                 facebook_url VARCHAR(255),
                 whatsapp_number VARCHAR(40),
+                gst_number VARCHAR(30),
+                tax_enabled TINYINT(1) NOT NULL DEFAULT 0,
                 contact_jumbotron_image_url TEXT,
                 razorpay_key_id VARCHAR(120),
                 razorpay_key_secret VARCHAR(160),
@@ -1062,6 +1099,12 @@ const initDB = async () => {
         `);
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_id VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN gst_number VARCHAR(30)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN tax_enabled TINYINT(1) NOT NULL DEFAULT 0');
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN contact_jumbotron_image_url TEXT');
@@ -1077,6 +1120,25 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_starting_tenure_months INT NOT NULL DEFAULT 12');
+        } catch {}
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS tax_configs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(80) NOT NULL,
+                code VARCHAR(40) NOT NULL UNIQUE,
+                rate_percent DECIMAL(6,2) NOT NULL DEFAULT 0,
+                is_default TINYINT(1) NOT NULL DEFAULT 0,
+                is_active TINYINT(1) NOT NULL DEFAULT 1,
+                display_order INT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_tax_configs_default_active (is_default, is_active, display_order)
+            )
+        `);
+        try {
+            await connection.query(
+                'ALTER TABLE products ADD CONSTRAINT fk_products_tax_config FOREIGN KEY (tax_config_id) REFERENCES tax_configs(id) ON DELETE SET NULL'
+            );
         } catch {}
         await connection.query(`
             CREATE TABLE IF NOT EXISTS loyalty_popup_config (

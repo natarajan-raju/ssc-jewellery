@@ -143,6 +143,7 @@ export default function PaymentSuccess() {
                                     <p>Subtotal: ₹{Number(order.subtotal || 0).toLocaleString()}</p>
                                     <p>Shipping: ₹{Number(order.shipping_fee || 0).toLocaleString()}</p>
                                     <p>Discount: ₹{Number(order.discount_total || 0).toLocaleString()}</p>
+                                    <p>Tax: ₹{Number(order.tax_total || 0).toLocaleString()}</p>
                                     <p className="font-semibold text-gray-900">Total: ₹{Number(order.total || 0).toLocaleString()}</p>
                                     <p>Payment Method: {String(order.payment_gateway || 'razorpay').toUpperCase()}</p>
                                     <p className="pt-2 text-gray-600">Your items will be dispatched in 2-3 working days.</p>

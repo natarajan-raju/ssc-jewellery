@@ -5,6 +5,8 @@ const DEFAULT_COMPANY_PROFILE = {
     contactNumber: '',
     supportEmail: '',
     address: '',
+    gstNumber: '',
+    taxEnabled: false,
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
@@ -31,6 +33,8 @@ const normalizeRow = (row) => {
         contactNumber: row.contact_number || '',
         supportEmail: row.support_email || '',
         address: row.address || '',
+        gstNumber: row.gst_number || '',
+        taxEnabled: Number(row.tax_enabled || 0) === 1,
         instagramUrl: row.instagram_url || '',
         youtubeUrl: row.youtube_url || '',
         facebookUrl: row.facebook_url || '',
@@ -51,14 +55,16 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
                 DEFAULT_COMPANY_PROFILE.contactNumber,
                 DEFAULT_COMPANY_PROFILE.supportEmail,
                 DEFAULT_COMPANY_PROFILE.address,
+                DEFAULT_COMPANY_PROFILE.gstNumber,
+                DEFAULT_COMPANY_PROFILE.taxEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.instagramUrl,
                 DEFAULT_COMPANY_PROFILE.youtubeUrl,
                 DEFAULT_COMPANY_PROFILE.facebookUrl,
@@ -97,6 +103,8 @@ class CompanyProfile {
             contactNumber: String(payload.contactNumber || '').trim(),
             supportEmail: String(payload.supportEmail || '').trim(),
             address: String(payload.address || '').trim(),
+            gstNumber: String(payload.gstNumber || '').trim(),
+            taxEnabled: payload.taxEnabled === true || payload.taxEnabled === 1 || String(payload.taxEnabled || '').toLowerCase() === 'true',
             instagramUrl: String(payload.instagramUrl || '').trim(),
             youtubeUrl: String(payload.youtubeUrl || '').trim(),
             facebookUrl: String(payload.facebookUrl || '').trim(),
@@ -111,13 +119,15 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 contact_number = VALUES(contact_number),
                 support_email = VALUES(support_email),
                 address = VALUES(address),
+                gst_number = VALUES(gst_number),
+                tax_enabled = VALUES(tax_enabled),
                 instagram_url = VALUES(instagram_url),
                 youtube_url = VALUES(youtube_url),
                 facebook_url = VALUES(facebook_url),
@@ -134,6 +144,8 @@ class CompanyProfile {
                 next.contactNumber,
                 next.supportEmail,
                 next.address,
+                next.gstNumber,
+                next.taxEnabled ? 1 : 0,
                 next.instagramUrl,
                 next.youtubeUrl,
                 next.facebookUrl,
@@ -181,6 +193,8 @@ class CompanyProfile {
             contactNumber: String(source.contactNumber || ''),
             supportEmail: String(source.supportEmail || ''),
             address: String(source.address || ''),
+            gstNumber: String(source.gstNumber || ''),
+            taxEnabled: source.taxEnabled === true || source.taxEnabled === 1,
             instagramUrl: String(source.instagramUrl || ''),
             youtubeUrl: String(source.youtubeUrl || ''),
             facebookUrl: String(source.facebookUrl || ''),

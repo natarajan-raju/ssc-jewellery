@@ -415,6 +415,7 @@ export default function Orders({
             couponDiscountTotal: null,
             loyaltyDiscountTotal: null,
             loyaltyShippingDiscountTotal: null,
+            taxTotal: null,
             total: subtotal
         };
     }, [manualCartDisplayItems]);
@@ -895,6 +896,7 @@ export default function Orders({
                 'Member Discount',
                 'Member Shipping Benefit',
                 'Discount',
+                'Tax',
                 'Total',
                 'Coupon Code',
                 'Source Channel'
@@ -917,6 +919,7 @@ export default function Orders({
                 toCsvCell(Number(order.loyalty_discount_total || 0).toFixed(2)),
                 toCsvCell(Number(order.loyalty_shipping_discount_total || 0).toFixed(2)),
                 toCsvCell(Number(order.discount_total || 0).toFixed(2)),
+                toCsvCell(Number(order.tax_total || 0).toFixed(2)),
                 toCsvCell(Number(order.total || 0).toFixed(2)),
                 toCsvCell(order.coupon_code || ''),
                 toCsvCell(order.source_channel || '')
@@ -2671,6 +2674,9 @@ export default function Orders({
                                             const quantity = Number(item.quantity ?? snapshot?.quantity ?? 0);
                                             const unitPrice = Number(item.price ?? snapshot?.unitPrice ?? 0);
                                             const lineTotal = Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity));
+                                            const itemTax = Number(item.tax_amount ?? snapshot?.taxAmount ?? 0);
+                                            const itemTaxRate = Number(item.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
+                                            const itemTaxCode = item.tax_code || snapshot?.taxCode || item.tax_name || snapshot?.taxName || '';
                                             return (
                                                 <div key={item.id} className="flex items-center gap-4 p-4">
                                                     <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
@@ -2685,6 +2691,11 @@ export default function Orders({
                                                     </div>
                                                     <div className="text-right text-sm font-semibold text-gray-800">
                                                         ₹{lineTotal.toLocaleString()}
+                                                        {itemTax > 0 && (
+                                                            <p className="text-[11px] text-gray-500 font-medium">
+                                                                Tax{itemTaxCode ? ` (${itemTaxCode}${itemTaxRate > 0 ? ` ${itemTaxRate}%` : ''})` : ''}: ₹{itemTax.toLocaleString()}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -2704,6 +2715,10 @@ export default function Orders({
                                     <div className="flex items-center justify-between">
                                         <span className="text-gray-500">Total Discount</span>
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-500">Tax</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between text-base font-semibold">
                                         <span>Total</span>
@@ -2950,7 +2965,12 @@ export default function Orders({
                                                         <p className="text-gray-500">{item.variantTitle || 'Default'} • Qty {item.quantity}</p>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="text-right font-semibold text-gray-700">₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}</span>
+                                                        <div className="text-right">
+                                                            <span className="font-semibold text-gray-700">₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}</span>
+                                                            {Number(item.taxAmount || 0) > 0 && (
+                                                                <p className="text-[10px] text-gray-500">Tax: ₹{Number(item.taxAmount || 0).toLocaleString('en-IN')}</p>
+                                                            )}
+                                                        </div>
                                                         <button
                                                             type="button"
                                                             onClick={() => removeManualCartItem(item?.productId, item?.variantId)}
@@ -2974,6 +2994,7 @@ export default function Orders({
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Coupon Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Member Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Shipping Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Tax</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.taxTotal)}</span></div>
                                             <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(effectiveManualSummary.total)}</span></div>
                                             {!manualSummary && (
                                                 <p className="text-xs text-gray-500">

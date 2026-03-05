@@ -309,6 +309,13 @@ const buildAttemptSnapshot = async ({
          WHERE ci.user_id = ?`,
         [userId]
     );
+    const summaryItems = Array.isArray(summary?.items) ? summary.items : [];
+    const taxByItemKey = new Map(
+        summaryItems.map((item) => {
+            const key = `${String(item?.productId || '')}::${String(item?.variantId || '')}`;
+            return [key, item];
+        })
+    );
     const items = [];
     for (const row of (cartRows || [])) {
         const quantity = Math.max(0, Number(row.quantity || 0));
@@ -351,6 +358,23 @@ const buildAttemptSnapshot = async ({
             productStatus: row.product_status || 'active',
             capturedAt: new Date().toISOString()
         });
+        const key = `${String(row.product_id || '')}::${String(row.variant_id || '')}`;
+        const taxRef = taxByItemKey.get(key) || null;
+        if (taxRef) {
+            const last = items[items.length - 1];
+            last.taxAmount = Number(taxRef.taxAmount || 0);
+            last.taxRatePercent = Number(taxRef.taxRatePercent || 0);
+            last.taxName = taxRef.taxName || null;
+            last.taxCode = taxRef.taxCode || null;
+            last.taxSnapshot = taxRef.taxName || taxRef.taxCode
+                ? {
+                    id: taxRef.taxId || null,
+                    name: taxRef.taxName || null,
+                    code: taxRef.taxCode || null,
+                    ratePercent: Number(taxRef.taxRatePercent || 0)
+                }
+                : null;
+        }
     }
     if (!summary || typeof summary !== 'object') {
         return {
@@ -367,6 +391,8 @@ const buildAttemptSnapshot = async ({
             couponDiscountTotal: Number(summary.couponDiscountTotal || 0),
             loyaltyDiscountTotal: Number(summary.loyaltyDiscountTotal || 0),
             loyaltyShippingDiscountTotal: Number(summary.loyaltyShippingDiscountTotal || 0),
+            taxTotal: Number(summary.taxTotal || 0),
+            taxBreakup: Array.isArray(summary.taxBreakup) ? summary.taxBreakup : [],
             discountTotal: Number(summary.discountTotal || 0),
             total: Number(summary.total || 0),
             currency: String(summary.currency || 'INR')

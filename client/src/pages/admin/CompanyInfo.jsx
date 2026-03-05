@@ -27,6 +27,8 @@ const DEFAULT_FORM = {
     contactNumber: '',
     supportEmail: '',
     address: '',
+    gstNumber: '',
+    taxEnabled: false,
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
@@ -42,6 +44,7 @@ const DEFAULT_FORM = {
 const isValidEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 const isValidContact = (value = '') => /^[0-9+\-\s()]{7,20}$/.test(String(value || '').trim());
 const isValidWhatsApp = (value = '') => /^\d{10,14}$/.test(String(value || '').trim());
+const isValidGst = (value = '') => /^[0-9A-Za-z]{15}$/.test(String(value || '').trim());
 const isValidUrl = (value = '') => {
     const raw = String(value || '').trim();
     if (!raw) return true;
@@ -62,6 +65,10 @@ export default function CompanyInfo() {
     const [isSaving, setIsSaving] = useState(false);
     const [isJumbotronUploading, setIsJumbotronUploading] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
+    const [taxRates, setTaxRates] = useState([]);
+    const [taxRateEdits, setTaxRateEdits] = useState({});
+    const [taxDraft, setTaxDraft] = useState({ name: '', code: '', ratePercent: '' });
+    const [isTaxLoading, setIsTaxLoading] = useState(false);
     const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
     const [modalConfig, setModalConfig] = useState({
         isOpen: false,
@@ -87,6 +94,7 @@ export default function CompanyInfo() {
                     razorpayKeySecret: '',
                     razorpayWebhookSecret: ''
                 });
+                normalizeTaxRates(data?.taxes);
                 await refreshUsers(false);
             } catch (error) {
                 toast.error(error.message || 'Failed to load settings');
@@ -124,6 +132,9 @@ export default function CompanyInfo() {
             errors.supportEmail = 'Support email is required';
         } else if (!isValidEmail(form.supportEmail)) {
             errors.supportEmail = 'Support email is invalid';
+        }
+        if (String(form.gstNumber || '').trim() && !isValidGst(form.gstNumber)) {
+            errors.gstNumber = 'GST number must be 15 alphanumeric characters';
         }
         if (!String(form.whatsappNumber || '').trim()) {
             errors.whatsappNumber = 'WhatsApp number is required';
@@ -195,6 +206,7 @@ export default function CompanyInfo() {
         try {
             const data = await adminService.updateCompanyInfo({
                 ...form,
+                gstNumber: String(form.gstNumber || '').trim().toUpperCase(),
                 razorpayEmiMinAmount: Number(form.razorpayEmiMinAmount || 0),
                 razorpayStartingTenureMonths: Number(form.razorpayStartingTenureMonths || 0)
             });
@@ -209,6 +221,69 @@ export default function CompanyInfo() {
             toast.error(error.message || 'Failed to update settings');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const normalizeTaxRates = (rows = []) => {
+        const nextRows = Array.isArray(rows) ? rows : [];
+        setTaxRates(nextRows);
+        setTaxRateEdits((prev) => {
+            const next = { ...prev };
+            nextRows.forEach((row) => {
+                next[row.id] = {
+                    name: String(row.name || ''),
+                    code: String(row.code || ''),
+                    ratePercent: String(row.ratePercent ?? '')
+                };
+            });
+            return next;
+        });
+    };
+
+    const handleCreateTax = async () => {
+        const name = String(taxDraft.name || '').trim();
+        const code = String(taxDraft.code || '').trim().toUpperCase();
+        const ratePercent = Number(taxDraft.ratePercent || 0);
+        if (!name) return toast.error('Tax name is required');
+        if (!code) return toast.error('Tax code is required');
+        if (!Number.isFinite(ratePercent) || ratePercent < 0 || ratePercent > 100) {
+            return toast.error('Tax rate must be between 0 and 100');
+        }
+        setIsTaxLoading(true);
+        try {
+            const data = await adminService.createTaxConfig({ name, code, ratePercent, isActive: true });
+            normalizeTaxRates(data?.taxes);
+            setTaxDraft({ name: '', code: '', ratePercent: '' });
+            toast.success('Tax rate added');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to add tax rate');
+        } finally {
+            setIsTaxLoading(false);
+        }
+    };
+
+    const updateTaxRate = async (taxId, patch = {}) => {
+        setIsTaxLoading(true);
+        try {
+            const data = await adminService.updateTaxConfig(taxId, patch);
+            normalizeTaxRates(data?.taxes);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to update tax rate');
+        } finally {
+            setIsTaxLoading(false);
+        }
+    };
+
+    const deleteTaxRate = async (taxId) => {
+        setIsTaxLoading(true);
+        try {
+            const data = await adminService.deleteTaxConfig(taxId);
+            normalizeTaxRates(data?.taxes);
+            toast.success('Tax rate deleted');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to delete tax rate');
+        } finally {
+            setIsTaxLoading(false);
         }
     };
 
@@ -411,6 +486,24 @@ export default function CompanyInfo() {
                             required
                             error={formErrors.whatsappNumber}
                         />
+                        <Field
+                            label="GST Number"
+                            value={form.gstNumber}
+                            onChange={(value) => handleChange('gstNumber', String(value || '').toUpperCase().replace(/[^0-9A-Za-z]/g, '').slice(0, 15))}
+                            placeholder="29ABCDE1234F2Z5"
+                            error={formErrors.gstNumber}
+                        />
+                        <label className="block">
+                            <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Tax Enabled</span>
+                            <div className="mt-2 h-[46px] px-4 rounded-xl border border-gray-200 flex items-center">
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(form.taxEnabled)}
+                                    onChange={(e) => handleChange('taxEnabled', e.target.checked)}
+                                />
+                                <span className="ml-2 text-sm text-gray-700">Enable GST/tax calculation in checkout and orders</span>
+                            </div>
+                        </label>
                     </div>
 
                     <label className="relative z-10 block">
@@ -485,6 +578,131 @@ export default function CompanyInfo() {
                         )}
                     </div>
                     {formErrors.socialUrl && <p className="relative z-10 text-xs text-red-600">{formErrors.socialUrl}</p>}
+                </div>
+
+                <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                    <Building2 size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                    <div className="relative z-10">
+                        <h3 className="text-sm font-semibold text-gray-800">Tax Management</h3>
+                        <p className="text-xs text-gray-500 mt-1">Configure multiple tax rates and mark one as default for products.</p>
+                    </div>
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-12 gap-3">
+                        <input
+                            className="md:col-span-4 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
+                            placeholder="Tax name (e.g. GST 3%)"
+                            value={taxDraft.name}
+                            onChange={(e) => setTaxDraft((prev) => ({ ...prev, name: e.target.value }))}
+                        />
+                        <input
+                            className="md:col-span-3 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
+                            placeholder="Code (GST3)"
+                            value={taxDraft.code}
+                            onChange={(e) => setTaxDraft((prev) => ({ ...prev, code: String(e.target.value || '').toUpperCase().replace(/[^0-9A-Z_]/g, '').slice(0, 40) }))}
+                        />
+                        <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="0.01"
+                            className="md:col-span-3 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
+                            placeholder="Rate %"
+                            value={taxDraft.ratePercent}
+                            onChange={(e) => setTaxDraft((prev) => ({ ...prev, ratePercent: e.target.value }))}
+                        />
+                        <button
+                            type="button"
+                            disabled={isTaxLoading}
+                            onClick={handleCreateTax}
+                            className="md:col-span-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                        >
+                            <Plus size={14} /> Add
+                        </button>
+                    </div>
+                    <div className="relative z-10 rounded-xl border border-gray-200 overflow-hidden">
+                        <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Name</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Code</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Rate</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Active</th>
+                                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Default</th>
+                                    <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {taxRates.map((tax) => (
+                                    <tr key={tax.id} className="border-t border-gray-100">
+                                        <td className="px-3 py-2 text-gray-700">
+                                            <input
+                                                value={taxRateEdits[tax.id]?.name ?? tax.name}
+                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), name: e.target.value } }))}
+                                                className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-700">
+                                            <input
+                                                value={taxRateEdits[tax.id]?.code ?? tax.code}
+                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), code: String(e.target.value || '').toUpperCase().replace(/[^0-9A-Z_]/g, '').slice(0, 40) } }))}
+                                                className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2 text-gray-700">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                value={taxRateEdits[tax.id]?.ratePercent ?? tax.ratePercent}
+                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), ratePercent: e.target.value } }))}
+                                                className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(tax.isActive)}
+                                                onChange={(e) => updateTaxRate(tax.id, { isActive: e.target.checked })}
+                                                disabled={isTaxLoading}
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            <input
+                                                type="radio"
+                                                name="defaultTaxRate"
+                                                checked={Boolean(tax.isDefault)}
+                                                onChange={() => updateTaxRate(tax.id, { isDefault: true })}
+                                                disabled={isTaxLoading}
+                                            />
+                                        </td>
+                                        <td className="px-3 py-2 text-right">
+                                            <button
+                                                type="button"
+                                                className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                                                onClick={() => saveTaxEdit(tax.id)}
+                                                disabled={isTaxLoading}
+                                            >
+                                                <Save size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                                onClick={() => deleteTaxRate(tax.id)}
+                                                disabled={isTaxLoading}
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {taxRates.length === 0 && (
+                                    <tr>
+                                        <td colSpan={6} className="px-3 py-5 text-center text-xs text-gray-500">No tax rates configured yet.</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
@@ -581,3 +799,11 @@ function Field({
         </label>
     );
 }
+    const saveTaxEdit = async (taxId) => {
+        const draft = taxRateEdits[taxId] || {};
+        await updateTaxRate(taxId, {
+            name: String(draft.name || '').trim(),
+            code: String(draft.code || '').trim().toUpperCase(),
+            ratePercent: Number(draft.ratePercent || 0)
+        });
+    };

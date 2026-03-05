@@ -147,17 +147,25 @@ const getItems = (order = {}) => {
         const paidUnit = toNumber(item.price ?? snapshot.unitPrice, 0);
         const mrpUnit = toNumber(item.original_price ?? snapshot.originalPrice, paidUnit) || paidUnit;
         const finalLineTotal = toNumber(item.line_total ?? snapshot.lineTotal, paidUnit * qty);
+        const taxRatePercent = toNumber(item.tax_rate_percent ?? snapshot.taxRatePercent, 0);
+        const taxAmount = toNumber(item.tax_amount ?? snapshot.taxAmount, 0);
+        const taxName = String(item.tax_name || snapshot.taxName || '').trim();
+        const taxCode = String(item.tax_code || snapshot.taxCode || '').trim();
         const variantTitle = item.variant_title || snapshot.variantTitle || '';
         const variantOptions = stringifyVariantOptions(snapshot.variantOptions || item.variant_options || item.variantOptions);
+        const taxLine = taxAmount > 0
+            ? `Tax${taxName || taxCode ? ` (${taxName || taxCode}${taxRatePercent > 0 ? ` ${taxRatePercent}%` : ''})` : ''}: ${inr(taxAmount)}`
+            : '';
 
         return {
             name: String(item.title || snapshot.title || 'Item'),
-            variantLine: [variantTitle, variantOptions].filter(Boolean).join(' | '),
+            variantLine: [variantTitle, variantOptions, taxLine].filter(Boolean).join(' | '),
             qty,
             unitPriceMrp: mrpUnit,
             unitPricePaid: paidUnit,
             discount: Math.max(0, (mrpUnit - paidUnit) * qty),
-            lineTotal: finalLineTotal
+            lineTotal: finalLineTotal,
+            taxAmount
         };
     });
 };
@@ -312,8 +320,9 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const couponDiscount = toNumber(order.coupon_discount_value, 0);
     const loyaltyDiscount = toNumber(order.loyalty_discount_total, 0);
     const loyaltyShippingDiscount = toNumber(order.loyalty_shipping_discount_total, 0);
+    const taxTotal = toNumber(order.tax_total, items.reduce((sum, item) => sum + toNumber(item.taxAmount, 0), 0));
     const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
-    const total = toNumber(order.total, subtotal + shippingFee - totalDiscount);
+    const total = toNumber(order.total, subtotal + shippingFee + taxTotal - totalDiscount);
     const couponCode = String(order.coupon_code || order.couponCode || '').trim();
     const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
 
@@ -399,10 +408,11 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, totalsY + 62);
     writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, totalsY + 80);
     writeTotal('Total Discounts', `- ${inr(totalDiscount)}`, totalsY + 98);
-    doc.moveTo(totalsX, totalsY + 120).lineTo(totalsX + 215, totalsY + 120).strokeColor('#D1D5DB').stroke();
-    writeTotal('Grand Total', inr(total), totalsY + 128, true);
+    writeTotal('Tax Total', inr(taxTotal), totalsY + 116);
+    doc.moveTo(totalsX, totalsY + 138).lineTo(totalsX + 215, totalsY + 138).strokeColor('#D1D5DB').stroke();
+    writeTotal('Grand Total', inr(total), totalsY + 146, true);
 
-    doc.y = totalsY + 164;
+    doc.y = totalsY + 182;
     ensureSpace(doc, 120, 52);
 
     const policyTop = doc.y;

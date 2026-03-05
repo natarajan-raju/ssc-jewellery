@@ -549,6 +549,9 @@ export default function AdminDashboard() {
                                                 Shipping: ₹{Number(incomingOrders[0]?.shipping_fee || 0).toLocaleString()}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
+                                                Tax: ₹{Number(incomingOrders[0]?.tax_total || 0).toLocaleString()}
+                                            </p>
+                                            <p className="mt-1 text-sm text-gray-700">
                                                 Ship To: {formatAddressPreview(incomingOrders[0]?.shipping_address || incomingOrders[0]?.shippingAddress)}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">

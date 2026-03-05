@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Upload, Youtube, Instagram, Image as ImageIcon, Trash2, GripVertical, CheckSquare, Plus, Pencil, Square, Check, ChevronLeft, ChevronRight} from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { productService } from '../services/productService';
+import { adminService } from '../services/adminService';
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null }) {
     const getYoutubeVideoId = (value = '') => {
@@ -58,9 +59,10 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const [formData, setFormData] = useState({
         title: '', subtitle: '', description: '', mrp: '', discount_price: '',
         ribbon_tag: '', sku: '', weight_kg: '', status: 'active',
-        track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0,
+        track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
         categories: []
     });
+    const [availableTaxes, setAvailableTaxes] = useState([]);
 
     const [mediaItems, setMediaItems] = useState([]); 
     
@@ -102,6 +104,9 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             productService.getCategories()
                 .then(data => setAvailableCategories(data))
                 .catch(err => console.error("Failed to load categories", err));
+            adminService.getTaxConfigs()
+                .then((data) => setAvailableTaxes(Array.isArray(data?.taxes) ? data.taxes : []))
+                .catch(() => setAvailableTaxes([]));
 
             // Existing Form Population Logic
             if (productToEdit) {
@@ -118,6 +123,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     sku: productToEdit.sku || '', 
                     weight_kg: productToEdit.weight_kg || '',
                     status: productToEdit.status || 'active', 
+                    tax_config_id: productToEdit.tax_config_id ? String(productToEdit.tax_config_id) : '',
                     categories: productToEdit.categories || [],                    
                     track_quantity: toBool(productToEdit.track_quantity),
                     quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
@@ -151,7 +157,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 // Reset for Add Mode
                 setFormData({
                     title: '', subtitle: '', description: '', mrp: '', discount_price: '', ribbon_tag: '', sku: '',
-                    weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0,
+                    weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
                     categories: []
                 });
                 setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
@@ -556,6 +562,22 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                     <select name="status" value={formData.status} onChange={handleChange} className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white">
                                         <option value="active">Active</option>
                                         <option value="inactive">Inactive</option>
+                                    </select>
+                                </div>
+                                <div className="space-y-4">
+                                    <label className="block text-sm font-bold text-gray-700">Tax Rate</label>
+                                    <select
+                                        name="tax_config_id"
+                                        value={formData.tax_config_id}
+                                        onChange={handleChange}
+                                        className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white"
+                                    >
+                                        <option value="">Default tax (from settings)</option>
+                                        {availableTaxes.map((tax) => (
+                                            <option key={tax.id} value={tax.id}>
+                                                {tax.name} ({Number(tax.ratePercent || 0).toFixed(2)}%){tax.isDefault ? ' • default' : ''}{!tax.isActive ? ' • inactive' : ''}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div className="space-y-4 md:col-span-2">

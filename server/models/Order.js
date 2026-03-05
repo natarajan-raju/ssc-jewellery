@@ -2,6 +2,7 @@ const db = require('../config/db');
 const AbandonedCart = require('./AbandonedCart');
 const Coupon = require('./Coupon');
 const CompanyProfile = require('./CompanyProfile');
+const TaxConfig = require('./TaxConfig');
 const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments, reassessUserTier } = require('../services/loyaltyService');
 
 const ORDER_REF_ALPHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -61,6 +62,7 @@ const parseJsonSafe = (value) => {
 
 const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
+const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 
 const applyDefaultPending = (order) => {
     if (!order) return order;
@@ -141,6 +143,136 @@ const getPrimaryMediaUrl = (value) => {
     }
 };
 
+const allocateProportionally = (amount = 0, bases = []) => {
+    const totalAmount = roundMoney(Math.max(0, Number(amount || 0)));
+    const safeBases = (Array.isArray(bases) ? bases : []).map((base) => roundMoney(Math.max(0, Number(base || 0))));
+    const totalBase = roundMoney(safeBases.reduce((sum, value) => sum + value, 0));
+    if (totalAmount <= 0 || totalBase <= 0 || !safeBases.length) {
+        return safeBases.map(() => 0);
+    }
+    const allocations = safeBases.map((base) => roundMoney((base / totalBase) * totalAmount));
+    const allocated = roundMoney(allocations.reduce((sum, value) => sum + value, 0));
+    const drift = roundMoney(totalAmount - allocated);
+    if (drift !== 0) {
+        let bestIndex = 0;
+        let bestBase = -1;
+        for (let i = 0; i < safeBases.length; i += 1) {
+            if (safeBases[i] > bestBase) {
+                bestBase = safeBases[i];
+                bestIndex = i;
+            }
+        }
+        allocations[bestIndex] = roundMoney(allocations[bestIndex] + drift);
+    }
+    return allocations;
+};
+
+const computeTaxForItems = async ({
+    connection,
+    orderItems = [],
+    subtotal = 0,
+    couponDiscountTotal = 0,
+    loyaltyDiscountTotal = 0
+} = {}) => {
+    const normalizedItems = Array.isArray(orderItems) ? orderItems : [];
+    if (!normalizedItems.length) {
+        return {
+            taxTotal: 0,
+            taxBreakup: [],
+            items: []
+        };
+    }
+
+    const companyProfile = await CompanyProfile.get();
+    const taxEnabled = Boolean(companyProfile?.taxEnabled);
+    const activeTaxes = taxEnabled ? await TaxConfig.listActive() : [];
+    const taxesById = new Map(activeTaxes.map((tax) => [Number(tax.id), tax]));
+    const defaultTax = activeTaxes.find((tax) => tax.isDefault) || activeTaxes[0] || null;
+    if (!taxEnabled || !defaultTax) {
+        const zeroItems = normalizedItems.map((item) => ({
+            ...item,
+            taxRatePercent: 0,
+            taxAmount: 0,
+            taxName: null,
+            taxCode: null,
+            taxBase: roundMoney(Number(item.lineTotal || 0)),
+            taxSnapshot: null,
+            snapshot: {
+                ...(item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : {}),
+                taxRatePercent: 0,
+                taxAmount: 0,
+                taxBase: roundMoney(Number(item.lineTotal || 0))
+            }
+        }));
+        return {
+            taxTotal: 0,
+            taxBreakup: [],
+            items: zeroItems
+        };
+    }
+
+    const safeSubtotal = roundMoney(Math.max(0, Number(subtotal || 0)));
+    const couponProductDiscount = roundMoney(Math.min(Math.max(0, Number(couponDiscountTotal || 0)), safeSubtotal));
+    const safeLoyaltyDiscount = roundMoney(Math.min(Math.max(0, Number(loyaltyDiscountTotal || 0)), Math.max(0, safeSubtotal - couponProductDiscount)));
+    const lineTotals = normalizedItems.map((item) => roundMoney(Math.max(0, Number(item.lineTotal || 0))));
+    const couponAllocations = allocateProportionally(couponProductDiscount, lineTotals);
+    const loyaltyAllocations = allocateProportionally(safeLoyaltyDiscount, lineTotals);
+
+    const taxBreakupMap = new Map();
+    let taxTotal = 0;
+    const taxedItems = normalizedItems.map((item, index) => {
+        const assignedTax = taxesById.get(Number(item.taxConfigId || 0)) || defaultTax;
+        const ratePercent = roundMoney(Math.max(0, Number(assignedTax?.ratePercent || 0)));
+        const lineTotal = lineTotals[index] || 0;
+        const lineDiscount = roundMoney((couponAllocations[index] || 0) + (loyaltyAllocations[index] || 0));
+        const taxBase = roundMoney(Math.max(0, lineTotal - lineDiscount));
+        const taxAmount = roundMoney((taxBase * ratePercent) / 100);
+        taxTotal = roundMoney(taxTotal + taxAmount);
+
+        const key = `${assignedTax?.id || 0}`;
+        const current = taxBreakupMap.get(key) || {
+            taxId: assignedTax?.id || null,
+            name: assignedTax?.name || null,
+            code: assignedTax?.code || null,
+            ratePercent,
+            taxableBase: 0,
+            taxAmount: 0
+        };
+        current.taxableBase = roundMoney(current.taxableBase + taxBase);
+        current.taxAmount = roundMoney(current.taxAmount + taxAmount);
+        taxBreakupMap.set(key, current);
+
+        return {
+            ...item,
+            taxRatePercent: ratePercent,
+            taxAmount,
+            taxName: assignedTax?.name || null,
+            taxCode: assignedTax?.code || null,
+            taxBase,
+            taxSnapshot: assignedTax ? {
+                id: assignedTax.id,
+                name: assignedTax.name,
+                code: assignedTax.code,
+                ratePercent
+            } : null,
+            snapshot: {
+                ...(item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : {}),
+                taxRatePercent: ratePercent,
+                taxAmount,
+                taxName: assignedTax?.name || null,
+                taxCode: assignedTax?.code || null,
+                taxBase
+            }
+        };
+    });
+
+    return {
+        taxTotal: roundMoney(taxTotal),
+        taxBreakup: Array.from(taxBreakupMap.values()),
+        items: taxedItems
+    };
+};
+
 const normalizeManualSelections = (items = []) => {
     const out = new Map();
     for (const row of (Array.isArray(items) ? items : [])) {
@@ -170,7 +302,7 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
     for (const selected of normalized) {
         const { productId, variantId, quantity } = selected;
         const [rows] = await connection.execute(
-            `SELECT p.id as product_id, p.title as product_title, p.status as product_status,
+            `SELECT p.id as product_id, p.title as product_title, p.status as product_status, p.tax_config_id,
                     p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
                     p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
                     pv.id as variant_id, pv.product_id as variant_product_id, pv.variant_title,
@@ -227,6 +359,7 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
         orderItems.push({
             productId,
             variantId: variantId || '',
+            taxConfigId: row.tax_config_id || null,
             title: row.product_title || 'Product',
             variantTitle: row.variant_title || null,
             quantity,
@@ -247,6 +380,7 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
                 lineTotal,
                 imageUrl,
                 sku: row.variant_sku || row.product_sku || null,
+                taxConfigId: row.tax_config_id || null,
                 weightKg: itemWeight,
                 productStatus: row.product_status || 'active',
                 capturedAt: new Date().toISOString()
@@ -436,9 +570,10 @@ class Order {
         const connection = await db.getConnection();
         try {
             const [cartRows] = await connection.execute(
-                `SELECT ci.quantity, ci.product_id,
-                        p.status as product_status, p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
-                        pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg
+                `SELECT ci.quantity, ci.product_id, ci.variant_id,
+                        p.title as product_title, p.status as product_status, p.tax_config_id,
+                        p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
+                        pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
                  LEFT JOIN product_variants pv ON pv.id = ci.variant_id
@@ -453,6 +588,7 @@ class Order {
             let subtotal = 0;
             let totalWeightKg = 0;
             let itemCount = 0;
+            const summaryItems = [];
 
             for (const row of cartRows) {
                 const quantity = Number(row.quantity || 0);
@@ -470,6 +606,16 @@ class Order {
                 subtotal += unitPrice * quantity;
                 totalWeightKg += itemWeight * quantity;
                 itemCount += quantity;
+                summaryItems.push({
+                    productId: row.product_id,
+                    variantId: row.variant_id || '',
+                    taxConfigId: row.tax_config_id || null,
+                    title: row.product_title || 'Product',
+                    variantTitle: row.variant_title || null,
+                    quantity,
+                    price: unitPrice,
+                    lineTotal: roundMoney(unitPrice * quantity)
+                });
             }
 
             if (!itemCount) {
@@ -526,8 +672,15 @@ class Order {
                 Math.max(0, shippingFee),
                 Number(loyaltyAdjustments.shippingDiscount || 0)
             );
+            const taxResult = await computeTaxForItems({
+                connection,
+                orderItems: summaryItems,
+                subtotal,
+                couponDiscountTotal,
+                loyaltyDiscountTotal
+            });
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
-            const total = Math.max(0, subtotal + shippingFee - discountTotal);
+            const total = Math.max(0, subtotal + shippingFee + Number(taxResult.taxTotal || 0) - discountTotal);
 
             return {
                 itemCount,
@@ -536,6 +689,21 @@ class Order {
                 couponDiscountTotal,
                 loyaltyDiscountTotal,
                 loyaltyShippingDiscountTotal,
+                taxTotal: Number(taxResult.taxTotal || 0),
+                taxBreakup: taxResult.taxBreakup || [],
+                items: (taxResult.items || []).map((item) => ({
+                    productId: item.productId,
+                    variantId: item.variantId || '',
+                    title: item.title || 'Product',
+                    variantTitle: item.variantTitle || null,
+                    quantity: item.quantity,
+                    price: item.price,
+                    lineTotal: item.lineTotal,
+                    taxAmount: Number(item.taxAmount || 0),
+                    taxRatePercent: Number(item.taxRatePercent || 0),
+                    taxName: item.taxName || null,
+                    taxCode: item.taxCode || null
+                })),
                 discountTotal,
                 total,
                 currency: 'INR',
@@ -567,7 +735,7 @@ class Order {
 
             const [cartRows] = await connection.execute(
                 `SELECT ci.product_id, ci.variant_id, ci.quantity,
-                        p.title as product_title, p.status as product_status,
+                        p.title as product_title, p.status as product_status, p.tax_config_id,
                         p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
                         p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
                         pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
@@ -658,6 +826,7 @@ class Order {
                 orderItems.push({
                     productId: row.product_id,
                     variantId: row.variant_id || '',
+                    taxConfigId: row.tax_config_id || null,
                     title: row.product_title,
                     variantTitle: row.variant_title || null,
                     quantity,
@@ -684,6 +853,7 @@ class Order {
                         lineTotal,
                         imageUrl,
                         sku: row.variant_sku || row.product_sku || null,
+                        taxConfigId: row.tax_config_id || null,
                         weightKg: itemWeight,
                         productStatus: row.product_status || 'active',
                         capturedAt: new Date().toISOString()
@@ -745,8 +915,18 @@ class Order {
                 Math.max(0, shippingFee),
                 Number(loyaltyAdjustments.shippingDiscount || 0)
             );
+            const taxResult = await computeTaxForItems({
+                connection,
+                orderItems,
+                subtotal,
+                couponDiscountTotal,
+                loyaltyDiscountTotal
+            });
+            const taxedOrderItems = taxResult.items || orderItems;
+            const taxTotal = Number(taxResult.taxTotal || 0);
+            const taxBreakup = taxResult.taxBreakup || [];
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
-            const total = Math.max(0, subtotal + shippingFee - discountTotal);
+            const total = Math.max(0, subtotal + shippingFee + taxTotal - discountTotal);
             const orderRef = await buildOrderRef(connection);
             const paymentStatus = payment?.paymentStatus || 'created';
             const paymentGateway = payment?.gateway || 'razorpay';
@@ -773,8 +953,8 @@ class Order {
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -798,6 +978,8 @@ class Order {
                     subtotal,
                     shippingFee,
                     discountTotal,
+                    taxTotal,
+                    JSON.stringify(taxBreakup),
                     total,
                     'INR',
                     JSON.stringify(billingAddress || null),
@@ -822,8 +1004,8 @@ class Order {
                 'INSERT INTO order_status_events (order_id, status) VALUES (?, ?)',
                 [orderId, 'confirmed']
             );
-            if (orderItems.length) {
-                const values = orderItems.map(item => ([
+            if (taxedOrderItems.length) {
+                const values = taxedOrderItems.map(item => ([
                     orderId,
                     item.productId,
                     item.variantId,
@@ -832,13 +1014,18 @@ class Order {
                     item.quantity,
                     item.price,
                     item.lineTotal,
+                    item.taxRatePercent || 0,
+                    item.taxAmount || 0,
+                    item.taxName || null,
+                    item.taxCode || null,
+                    item.taxSnapshot ? JSON.stringify(item.taxSnapshot) : null,
                     item.imageUrl,
                     item.sku,
                     JSON.stringify(item.snapshot || null)
                 ]));
                 await connection.query(
                     `INSERT INTO order_items 
-                    (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                    (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, tax_rate_percent, tax_amount, tax_name, tax_code, tax_snapshot_json, image_url, sku, item_snapshot)
                     VALUES ?`,
                     [values]
                 );
@@ -861,6 +1048,8 @@ class Order {
                 subtotal,
                 shippingFee,
                 discountTotal,
+                taxTotal,
+                taxBreakup,
                 total,
                 currency: 'INR',
                 couponCode: coupon?.code || null,
@@ -876,7 +1065,7 @@ class Order {
                 billingAddress: normalizeAddress(billingAddress),
                 shippingAddress: normalizeAddress(shippingAddress),
                 companySnapshot,
-                items: orderItems
+                items: taxedOrderItems
             };
         } catch (error) {
             await connection.rollback();
@@ -926,6 +1115,22 @@ class Order {
                     }
                 };
             });
+            const recoveryProductIds = [...new Set(orderItems.map((item) => item.productId).filter(Boolean))];
+            if (recoveryProductIds.length) {
+                const placeholders = recoveryProductIds.map(() => '?').join(',');
+                const [taxRows] = await connection.execute(
+                    `SELECT id, tax_config_id FROM products WHERE id IN (${placeholders})`,
+                    recoveryProductIds
+                );
+                const taxByProductId = new Map(taxRows.map((row) => [String(row.id), row.tax_config_id || null]));
+                orderItems.forEach((item) => {
+                    item.taxConfigId = taxByProductId.get(String(item.productId || '')) || null;
+                    item.snapshot = {
+                        ...(item.snapshot || {}),
+                        taxConfigId: item.taxConfigId
+                    };
+                });
+            }
 
             const subtotal = fromSubunits(Number(journey.cart_total_subunits || 0))
                 || orderItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
@@ -938,7 +1143,17 @@ class Order {
                 ? fromSubunits(Number(shippingFeeOverrideSubunits || 0))
                 : await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
             const discountTotal = 0;
-            const total = subtotal + shippingFee - discountTotal;
+            const taxResult = await computeTaxForItems({
+                connection,
+                orderItems,
+                subtotal,
+                couponDiscountTotal: 0,
+                loyaltyDiscountTotal: 0
+            });
+            const taxedOrderItems = taxResult.items || orderItems;
+            const taxTotal = Number(taxResult.taxTotal || 0);
+            const taxBreakup = taxResult.taxBreakup || [];
+            const total = subtotal + shippingFee + taxTotal - discountTotal;
 
             const paymentStatus = payment?.paymentStatus || 'paid';
             const paymentGateway = payment?.gateway || 'razorpay';
@@ -955,8 +1170,8 @@ class Order {
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     finalOrderRef,
                     userId,
@@ -980,6 +1195,8 @@ class Order {
                     subtotal,
                     shippingFee,
                     discountTotal,
+                    taxTotal,
+                    JSON.stringify(taxBreakup),
                     total,
                     'INR',
                     JSON.stringify(billingAddress || null),
@@ -996,7 +1213,7 @@ class Order {
                 [orderId, 'confirmed']
             );
 
-            const values = orderItems.map((item) => ([
+            const values = taxedOrderItems.map((item) => ([
                 orderId,
                 item.productId,
                 item.variantId,
@@ -1005,13 +1222,18 @@ class Order {
                 item.quantity,
                 item.price,
                 item.lineTotal,
+                item.taxRatePercent || 0,
+                item.taxAmount || 0,
+                item.taxName || null,
+                item.taxCode || null,
+                item.taxSnapshot ? JSON.stringify(item.taxSnapshot) : null,
                 item.imageUrl,
                 item.sku,
                 JSON.stringify(item.snapshot || null)
             ]));
             await connection.query(
                 `INSERT INTO order_items
-                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, tax_rate_percent, tax_amount, tax_name, tax_code, tax_snapshot_json, image_url, sku, item_snapshot)
                 VALUES ?`,
                 [values]
             );
@@ -1089,15 +1311,27 @@ class Order {
                 Math.max(0, shippingFee),
                 Number(loyaltyAdjustments.shippingDiscount || 0)
             );
+            const taxResult = await computeTaxForItems({
+                connection,
+                orderItems,
+                subtotal,
+                couponDiscountTotal,
+                loyaltyDiscountTotal
+            });
+            const taxedOrderItems = taxResult.items || orderItems;
+            const taxTotal = Number(taxResult.taxTotal || 0);
+            const taxBreakup = taxResult.taxBreakup || [];
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
-            const total = Math.max(0, subtotal + shippingFee - discountTotal);
+            const total = Math.max(0, subtotal + shippingFee + taxTotal - discountTotal);
             return {
-                items: orderItems,
+                items: taxedOrderItems,
                 subtotal,
                 shippingFee,
                 couponDiscountTotal,
                 loyaltyDiscountTotal,
                 loyaltyShippingDiscountTotal,
+                taxTotal,
+                taxBreakup,
                 discountTotal,
                 total,
                 currency: 'INR',
@@ -1131,6 +1365,8 @@ class Order {
                 couponDiscountTotal,
                 loyaltyDiscountTotal,
                 loyaltyShippingDiscountTotal,
+                taxTotal,
+                taxBreakup,
                 discountTotal,
                 total,
                 coupon,
@@ -1157,8 +1393,8 @@ class Order {
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -1182,6 +1418,8 @@ class Order {
                     subtotal,
                     shippingFee,
                     discountTotal,
+                    taxTotal,
+                    JSON.stringify(taxBreakup || []),
                     total,
                     'INR',
                     JSON.stringify(billingAddress || null),
@@ -1214,13 +1452,18 @@ class Order {
                 item.quantity,
                 item.price,
                 item.lineTotal,
+                item.taxRatePercent || 0,
+                item.taxAmount || 0,
+                item.taxName || null,
+                item.taxCode || null,
+                item.taxSnapshot ? JSON.stringify(item.taxSnapshot) : null,
                 item.imageUrl,
                 item.sku,
                 JSON.stringify(item.snapshot || null)
             ]));
             await connection.query(
                 `INSERT INTO order_items 
-                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, tax_rate_percent, tax_amount, tax_name, tax_code, tax_snapshot_json, image_url, sku, item_snapshot)
                 VALUES ?`,
                 [values]
             );
@@ -1317,6 +1560,8 @@ class Order {
         const shippingFee = Number(pricing.shippingFee ?? 0);
         const discountTotal = Number(pricing.discountTotal ?? 0);
         const total = Number(pricing.total ?? fromSubunits(attempt.amount_subunits) ?? 0);
+        const taxTotal = Number(pricing.taxTotal ?? 0);
+        const taxBreakup = Array.isArray(pricing.taxBreakup) ? pricing.taxBreakup : [];
         const couponDiscountTotal = Number(pricing.couponDiscountTotal ?? 0);
         const loyaltyDiscountTotal = Number(pricing.loyaltyDiscountTotal ?? 0);
         const loyaltyShippingDiscountTotal = Number(pricing.loyaltyShippingDiscountTotal ?? 0);
@@ -1334,6 +1579,7 @@ class Order {
                 quantity,
                 price: unitPrice,
                 lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+                taxConfigId: item?.taxConfigId || null,
                 imageUrl: item?.imageUrl || '',
                 sku: item?.sku || null,
                 snapshot: item && typeof item === 'object' ? item : null
@@ -1358,11 +1604,49 @@ class Order {
                 type: coupon?.type || null,
                 discountSubunits: toSubunits(couponDiscountTotal)
             } : null;
+            const hasTaxDataInSnapshot = orderItems.some((item) => {
+                const snap = item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : null;
+                return Number(item?.taxAmount || 0) > 0 || Number(snap?.taxAmount || 0) > 0 || Number(snap?.taxRatePercent || 0) > 0;
+            });
+            const taxComputed = hasTaxDataInSnapshot
+                ? {
+                    taxTotal: Number.isFinite(taxTotal) ? taxTotal : 0,
+                    taxBreakup: Array.isArray(taxBreakup) ? taxBreakup : [],
+                    items: orderItems.map((item) => {
+                        const snap = item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : {};
+                        return {
+                            ...item,
+                            taxRatePercent: Number(item.taxRatePercent ?? snap.taxRatePercent ?? 0),
+                            taxAmount: Number(item.taxAmount ?? snap.taxAmount ?? 0),
+                            taxName: item.taxName ?? snap.taxName ?? null,
+                            taxCode: item.taxCode ?? snap.taxCode ?? null,
+                            taxSnapshot: snap?.taxSnapshot || (snap.taxCode || snap.taxName ? {
+                                id: snap.taxId || null,
+                                name: snap.taxName || null,
+                                code: snap.taxCode || null,
+                                ratePercent: Number(snap.taxRatePercent || 0)
+                            } : null)
+                        };
+                    })
+                }
+                : await computeTaxForItems({
+                    connection,
+                    orderItems,
+                    subtotal,
+                    couponDiscountTotal,
+                    loyaltyDiscountTotal
+                });
+            const finalTaxTotal = Number(taxComputed.taxTotal || 0);
+            const finalTaxBreakup = taxComputed.taxBreakup || [];
+            const finalOrderItems = taxComputed.items || orderItems;
+            const finalTotal = Number.isFinite(total) && total > 0
+                ? total
+                : Math.max(0, subtotal + shippingFee + finalTaxTotal - discountTotal);
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -1386,7 +1670,9 @@ class Order {
                     subtotal,
                     shippingFee,
                     discountTotal,
-                    total,
+                    finalTaxTotal,
+                    JSON.stringify(finalTaxBreakup),
+                    finalTotal,
                     String(attempt.currency || 'INR'),
                     JSON.stringify(normalizeAddress(attempt.billing_address) || null),
                     JSON.stringify(normalizeAddress(attempt.shipping_address) || null),
@@ -1401,7 +1687,7 @@ class Order {
                 'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
                 [orderId, 'confirmed', actorUserId || null]
             );
-            const values = orderItems.map((item) => ([
+            const values = finalOrderItems.map((item) => ([
                 orderId,
                 item.productId,
                 item.variantId,
@@ -1410,13 +1696,18 @@ class Order {
                 item.quantity,
                 item.price,
                 item.lineTotal,
+                item.taxRatePercent || 0,
+                item.taxAmount || 0,
+                item.taxName || null,
+                item.taxCode || null,
+                item.taxSnapshot ? JSON.stringify(item.taxSnapshot) : null,
                 item.imageUrl,
                 item.sku,
                 JSON.stringify(item.snapshot || null)
             ]));
             await connection.query(
                 `INSERT INTO order_items
-                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, image_url, sku, item_snapshot)
+                (order_id, product_id, variant_id, title, variant_title, quantity, price, line_total, tax_rate_percent, tax_amount, tax_name, tax_code, tax_snapshot_json, image_url, sku, item_snapshot)
                 VALUES ?`,
                 [values]
             );
@@ -1881,6 +2172,7 @@ class Order {
                 settlement_snapshot: parseJsonSafe(row.settlement_snapshot),
                 refund_notes: parseJsonSafe(row.refund_notes),
                 loyalty_meta: parseJsonSafe(row.loyalty_meta),
+                tax_breakup_json: parseJsonSafe(row.tax_breakup_json),
                 attempt_notes: parseJsonSafe(row.attempt_notes),
                 coupon_meta: row?.coupon_meta && typeof row.coupon_meta === 'string'
                     ? (() => {
@@ -1917,6 +2209,11 @@ class Order {
                         quantity,
                         price: unitPrice,
                         line_total: Number.isFinite(lineTotal) ? lineTotal : 0,
+                        tax_rate_percent: Number(item?.taxRatePercent || 0),
+                        tax_amount: Number(item?.taxAmount || 0),
+                        tax_name: item?.taxName || null,
+                        tax_code: item?.taxCode || null,
+                        tax_snapshot_json: item?.taxSnapshot || null,
                         image_url: item?.imageUrl || '',
                         sku: item?.sku || null,
                         item_snapshot: item && typeof item === 'object' ? item : null
@@ -1959,6 +2256,10 @@ class Order {
                     subtotal: Number(pricing?.subtotal ?? base.subtotal ?? 0),
                     shipping_fee: Number(pricing?.shippingFee ?? base.shipping_fee ?? 0),
                     discount_total: Number(pricing?.discountTotal ?? base.discount_total ?? 0),
+                    tax_total: Number(pricing?.taxTotal ?? base.tax_total ?? 0),
+                    tax_breakup_json: Array.isArray(pricing?.taxBreakup)
+                        ? pricing.taxBreakup
+                        : (parseJsonSafe(base.tax_breakup_json) || []),
                     total: Number(pricing?.total ?? base.total ?? 0),
                     items: mappedSnapshotItems.length
                         ? mappedSnapshotItems
@@ -1989,14 +2290,15 @@ class Order {
             [orderId]
         );
         const normalizedItems = items.map((item) => {
-            if (item.item_snapshot && typeof item.item_snapshot === 'string') {
-                try {
-                    return { ...item, item_snapshot: JSON.parse(item.item_snapshot) };
-                } catch {
-                    return { ...item, item_snapshot: null };
-                }
+            let itemSnapshot = item.item_snapshot;
+            let taxSnapshot = item.tax_snapshot_json;
+            if (itemSnapshot && typeof itemSnapshot === 'string') {
+                try { itemSnapshot = JSON.parse(itemSnapshot); } catch { itemSnapshot = null; }
             }
-            return item;
+            if (taxSnapshot && typeof taxSnapshot === 'string') {
+                try { taxSnapshot = JSON.parse(taxSnapshot); } catch { taxSnapshot = null; }
+            }
+            return { ...item, item_snapshot: itemSnapshot, tax_snapshot_json: taxSnapshot };
         });
         const [events] = await db.execute(
             'SELECT * FROM order_status_events WHERE order_id = ? ORDER BY created_at ASC',
@@ -2010,6 +2312,7 @@ class Order {
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
             refund_notes: parseJsonSafe(order.refund_notes),
             loyalty_meta: parseJsonSafe(order.loyalty_meta),
+            tax_breakup_json: parseJsonSafe(order.tax_breakup_json),
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
                     try { return JSON.parse(order.coupon_meta); } catch { return null; }
@@ -2114,11 +2417,10 @@ class Order {
         );
         const itemsByOrder = items.reduce((acc, item) => {
             if (item.item_snapshot && typeof item.item_snapshot === 'string') {
-                try {
-                    item.item_snapshot = JSON.parse(item.item_snapshot);
-                } catch {
-                    item.item_snapshot = null;
-                }
+                try { item.item_snapshot = JSON.parse(item.item_snapshot); } catch { item.item_snapshot = null; }
+            }
+            if (item.tax_snapshot_json && typeof item.tax_snapshot_json === 'string') {
+                try { item.tax_snapshot_json = JSON.parse(item.tax_snapshot_json); } catch { item.tax_snapshot_json = null; }
             }
             acc[item.order_id] = acc[item.order_id] || [];
             acc[item.order_id].push(item);
@@ -2137,6 +2439,7 @@ class Order {
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
             refund_notes: parseJsonSafe(order.refund_notes),
             loyalty_meta: parseJsonSafe(order.loyalty_meta),
+            tax_breakup_json: parseJsonSafe(order.tax_breakup_json),
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
                     try { return JSON.parse(order.coupon_meta); } catch { return null; }

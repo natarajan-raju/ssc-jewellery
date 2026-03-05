@@ -573,6 +573,24 @@ export default function Checkout() {
         () => Number(checkoutSummary?.loyaltyShippingDiscountTotal ?? estimatedLoyaltyShippingDiscount ?? 0),
         [checkoutSummary?.loyaltyShippingDiscountTotal, estimatedLoyaltyShippingDiscount]
     );
+    const taxTotal = useMemo(
+        () => Number(checkoutSummary?.taxTotal ?? 0),
+        [checkoutSummary?.taxTotal]
+    );
+    const taxByItemKey = useMemo(() => {
+        const out = new Map();
+        const summaryItems = Array.isArray(checkoutSummary?.items) ? checkoutSummary.items : [];
+        summaryItems.forEach((item) => {
+            const key = `${String(item?.productId || '')}::${String(item?.variantId || '')}`;
+            out.set(key, {
+                taxAmount: Number(item?.taxAmount || 0),
+                taxRatePercent: Number(item?.taxRatePercent || 0),
+                taxName: item?.taxName || '',
+                taxCode: item?.taxCode || ''
+            });
+        });
+        return out;
+    }, [checkoutSummary?.items]);
     const hasServerLoyaltyDiscount = useMemo(
         () => Boolean(checkoutSummary && Object.prototype.hasOwnProperty.call(checkoutSummary, 'loyaltyDiscountTotal')),
         [checkoutSummary]
@@ -589,9 +607,9 @@ export default function Checkout() {
     );
     const grandTotal = useMemo(() => {
         if (checkoutSummary?.total != null) return Number(checkoutSummary.total || 0);
-        const gross = Number(subtotal || 0) + Number(shippingFee || 0);
+        const gross = Number(subtotal || 0) + Number(shippingFee || 0) + Number(taxTotal || 0);
         return Math.max(0, gross - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0));
-    }, [checkoutSummary?.total, subtotal, shippingFee, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]);
+    }, [checkoutSummary?.total, subtotal, shippingFee, taxTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]);
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
     const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
@@ -1158,6 +1176,8 @@ export default function Checkout() {
                                             const mrp = Number(item.compareAt || 0);
                                             const hasDiscount = mrp > price;
                                             const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                                            const taxKey = `${String(item.productId || item.product_id || '')}::${String(item.variantId || item.variant_id || '')}`;
+                                            const itemTax = taxByItemKey.get(taxKey) || null;
                                             return (
                                                 <div key={item.key} className={`flex gap-4 items-center ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
                                                     <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden">
@@ -1188,6 +1208,11 @@ export default function Checkout() {
                                                             )}
                                                         </div>
                                                         <p className="text-xs text-gray-400 mt-1">₹{item.lineTotal.toLocaleString()}</p>
+                                                        {itemTax && Number(itemTax.taxAmount || 0) > 0 && (
+                                                            <p className="text-[11px] text-gray-500 mt-0.5">
+                                                                Tax{itemTax.taxCode || itemTax.taxName ? ` (${itemTax.taxCode || itemTax.taxName}${itemTax.taxRatePercent > 0 ? ` ${itemTax.taxRatePercent}%` : ''})` : ''}: ₹{Number(itemTax.taxAmount || 0).toLocaleString()}
+                                                            </p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -1240,8 +1265,8 @@ export default function Checkout() {
                                         </div>
                                     )}
                                     <div className="flex items-center justify-between text-gray-500">
-                                        <span>Taxes</span>
-                                        <span className="font-semibold text-gray-800">Included</span>
+                                        <span>Tax</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(taxTotal || 0).toLocaleString()}</span>
                                     </div>
                                     {totalSavings > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
@@ -1379,6 +1404,10 @@ export default function Checkout() {
                                 <span className="text-gray-500">Shipping</span>
                                 <span className="font-semibold text-gray-800">₹{Number(orderResult.shippingFee || orderResult.shipping_fee || 0).toLocaleString()}</span>
                             </div>
+                            <div className="flex items-center justify-between text-sm mt-2">
+                                <span className="text-gray-500">Tax</span>
+                                <span className="font-semibold text-gray-800">₹{Number(orderResult.taxTotal || orderResult.tax_total || 0).toLocaleString()}</span>
+                            </div>
                             {Number(orderResult.discountTotal || orderResult.discount_total || 0) > 0 && (
                                 <div className="flex items-center justify-between text-sm mt-2">
                                     <span className="text-gray-500">Discount{orderResult.couponCode || orderResult.coupon_code ? ` (${orderResult.couponCode || orderResult.coupon_code})` : ''}</span>
@@ -1417,6 +1446,11 @@ export default function Checkout() {
                                                 </div>
                                             </div>
                                             <p className="text-sm font-semibold text-gray-800">₹{Number(item.line_total || item.lineTotal || 0).toLocaleString()}</p>
+                                            {Number(item.tax_amount || item.taxAmount || item.item_snapshot?.taxAmount || 0) > 0 && (
+                                                <p className="text-[11px] text-gray-500 text-right">
+                                                    Tax: ₹{Number(item.tax_amount || item.taxAmount || item.item_snapshot?.taxAmount || 0).toLocaleString()}
+                                                </p>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
