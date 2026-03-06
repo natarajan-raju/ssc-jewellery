@@ -50,6 +50,18 @@ const emitCouponChanged = (req, payload = {}) => {
     }
 };
 
+const emitCompanyTaxUpdate = async (req, { includeCompany = true } = {}) => {
+    const io = req.app.get('io');
+    if (!io) return;
+    const taxes = await TaxConfig.listAll().catch(() => []);
+    let company = null;
+    if (includeCompany) {
+        company = await CompanyProfile.get().catch(() => null);
+    }
+    io.emit('company:info_update', { company, taxes });
+    io.emit('tax:config_update', { taxes, ts: new Date().toISOString() });
+};
+
 const resolveCategoryCouponContext = async (categoryIds = []) => {
     const ids = [...new Set((Array.isArray(categoryIds) ? categoryIds : [])
         .map((id) => Number(id))
@@ -1806,10 +1818,7 @@ const updateCompanyInfo = async (req, res) => {
         }
 
         const company = await CompanyProfile.update(payload);
-        const io = req.app.get('io');
-        if (io) {
-            io.emit('company:info_update', { company });
-        }
+        await emitCompanyTaxUpdate(req, { includeCompany: true });
         return res.json({ company });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update company info' });
@@ -1829,6 +1838,7 @@ const createTaxConfig = async (req, res) => {
     try {
         const tax = await TaxConfig.create(req.body || {});
         const taxes = await TaxConfig.listAll();
+        await emitCompanyTaxUpdate(req, { includeCompany: false });
         return res.status(201).json({ tax, taxes });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to create tax rate' });
@@ -1843,6 +1853,7 @@ const updateTaxConfig = async (req, res) => {
         }
         const tax = await TaxConfig.update(taxId, req.body || {});
         const taxes = await TaxConfig.listAll();
+        await emitCompanyTaxUpdate(req, { includeCompany: false });
         return res.json({ tax, taxes });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update tax rate' });
@@ -1857,6 +1868,7 @@ const deleteTaxConfig = async (req, res) => {
         }
         await TaxConfig.remove(taxId);
         const taxes = await TaxConfig.listAll();
+        await emitCompanyTaxUpdate(req, { includeCompany: false });
         return res.json({ ok: true, taxes });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to delete tax rate' });
@@ -2165,6 +2177,30 @@ const deleteCoupon = async (req, res) => {
         if (!couponRef) {
             return res.status(400).json({ message: 'Invalid coupon id' });
         }
+
+        if (couponRef.startsWith('abandoned:')) {
+            const raw = couponRef.slice('abandoned:'.length);
+            const [userId = '', codePart = ''] = raw.split(':');
+            const normalizedUserId = String(userId || '').trim();
+            const normalizedCode = String(codePart || '').trim().toUpperCase();
+            if (!normalizedCode) {
+                return res.status(400).json({ message: 'Invalid abandoned coupon id' });
+            }
+            const affected = normalizedUserId
+                ? await AbandonedCart.deactivateDiscountByCodeForUser({ userId: normalizedUserId, code: normalizedCode })
+                : await AbandonedCart.deactivateDiscountByCode({ code: normalizedCode });
+            if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
+            emitCouponChanged(req, {
+                action: 'deleted',
+                code: normalizedCode,
+                scopeType: 'customer',
+                sourceType: 'abandoned',
+                userTargets: normalizedUserId ? [normalizedUserId] : [],
+                broadcast: !normalizedUserId
+            });
+            return res.json({ ok: true, id: couponRef, code: normalizedCode });
+        }
+
         const couponId = Number(couponRef);
         const isNumericId = Number.isFinite(couponId) && couponId > 0;
         const coupon = isNumericId

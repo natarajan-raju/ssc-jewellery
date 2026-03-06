@@ -353,6 +353,8 @@ const getCompanyInfo = async (_req, res) => {
                 youtubeUrl: profile.youtubeUrl,
                 facebookUrl: profile.facebookUrl,
                 whatsappNumber: profile.whatsappNumber,
+                gstNumber: profile.gstNumber || '',
+                taxEnabled: Boolean(profile.taxEnabled),
                 contactJumbotronImageUrl: profile.contactJumbotronImageUrl,
                 razorpayKeyId: profile.razorpayKeyId || '',
                 razorpayEmiMinAmount: Number(profile.razorpayEmiMinAmount || 3000),

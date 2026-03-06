@@ -25,9 +25,23 @@ import logoLight from '../../assets/logo_light.webp';
 import { burstConfetti } from '../../utils/celebration';
 import { orderService } from '../../services/orderService';
 import { useToast } from '../../context/ToastContext';
+import { getGstDisplayDetails } from '../../utils/gst';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
+const ADMIN_MURUGAR_POPUP_DATE_KEY = 'admin_murugar_popup_date_v1';
 const SHIPPING_POPUP_COOLDOWN_MS = 90 * 1000;
+const MURUGAR_IMAGES = Object.values(
+    import.meta.glob('../../assets/murugar/*', { eager: true, import: 'default' })
+).filter((src) => typeof src === 'string');
+
+const getLocalDateKey = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const formatAddressPreview = (value) => {
     if (!value) return '—';
     const parsed = typeof value === 'string' ? (() => {
@@ -59,6 +73,7 @@ export default function AdminDashboard() {
     const [ordersInitialManualCustomerId, setOrdersInitialManualCustomerId] = useState('');
     const [incomingOrders, setIncomingOrders] = useState([]);
     const [activePopupType, setActivePopupType] = useState(null);
+    const [activeMurugarImage, setActiveMurugarImage] = useState('');
     const [activeShippingSummary, setActiveShippingSummary] = useState(null);
     const [shippingPopupQueue, setShippingPopupQueue] = useState([]);
     const [shippingCooldownUntilTs, setShippingCooldownUntilTs] = useState(0);
@@ -150,7 +165,7 @@ export default function AdminDashboard() {
 
     const flushShippingQueueIfPossible = useCallback(() => {
         const now = Date.now();
-        if (activePopupType === 'order') return;
+        if (activePopupType) return;
         if (now < shippingCooldownUntilTs) return;
         setShippingPopupQueue((prev) => {
             if (!prev.length) return prev;
@@ -178,7 +193,7 @@ export default function AdminDashboard() {
             return [...deduped, summary];
         });
 
-        if (activePopupType === 'order') return;
+        if (activePopupType) return;
         if (now < shippingCooldownUntilTs) return;
         setShippingPopupQueue((prev) => {
             const deduped = prev.filter((entry) => shippingSummaryKey(entry) !== key);
@@ -190,9 +205,21 @@ export default function AdminDashboard() {
     }, [activePopupType, shippingCooldownUntilTs]);
 
     const showOrderPopup = useCallback(() => {
-        setActivePopupType('order');
         setActiveShippingSummary(null);
+        setActivePopupType((prev) => (prev === 'murugar' ? prev : 'order'));
     }, []);
+
+    useEffect(() => {
+        if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
+        if (!MURUGAR_IMAGES.length) return;
+        const todayKey = getLocalDateKey();
+        const lastShownDate = localStorage.getItem(ADMIN_MURUGAR_POPUP_DATE_KEY);
+        if (lastShownDate === todayKey) return;
+        const randomIndex = Math.floor(Math.random() * MURUGAR_IMAGES.length);
+        setActiveMurugarImage(MURUGAR_IMAGES[randomIndex] || '');
+        localStorage.setItem(ADMIN_MURUGAR_POPUP_DATE_KEY, todayKey);
+        setActivePopupType('murugar');
+    }, [user]);
 
     useEffect(() => {
         if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
@@ -363,6 +390,16 @@ export default function AdminDashboard() {
         setTimeout(() => {
             flushShippingQueueIfPossible();
         }, SHIPPING_POPUP_COOLDOWN_MS);
+    };
+
+    const dismissMurugarModal = () => {
+        if (incomingOrders.length > 0) {
+            setActiveShippingSummary(null);
+            setActivePopupType('order');
+            return;
+        }
+        setActivePopupType(null);
+        flushShippingQueueIfPossible();
     };
 
     return (
@@ -548,9 +585,14 @@ export default function AdminDashboard() {
                                             <p className="mt-1 text-sm text-gray-700">
                                                 Shipping: ₹{Number(incomingOrders[0]?.shipping_fee || 0).toLocaleString()}
                                             </p>
-                                            <p className="mt-1 text-sm text-gray-700">
-                                                Tax: ₹{Number(incomingOrders[0]?.tax_total || 0).toLocaleString()}
-                                            </p>
+                                            {Number(incomingOrders[0]?.tax_total || 0) > 0 && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    GST: ₹{Number(incomingOrders[0]?.tax_total || 0).toLocaleString()}
+                                                    <span className="block text-[11px] text-gray-500">
+                                                        {getGstDisplayDetails({ taxAmount: Number(incomingOrders[0]?.tax_total || 0) }).splitAmountLabel}
+                                                    </span>
+                                                </p>
+                                            )}
                                             <p className="mt-1 text-sm text-gray-700">
                                                 Ship To: {formatAddressPreview(incomingOrders[0]?.shipping_address || incomingOrders[0]?.shippingAddress)}
                                             </p>
@@ -663,6 +705,41 @@ export default function AdminDashboard() {
                                     className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
                                 >
                                     {Number(activeShippingSummary?.total || 0) === 1 ? 'Open Order Details' : 'Go to Orders (Shipped)'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {activePopupType === 'murugar' && createPortal(
+                <div className="fixed inset-0 z-[110] bg-black/60 flex items-center justify-center p-4">
+                    <div className="w-full max-w-md rounded-2xl bg-white border border-gray-200 shadow-2xl overflow-hidden">
+                        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-900">Daily Blessing</h3>
+                            <button onClick={dismissMurugarModal} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="p-5">
+                            {activeMurugarImage ? (
+                                <img
+                                    src={activeMurugarImage}
+                                    alt="Lord Murugar"
+                                    className="w-full max-h-[55vh] object-cover rounded-xl border border-gray-100"
+                                />
+                            ) : (
+                                <div className="w-full h-56 rounded-xl border border-gray-100 bg-gray-50" />
+                            )}
+                            <p className="mt-4 text-center text-xl font-semibold text-primary">ஓம் சரவண பவ</p>
+                            <div className="mt-5 flex justify-center">
+                                <button
+                                    type="button"
+                                    onClick={dismissMurugarModal}
+                                    className="px-5 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
+                                >
+                                    Continue
                                 </button>
                             </div>
                         </div>

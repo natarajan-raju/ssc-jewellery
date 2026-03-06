@@ -304,7 +304,7 @@ export default function LoyaltySettings({ onBack }) {
             adminService.listLoyaltyPopupTemplates().catch(() => ({ templates: [] })),
             productService.getCategoryStats().catch(() => null),
             productService.getCategories().catch(() => ({ categories: [] })),
-            adminService.getLoyaltyCoupons({ page: 1, limit: 100, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
+            adminService.getLoyaltyCoupons({ page: 1, limit: 500, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
         ]).then(([data, popupData, templateData, categoryStats, cats, popupCouponsData]) => {
             if (cancelled) return;
             applyConfigRows(Array.isArray(data?.config) ? data.config : []);
@@ -384,7 +384,7 @@ export default function LoyaltySettings({ onBack }) {
         'coupon:changed': () => {
             adminService.invalidateLoyaltyCouponCache();
             setCouponRefreshKey((v) => v + 1);
-            adminService.getLoyaltyCoupons({ page: 1, limit: 100, search: '', sourceType: 'all' })
+            adminService.getLoyaltyCoupons({ page: 1, limit: 500, search: '', sourceType: 'all' })
                 .then((data) => {
                     const rows = Array.isArray(data?.coupons) ? data.coupons : [];
                     const options = rows

@@ -25,6 +25,30 @@ const inr = (value) => `INR ${toNumber(value).toLocaleString('en-IN', {
     maximumFractionDigits: 2
 })}`;
 
+const roundToTwo = (value) => Math.round(toNumber(value, 0) * 100) / 100;
+const formatPercent = (value) => `${roundToTwo(value).toLocaleString('en-IN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+})}%`;
+const getGstRateSplit = (totalRatePercent = 0) => {
+    const totalRate = Math.max(0, toNumber(totalRatePercent, 0));
+    const halfRate = roundToTwo(totalRate / 2);
+    return {
+        totalRate,
+        halfRate,
+        label: `SGST ${formatPercent(halfRate)} + CGST ${formatPercent(halfRate)}`
+    };
+};
+const getGstAmountSplit = (totalTaxAmount = 0) => {
+    const totalTax = Math.max(0, toNumber(totalTaxAmount, 0));
+    const halfTax = roundToTwo(totalTax / 2);
+    return {
+        totalTax,
+        halfTax,
+        label: `SGST ${inr(halfTax)} + CGST ${inr(halfTax)}`
+    };
+};
+
 const formatDate = (value) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -154,7 +178,14 @@ const getItems = (order = {}) => {
         const variantTitle = item.variant_title || snapshot.variantTitle || '';
         const variantOptions = stringifyVariantOptions(snapshot.variantOptions || item.variant_options || item.variantOptions);
         const taxLine = taxAmount > 0
-            ? `Tax${taxName || taxCode ? ` (${taxName || taxCode}${taxRatePercent > 0 ? ` ${taxRatePercent}%` : ''})` : ''}: ${inr(taxAmount)}`
+            ? (() => {
+                const rateSplit = getGstRateSplit(taxRatePercent);
+                const amountSplit = getGstAmountSplit(taxAmount);
+                const taxHeader = taxName || taxCode
+                    ? `GST (${taxName || taxCode}${rateSplit.totalRate > 0 ? ` ${formatPercent(rateSplit.totalRate)}` : ''})`
+                    : `GST${rateSplit.totalRate > 0 ? ` (${formatPercent(rateSplit.totalRate)})` : ''}`;
+                return `${taxHeader}: ${inr(taxAmount)} [${rateSplit.label}; ${amountSplit.label}]`;
+            })()
             : '';
 
         return {
@@ -321,6 +352,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const loyaltyDiscount = toNumber(order.loyalty_discount_total, 0);
     const loyaltyShippingDiscount = toNumber(order.loyalty_shipping_discount_total, 0);
     const taxTotal = toNumber(order.tax_total, items.reduce((sum, item) => sum + toNumber(item.taxAmount, 0), 0));
+    const showTaxTotals = taxTotal > 0;
     const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
     const total = toNumber(order.total, subtotal + shippingFee + taxTotal - totalDiscount);
     const couponCode = String(order.coupon_code || order.couponCode || '').trim();
@@ -345,7 +377,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         } catch {}
     }
 
-    doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827').text('TAX INVOICE', 418, 42, { align: 'right' });
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827').text(showTaxTotals ? 'TAX INVOICE' : 'INVOICE', 418, 42, { align: 'right' });
     doc.font('Helvetica').fontSize(10).fillColor('#6B7280').text(`Invoice Date: ${formatDate(order.created_at || order.createdAt)}`, 360, 66, { width: 200, align: 'right' });
     doc.font('Helvetica').fontSize(10).fillColor('#6B7280').text(`Invoice No: INV-${orderRef}`, 340, 84, { width: 220, align: 'right' });
 
@@ -389,30 +421,53 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     let cursorY = drawItemsTable(doc, fonts, infoY + 34, items);
 
     doc.y = cursorY + 12;
-    ensureSpace(doc, 180, 52);
+    ensureSpace(doc, 230, 52);
 
     const totalsX = 350;
     const totalsY = doc.y;
-    const writeTotal = (label, value, y, strong = false) => {
-        doc.font(strong ? 'Helvetica-Bold' : 'Helvetica').fontSize(strong ? 11 : 10).fillColor(strong ? '#111827' : '#4B5563').text(label, totalsX, y, { width: 120 });
-        doc.font(strong ? 'Helvetica-Bold' : 'Helvetica').text(value, totalsX + 120, y, { width: 95, align: 'right' });
+    const writeTotal = (label, value, y, strong = false, options = {}) => {
+        const fontName = strong ? 'Helvetica-Bold' : 'Helvetica';
+        const fontSize = strong ? 11 : 10;
+        const color = strong ? '#111827' : '#4B5563';
+        const labelWidth = Number(options.labelWidth || 120);
+        const valueWidth = Number(options.valueWidth || 95);
+        const rowGap = Number(options.rowGap || 8);
+
+        doc.font(fontName).fontSize(fontSize);
+        const labelHeight = doc.heightOfString(String(label || ''), { width: labelWidth });
+        const valueHeight = doc.heightOfString(String(value || ''), { width: valueWidth, align: 'right' });
+        const rowHeight = Math.max(labelHeight, valueHeight);
+
+        doc.font(fontName).fontSize(fontSize).fillColor(color).text(label, totalsX, y, { width: labelWidth });
+        doc.font(fontName).fontSize(fontSize).fillColor(color).text(value, totalsX + labelWidth, y, { width: valueWidth, align: 'right' });
+
+        return y + rowHeight + rowGap;
     };
 
-    writeTotal('Subtotal', inr(subtotal), totalsY);
-    writeTotal('Shipping', inr(shippingFee), totalsY + 18);
-    writeTotal(
+    const nonShippingDiscount = Math.max(0, totalDiscount - loyaltyShippingDiscount);
+    const finalBeforeTaxAndShipping = Math.max(0, subtotal - nonShippingDiscount);
+    let runningY = totalsY;
+    runningY = writeTotal('Subtotal', inr(subtotal), runningY);
+    runningY = writeTotal(
         `Coupon Discount${couponCode ? ` (${couponCode})` : ''}`,
         `- ${inr(couponDiscount)}`,
-        totalsY + 36
+        runningY
     );
-    writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, totalsY + 62);
-    writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, totalsY + 80);
-    writeTotal('Total Discounts', `- ${inr(totalDiscount)}`, totalsY + 98);
-    writeTotal('Tax Total', inr(taxTotal), totalsY + 116);
-    doc.moveTo(totalsX, totalsY + 138).lineTo(totalsX + 215, totalsY + 138).strokeColor('#D1D5DB').stroke();
-    writeTotal('Grand Total', inr(total), totalsY + 146, true);
+    runningY = writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, runningY);
+    runningY = writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, runningY);
+    runningY = writeTotal('Total Savings', inr(totalDiscount), runningY);
+    runningY = writeTotal('Final (Before Tax & Shipping)', inr(finalBeforeTaxAndShipping), runningY);
+    runningY = writeTotal('Shipping', inr(shippingFee), runningY);
+    if (showTaxTotals) {
+        const taxSplit = getGstAmountSplit(taxTotal);
+        runningY = writeTotal('GST Total', inr(taxTotal), runningY, false, { rowGap: 3 });
+        doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
+        runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
+    }
+    doc.moveTo(totalsX, runningY).lineTo(totalsX + 215, runningY).strokeColor('#D1D5DB').stroke();
+    writeTotal('Grand Total', inr(total), runningY + 8, true);
 
-    doc.y = totalsY + 182;
+    doc.y = runningY + 44;
     ensureSpace(doc, 120, 52);
 
     const policyTop = doc.y;

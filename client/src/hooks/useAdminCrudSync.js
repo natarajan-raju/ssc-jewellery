@@ -14,6 +14,7 @@ export const ADMIN_CRUD_EVENTS = [
     'user:update',
     'user:delete',
     'company:info_update',
+    'tax:config_update',
     'coupon:changed',
     'shipping:update',
     'cms:hero_update',

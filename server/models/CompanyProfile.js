@@ -56,7 +56,7 @@ class CompanyProfile {
         await db.execute(
             `INSERT INTO company_profile
              (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -120,7 +120,7 @@ class CompanyProfile {
         await db.execute(
             `INSERT INTO company_profile
              (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 contact_number = VALUES(contact_number),

@@ -181,35 +181,39 @@ class Coupon {
 
     static async listCoupons({ page = 1, limit = 20, search = '', sourceType = 'all' } = {}, { connection = db } = {}) {
         const safePage = Math.max(1, Number(page || 1));
-        const safeLimit = Math.max(1, Math.min(100, Number(limit || 20)));
+        const safeLimit = Math.max(1, Math.min(500, Number(limit || 20)));
         const offset = (safePage - 1) * safeLimit;
-        const params = [];
-        let where = `WHERE c.is_active = 1
-            AND (c.starts_at IS NULL OR c.starts_at <= NOW())
-            AND (c.expires_at IS NULL OR c.expires_at >= NOW())`;
-        if (search) {
-            where += ' AND (c.code LIKE ? OR c.name LIKE ?)';
-            const term = `%${search}%`;
-            params.push(term, term);
+        const normalizedSearch = String(search || '').trim();
+        const normalizedSourceType = String(sourceType || 'all').trim().toLowerCase();
+        const includeStandardCoupons = normalizedSourceType !== 'abandoned';
+        const includeAbandonedCoupons = normalizedSourceType === 'all' || normalizedSourceType === 'abandoned';
+
+        let rows = [];
+        if (includeStandardCoupons) {
+            const params = [];
+            let where = `WHERE c.is_active = 1
+                AND (c.starts_at IS NULL OR c.starts_at <= NOW())
+                AND (c.expires_at IS NULL OR c.expires_at >= NOW())`;
+            if (normalizedSearch) {
+                where += ' AND (c.code LIKE ? OR c.name LIKE ?)';
+                const term = `%${normalizedSearch}%`;
+                params.push(term, term);
+            }
+            if (normalizedSourceType && normalizedSourceType !== 'all') {
+                where += ' AND c.source_type = ?';
+                params.push(normalizedSourceType);
+            }
+            const [couponRows] = await connection.execute(
+                `SELECT c.*,
+                        (SELECT COUNT(*) FROM coupon_redemptions cr WHERE cr.coupon_id = c.id) as used_count
+                 FROM coupons c
+                 ${where}
+                 ORDER BY c.created_at DESC`,
+                params
+            );
+            rows = couponRows;
         }
-        if (sourceType && sourceType !== 'all') {
-            where += ' AND c.source_type = ?';
-            params.push(String(sourceType).toLowerCase());
-        }
-        const [countRows] = await connection.execute(
-            `SELECT COUNT(*) as total FROM coupons c ${where}`,
-            params
-        );
-        const total = Number(countRows[0]?.total || 0);
-        const [rows] = await connection.execute(
-            `SELECT c.*,
-                    (SELECT COUNT(*) FROM coupon_redemptions cr WHERE cr.coupon_id = c.id) as used_count
-             FROM coupons c
-             ${where}
-             ORDER BY c.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [...params, safeLimit, offset]
-        );
+
         const couponIds = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
         const customerTargetsByCoupon = new Map();
         if (couponIds.length > 0) {
@@ -235,15 +239,84 @@ class Coupon {
                 });
             }
         }
-        return {
-            coupons: rows.map((row) => ({
-                ...row,
+
+        let abandonedRows = [];
+        if (includeAbandonedCoupons) {
+            const abandonedParams = [];
+            let abandonedWhere = `WHERE d.status = 'active'
+                AND (d.expires_at IS NULL OR d.expires_at >= NOW())`;
+            if (normalizedSearch) {
+                abandonedWhere += ' AND (d.code LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)';
+                const term = `%${normalizedSearch}%`;
+                abandonedParams.push(term, term, term);
+            }
+            const [rawAbandonedRows] = await connection.execute(
+                `SELECT d.id as abandoned_discount_id, d.user_id, d.journey_id, d.code, d.discount_type, d.discount_percent,
+                        d.max_discount_subunits, d.min_cart_subunits, d.expires_at, d.created_at, d.updated_at,
+                        COALESCE(u.name, '') as customer_name, COALESCE(u.mobile, '') as customer_mobile,
+                        (SELECT COUNT(*) FROM abandoned_cart_discounts dx WHERE UPPER(dx.code) = UPPER(d.code) AND dx.status = 'redeemed') as used_count
+                 FROM abandoned_cart_discounts d
+                 LEFT JOIN users u ON u.id = d.user_id
+                 ${abandonedWhere}
+                 ORDER BY d.created_at DESC`,
+                abandonedParams
+            );
+            abandonedRows = (Array.isArray(rawAbandonedRows) ? rawAbandonedRows : []).map((row) => ({
+                id: `abandoned:${String(row.user_id || '').trim()}:${String(row.code || '').trim().toUpperCase()}`,
+                code: String(row.code || '').trim().toUpperCase(),
+                name: row.customer_name
+                    ? `Abandoned Cart Recovery - ${row.customer_name}`
+                    : 'Abandoned Cart Recovery',
+                description: null,
+                source_type: 'abandoned',
+                scope_type: 'customer',
+                discount_type: row.discount_type || 'percent',
+                discount_value: Number(row.discount_percent || 0),
                 max_discount_value: row.max_discount_subunits != null ? fromSubunits(row.max_discount_subunits) : null,
-                category_scope_json: parseJson(row.category_scope_json, []),
-                metadata_json: parseJson(row.metadata_json, null),
+                max_discount_subunits: row.max_discount_subunits ?? null,
+                min_cart_subunits: Number(row.min_cart_subunits || 0),
+                starts_at: null,
+                expires_at: row.expires_at || null,
+                usage_limit_total: 1,
+                usage_limit_per_user: 1,
+                category_scope_json: [],
+                metadata_json: {
+                    journeyId: row.journey_id || null,
+                    userId: row.user_id || null,
+                    customerName: row.customer_name || '',
+                    customerMobile: row.customer_mobile || ''
+                },
                 used_count: Number(row.used_count || 0),
-                customer_targets: customerTargetsByCoupon.get(Number(row.id)) || []
-            })),
+                customer_targets: row.user_id
+                    ? [{
+                        user_id: row.user_id,
+                        name: row.customer_name || '',
+                        mobile: row.customer_mobile || '',
+                        email: ''
+                    }]
+                    : [],
+                created_at: row.created_at || null,
+                updated_at: row.updated_at || null
+            })).filter((row) => row.code);
+        }
+
+        const standardCoupons = rows.map((row) => ({
+            ...row,
+            max_discount_value: row.max_discount_subunits != null ? fromSubunits(row.max_discount_subunits) : null,
+            category_scope_json: parseJson(row.category_scope_json, []),
+            metadata_json: parseJson(row.metadata_json, null),
+            used_count: Number(row.used_count || 0),
+            customer_targets: customerTargetsByCoupon.get(Number(row.id)) || []
+        }));
+
+        const merged = [...standardCoupons, ...abandonedRows].sort(
+            (a, b) => new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime()
+        );
+        const total = merged.length;
+        const paged = merged.slice(offset, offset + safeLimit);
+
+        return {
+            coupons: paged,
             total,
             totalPages: Math.ceil(total / safeLimit)
         };
@@ -406,7 +479,7 @@ class Coupon {
              FROM coupons c
              WHERE c.is_active = 1
              ORDER BY c.created_at DESC
-             LIMIT 100`,
+             LIMIT 500`,
             [userId, userId]
         );
         const out = [];
@@ -504,7 +577,7 @@ class Coupon {
              FROM coupons c
              WHERE c.is_active = 1
              ORDER BY c.created_at DESC
-             LIMIT 100`,
+             LIMIT 500`,
             [userId, userId]
         );
         const out = [];

@@ -4,6 +4,7 @@ import { X, Upload, Youtube, Instagram, Image as ImageIcon, Trash2, GripVertical
 import { useToast } from '../context/ToastContext';
 import { productService } from '../services/productService';
 import { adminService } from '../services/adminService';
+import { getGstRateSplit } from '../utils/gst';
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null }) {
     const getYoutubeVideoId = (value = '') => {
@@ -573,11 +574,14 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                         className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white"
                                     >
                                         <option value="">Default tax (from settings)</option>
-                                        {availableTaxes.map((tax) => (
-                                            <option key={tax.id} value={tax.id}>
-                                                {tax.name} ({Number(tax.ratePercent || 0).toFixed(2)}%){tax.isDefault ? ' • default' : ''}{!tax.isActive ? ' • inactive' : ''}
-                                            </option>
-                                        ))}
+                                        {availableTaxes.map((tax) => {
+                                            const split = getGstRateSplit(Number(tax.ratePercent || 0));
+                                            return (
+                                                <option key={tax.id} value={tax.id}>
+                                                    {tax.name} ({split.totalRateLabel} | {split.splitRateLabel}){tax.isDefault ? ' • default' : ''}{!tax.isActive ? ' • inactive' : ''}
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                                 <div className="space-y-4 md:col-span-2">

@@ -22,6 +22,8 @@ const ADMIN_PAYMENT_TOAST_DEDUPE_MS = 15000;
 const adminPaymentToastSeen = new Map();
 const ADMIN_ORDER_TOAST_DEDUPE_MS = 8000;
 const adminOrderToastSeen = new Map();
+const ADMIN_NEW_ORDER_POPUP_DEDUPE_MS = 10 * 60 * 1000;
+const adminNewOrderPopupSeen = new Map();
 
 export const SocketProvider = ({ children }) => {
     const [socket, setSocket] = useState(globalSocket);
@@ -58,9 +60,38 @@ export const SocketProvider = ({ children }) => {
             window.dispatchEvent(new CustomEvent('orders:cache-updated', { detail: payload }));
         };
 
+        const dispatchAdminNewOrderPopup = (order = null) => {
+            if (!order || typeof window === 'undefined') return;
+            const orderId = String(order?.id || order?.order_id || order?.orderId || '').trim();
+            if (!orderId) return;
+            const now = Date.now();
+            const seenAt = adminNewOrderPopupSeen.get(orderId) || 0;
+            if (seenAt && now - seenAt <= ADMIN_NEW_ORDER_POPUP_DEDUPE_MS) return;
+            adminNewOrderPopupSeen.set(orderId, now);
+            if (adminNewOrderPopupSeen.size > 400) {
+                const cutoff = now - ADMIN_NEW_ORDER_POPUP_DEDUPE_MS;
+                for (const [key, ts] of adminNewOrderPopupSeen.entries()) {
+                    if (ts < cutoff) adminNewOrderPopupSeen.delete(key);
+                }
+            }
+            window.dispatchEvent(new CustomEvent('admin:new-order', { detail: { ...order, id: orderId } }));
+        };
+
+        const shouldTreatAsFreshOrder = (order = null, fallbackStatus = '') => {
+            if (!order || typeof order !== 'object') return false;
+            const status = String(order?.status || fallbackStatus || '').toLowerCase();
+            if (!['confirmed', 'created', 'pending'].includes(status)) return false;
+            const ts = new Date(order?.created_at || order?.createdAt || 0).getTime();
+            if (!Number.isFinite(ts) || ts <= 0) return false;
+            return (Date.now() - ts) <= 10 * 60 * 1000;
+        };
+
         const handleOrderUpdate = (payload = {}) => {
             if (payload?.order) {
                 orderService.patchMyOrdersCache(payload.order);
+                if (user && (user.role === 'admin' || user.role === 'staff') && shouldTreatAsFreshOrder(payload.order, payload?.status)) {
+                    dispatchAdminNewOrderPopup(payload.order);
+                }
             }
             if (!payload?.silent && user && (user.role === 'admin' || user.role === 'staff')) {
                 const orderRef = payload?.order?.order_ref || payload?.order?.orderRef || `#${payload?.order?.id || payload?.orderId || ''}`;
@@ -110,9 +141,7 @@ export const SocketProvider = ({ children }) => {
                     total: payload?.total || 0,
                     payment_status: payload?.payment_status || payload?.paymentStatus || 'pending'
                 };
-                if (typeof window !== 'undefined' && (normalizedOrderForPopup?.id || normalizedOrderForPopup?.order_id)) {
-                    window.dispatchEvent(new CustomEvent('admin:new-order', { detail: normalizedOrderForPopup }));
-                }
+                dispatchAdminNewOrderPopup(normalizedOrderForPopup);
             }
             orderService.clearAdminListCache();
             notifyApp({ ...payload, order: finalOrder || payload?.order || null });
@@ -256,6 +285,7 @@ export const SocketProvider = ({ children }) => {
         socket.on('user:update', handleAdminCrud);
         socket.on('user:delete', handleAdminCrud);
         socket.on('company:info_update', handleAdminCrud);
+        socket.on('tax:config_update', handleAdminCrud);
         socket.on('coupon:changed', handleAdminCrud);
         socket.on('shipping:update', handleAdminCrud);
         socket.on('cms:hero_update', handleAdminCrud);
@@ -277,6 +307,7 @@ export const SocketProvider = ({ children }) => {
             socket.off('user:update', handleAdminCrud);
             socket.off('user:delete', handleAdminCrud);
             socket.off('company:info_update', handleAdminCrud);
+            socket.off('tax:config_update', handleAdminCrud);
             socket.off('coupon:changed', handleAdminCrud);
             socket.off('shipping:update', handleAdminCrud);
             socket.off('cms:hero_update', handleAdminCrud);

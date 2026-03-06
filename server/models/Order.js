@@ -171,8 +171,10 @@ const computeTaxForItems = async ({
     connection,
     orderItems = [],
     subtotal = 0,
+    shippingFee = 0,
     couponDiscountTotal = 0,
-    loyaltyDiscountTotal = 0
+    loyaltyDiscountTotal = 0,
+    loyaltyShippingDiscountTotal = 0
 } = {}) => {
     const normalizedItems = Array.isArray(orderItems) ? orderItems : [];
     if (!normalizedItems.length) {
@@ -212,8 +214,18 @@ const computeTaxForItems = async ({
     }
 
     const safeSubtotal = roundMoney(Math.max(0, Number(subtotal || 0)));
-    const couponProductDiscount = roundMoney(Math.min(Math.max(0, Number(couponDiscountTotal || 0)), safeSubtotal));
+    const safeShippingFee = roundMoney(Math.max(0, Number(shippingFee || 0)));
+    const safeCouponDiscount = roundMoney(Math.max(0, Number(couponDiscountTotal || 0)));
+    const couponProductDiscount = roundMoney(Math.min(safeCouponDiscount, safeSubtotal));
+    const couponShippingDiscount = roundMoney(Math.min(
+        Math.max(0, safeCouponDiscount - couponProductDiscount),
+        safeShippingFee
+    ));
     const safeLoyaltyDiscount = roundMoney(Math.min(Math.max(0, Number(loyaltyDiscountTotal || 0)), Math.max(0, safeSubtotal - couponProductDiscount)));
+    const safeLoyaltyShippingDiscount = roundMoney(Math.min(
+        Math.max(0, Number(loyaltyShippingDiscountTotal || 0)),
+        Math.max(0, safeShippingFee - couponShippingDiscount)
+    ));
     const lineTotals = normalizedItems.map((item) => roundMoney(Math.max(0, Number(item.lineTotal || 0))));
     const couponAllocations = allocateProportionally(couponProductDiscount, lineTotals);
     const loyaltyAllocations = allocateProportionally(safeLoyaltyDiscount, lineTotals);
@@ -265,6 +277,28 @@ const computeTaxForItems = async ({
             }
         };
     });
+
+    const shippingTaxBase = roundMoney(Math.max(
+        0,
+        safeShippingFee - couponShippingDiscount - safeLoyaltyShippingDiscount
+    ));
+    if (shippingTaxBase > 0) {
+        const shippingRatePercent = roundMoney(Math.max(0, Number(defaultTax?.ratePercent || 0)));
+        const shippingTaxAmount = roundMoney((shippingTaxBase * shippingRatePercent) / 100);
+        taxTotal = roundMoney(taxTotal + shippingTaxAmount);
+        const shippingKey = `${defaultTax?.id || 0}`;
+        const shippingCurrent = taxBreakupMap.get(shippingKey) || {
+            taxId: defaultTax?.id || null,
+            name: defaultTax?.name || null,
+            code: defaultTax?.code || null,
+            ratePercent: shippingRatePercent,
+            taxableBase: 0,
+            taxAmount: 0
+        };
+        shippingCurrent.taxableBase = roundMoney(shippingCurrent.taxableBase + shippingTaxBase);
+        shippingCurrent.taxAmount = roundMoney(shippingCurrent.taxAmount + shippingTaxAmount);
+        taxBreakupMap.set(shippingKey, shippingCurrent);
+    }
 
     return {
         taxTotal: roundMoney(taxTotal),
@@ -676,8 +710,10 @@ class Order {
                 connection,
                 orderItems: summaryItems,
                 subtotal,
+                shippingFee,
                 couponDiscountTotal,
-                loyaltyDiscountTotal
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal
             });
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
             const total = Math.max(0, subtotal + shippingFee + Number(taxResult.taxTotal || 0) - discountTotal);
@@ -919,8 +955,10 @@ class Order {
                 connection,
                 orderItems,
                 subtotal,
+                shippingFee,
                 couponDiscountTotal,
-                loyaltyDiscountTotal
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal
             });
             const taxedOrderItems = taxResult.items || orderItems;
             const taxTotal = Number(taxResult.taxTotal || 0);
@@ -1147,8 +1185,10 @@ class Order {
                 connection,
                 orderItems,
                 subtotal,
+                shippingFee,
                 couponDiscountTotal: 0,
-                loyaltyDiscountTotal: 0
+                loyaltyDiscountTotal: 0,
+                loyaltyShippingDiscountTotal: 0
             });
             const taxedOrderItems = taxResult.items || orderItems;
             const taxTotal = Number(taxResult.taxTotal || 0);
@@ -1315,8 +1355,10 @@ class Order {
                 connection,
                 orderItems,
                 subtotal,
+                shippingFee,
                 couponDiscountTotal,
-                loyaltyDiscountTotal
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal
             });
             const taxedOrderItems = taxResult.items || orderItems;
             const taxTotal = Number(taxResult.taxTotal || 0);
@@ -1633,8 +1675,10 @@ class Order {
                     connection,
                     orderItems,
                     subtotal,
+                    shippingFee,
                     couponDiscountTotal,
-                    loyaltyDiscountTotal
+                    loyaltyDiscountTotal,
+                    loyaltyShippingDiscountTotal
                 });
             const finalTaxTotal = Number(taxComputed.taxTotal || 0);
             const finalTaxBreakup = taxComputed.taxBreakup || [];

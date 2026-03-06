@@ -411,10 +411,6 @@ export default function CartPage() {
                                         </Link>
                                     </div>
                                 )}
-                                <div className="flex items-center justify-between">
-                                    <span>Taxes</span>
-                                    <span className="font-semibold text-gray-800">Included</span>
-                                </div>
                                 {totalSavings > 0 && (
                                     <div className="flex items-center justify-between text-emerald-700">
                                         <span>Total savings</span>

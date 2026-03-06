@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Building2,
     CreditCard,
@@ -18,6 +18,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCustomers } from '../../context/CustomerContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
+import { getGstRateSplit } from '../../utils/gst';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import Modal from '../../components/Modal';
 import fallbackContactImage from '../../assets/contact.jpg';
@@ -60,6 +61,7 @@ export default function CompanyInfo() {
     const toast = useToast();
     const { user: currentUser } = useAuth();
     const { users, refreshUsers } = useCustomers();
+    const refreshUsersRef = useRef(refreshUsers);
     const [form, setForm] = useState(DEFAULT_FORM);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -84,6 +86,10 @@ export default function CompanyInfo() {
     );
 
     useEffect(() => {
+        refreshUsersRef.current = refreshUsers;
+    }, [refreshUsers]);
+
+    useEffect(() => {
         const load = async () => {
             setIsLoading(true);
             try {
@@ -95,7 +101,7 @@ export default function CompanyInfo() {
                     razorpayWebhookSecret: ''
                 });
                 normalizeTaxRates(data?.taxes);
-                await refreshUsers(false);
+                await refreshUsersRef.current?.(false);
             } catch (error) {
                 toast.error(error.message || 'Failed to load settings');
             } finally {
@@ -103,7 +109,7 @@ export default function CompanyInfo() {
             }
         };
         load();
-    }, [toast, refreshUsers]);
+    }, [toast]);
 
     useAdminCrudSync({
         'company:info_update': ({ company } = {}) => {
@@ -133,8 +139,12 @@ export default function CompanyInfo() {
         } else if (!isValidEmail(form.supportEmail)) {
             errors.supportEmail = 'Support email is invalid';
         }
-        if (String(form.gstNumber || '').trim() && !isValidGst(form.gstNumber)) {
+        const gstRaw = String(form.gstNumber || '').trim();
+        if (gstRaw && !isValidGst(gstRaw)) {
             errors.gstNumber = 'GST number must be 15 alphanumeric characters';
+        }
+        if (form.taxEnabled && !gstRaw) {
+            errors.gstNumber = 'GST number is required to enable GST';
         }
         if (!String(form.whatsappNumber || '').trim()) {
             errors.whatsappNumber = 'WhatsApp number is required';
@@ -161,6 +171,17 @@ export default function CompanyInfo() {
         }
         return errors;
     }, [form]);
+
+    const hasGstNumber = useMemo(
+        () => Boolean(String(form.gstNumber || '').trim()),
+        [form.gstNumber]
+    );
+
+    useEffect(() => {
+        if (!hasGstNumber && form.taxEnabled) {
+            setForm((prev) => ({ ...prev, taxEnabled: false }));
+        }
+    }, [hasGstNumber, form.taxEnabled]);
 
     const canResetPassword = (targetUser) => {
         if (!currentUser) return false;
@@ -348,6 +369,15 @@ export default function CompanyInfo() {
         }
     };
 
+    const saveTaxEdit = async (taxId) => {
+        const draft = taxRateEdits[taxId] || {};
+        await updateTaxRate(taxId, {
+            name: String(draft.name || '').trim(),
+            code: String(draft.code || '').trim().toUpperCase(),
+            ratePercent: Number(draft.ratePercent || 0)
+        });
+    };
+
     if (isLoading) {
         return <div className="py-16 text-center text-gray-400">Loading settings...</div>;
     }
@@ -493,17 +523,6 @@ export default function CompanyInfo() {
                             placeholder="29ABCDE1234F2Z5"
                             error={formErrors.gstNumber}
                         />
-                        <label className="block">
-                            <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Tax Enabled</span>
-                            <div className="mt-2 h-[46px] px-4 rounded-xl border border-gray-200 flex items-center">
-                                <input
-                                    type="checkbox"
-                                    checked={Boolean(form.taxEnabled)}
-                                    onChange={(e) => handleChange('taxEnabled', e.target.checked)}
-                                />
-                                <span className="ml-2 text-sm text-gray-700">Enable GST/tax calculation in checkout and orders</span>
-                            </div>
-                        </label>
                     </div>
 
                     <label className="relative z-10 block">
@@ -586,40 +605,158 @@ export default function CompanyInfo() {
                         <h3 className="text-sm font-semibold text-gray-800">Tax Management</h3>
                         <p className="text-xs text-gray-500 mt-1">Configure multiple tax rates and mark one as default for products.</p>
                     </div>
-                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-12 gap-3">
-                        <input
-                            className="md:col-span-4 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
-                            placeholder="Tax name (e.g. GST 3%)"
-                            value={taxDraft.name}
-                            onChange={(e) => setTaxDraft((prev) => ({ ...prev, name: e.target.value }))}
-                        />
-                        <input
-                            className="md:col-span-3 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
-                            placeholder="Code (GST3)"
-                            value={taxDraft.code}
-                            onChange={(e) => setTaxDraft((prev) => ({ ...prev, code: String(e.target.value || '').toUpperCase().replace(/[^0-9A-Z_]/g, '').slice(0, 40) }))}
-                        />
-                        <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            className="md:col-span-3 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
-                            placeholder="Rate %"
-                            value={taxDraft.ratePercent}
-                            onChange={(e) => setTaxDraft((prev) => ({ ...prev, ratePercent: e.target.value }))}
-                        />
-                        <button
-                            type="button"
-                            disabled={isTaxLoading}
-                            onClick={handleCreateTax}
-                            className="md:col-span-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                        >
-                            <Plus size={14} /> Add
-                        </button>
+                    <div className="relative z-10">
+                        <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${hasGstNumber ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50 text-gray-400'}`}>
+                            <input
+                                type="checkbox"
+                                checked={Boolean(form.taxEnabled)}
+                                onChange={(e) => handleChange('taxEnabled', e.target.checked)}
+                                disabled={!hasGstNumber}
+                            />
+                            <span className="text-sm font-medium">Enable GST</span>
+                        </label>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                            GST is applied in checkout/orders only when enabled. Enter GST number first to enable this.
+                        </p>
                     </div>
-                    <div className="relative z-10 rounded-xl border border-gray-200 overflow-hidden">
-                        <table className="w-full text-sm">
+                    <div className={`relative z-10 transition-all ${Boolean(form.taxEnabled) ? '' : 'pointer-events-none select-none opacity-60 blur-[1.2px]'}`}>
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                        <div className="md:col-span-4">
+                            <input
+                                className="h-[46px] md:h-11 w-full rounded-xl border border-gray-200 px-4 text-sm text-gray-700 focus:border-accent outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                                placeholder="Tax name (e.g. GST 3%)"
+                                value={taxDraft.name}
+                                onChange={(e) => setTaxDraft((prev) => ({ ...prev, name: e.target.value }))}
+                                disabled={isTaxLoading}
+                            />
+                        </div>
+                        <div className="md:col-span-3">
+                            <input
+                                className="h-[46px] md:h-11 w-full rounded-xl border border-gray-200 px-4 text-sm text-gray-700 focus:border-accent outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                                placeholder="Code (GST3)"
+                                value={taxDraft.code}
+                                onChange={(e) => setTaxDraft((prev) => ({ ...prev, code: String(e.target.value || '').toUpperCase().replace(/[^0-9A-Z_]/g, '').slice(0, 40) }))}
+                                disabled={isTaxLoading}
+                            />
+                        </div>
+                        <div className="md:col-span-3">
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                className="h-[46px] md:h-11 w-full rounded-xl border border-gray-200 px-4 text-sm text-gray-700 focus:border-accent outline-none disabled:bg-gray-50 disabled:text-gray-400"
+                                placeholder="Rate %"
+                                value={taxDraft.ratePercent}
+                                onChange={(e) => setTaxDraft((prev) => ({ ...prev, ratePercent: e.target.value }))}
+                                disabled={isTaxLoading}
+                            />
+                        </div>
+                        <div className="md:col-span-2">
+                            <button
+                                type="button"
+                                disabled={isTaxLoading}
+                                onClick={handleCreateTax}
+                                className="h-[46px] md:h-11 w-full inline-flex items-center justify-center gap-2 px-4 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                            >
+                                <Plus size={14} /> Add
+                            </button>
+                        </div>
+                    </div>
+                    <p className="mt-2 text-[11px] text-gray-500">
+                        {getGstRateSplit(Number(taxDraft.ratePercent || 0)).splitRateLabel}
+                    </p>
+                    <div className="mt-1 rounded-xl border border-gray-200 overflow-hidden">
+                        <div className="md:hidden divide-y divide-gray-100">
+                            {taxRates.map((tax) => {
+                                const currentEdit = taxRateEdits[tax.id] || {};
+                                const split = getGstRateSplit(Number(currentEdit.ratePercent ?? tax.ratePercent ?? 0));
+                                return (
+                                    <div key={`m-tax-${tax.id}`} className="p-3 grid grid-cols-2 gap-3">
+                                        <div>
+                                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">Name</p>
+                                            <input
+                                                value={currentEdit.name ?? tax.name}
+                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), name: e.target.value } }))}
+                                                className="h-9 w-full rounded-lg border border-gray-200 px-2 text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">Code</p>
+                                            <input
+                                                value={currentEdit.code ?? tax.code}
+                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), code: String(e.target.value || '').toUpperCase().replace(/[^0-9A-Z_]/g, '').slice(0, 40) } }))}
+                                                className="h-9 w-full rounded-lg border border-gray-200 px-2 text-xs"
+                                            />
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-1">GST Rate %</p>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                step="0.01"
+                                                value={currentEdit.ratePercent ?? tax.ratePercent}
+                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), ratePercent: e.target.value } }))}
+                                                className="h-9 w-full rounded-lg border border-gray-200 px-2 text-xs"
+                                            />
+                                            <p className="h-4 mt-1 text-[10px] text-gray-500">{split.splitRateLabel}</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="flex items-center gap-2 text-xs text-gray-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(tax.isActive)}
+                                                    onChange={(e) => updateTaxRate(tax.id, { isActive: e.target.checked })}
+                                                    disabled={isTaxLoading}
+                                                />
+                                                Active
+                                            </label>
+                                            <label className="flex items-center gap-2 text-xs text-gray-600">
+                                                <input
+                                                    type="radio"
+                                                    name="defaultTaxRateMobile"
+                                                    checked={Boolean(tax.isDefault)}
+                                                    onChange={() => updateTaxRate(tax.id, { isDefault: true })}
+                                                    disabled={isTaxLoading}
+                                                />
+                                                Default
+                                            </label>
+                                        </div>
+                                        <div className="col-span-2 flex justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                className="p-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                                                onClick={() => saveTaxEdit(tax.id)}
+                                                disabled={isTaxLoading}
+                                            >
+                                                <Save size={14} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                                onClick={() => deleteTaxRate(tax.id)}
+                                                disabled={isTaxLoading}
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            {taxRates.length === 0 && (
+                                <div className="px-3 py-5 text-center text-xs text-gray-500">No tax rates configured yet.</div>
+                            )}
+                        </div>
+                        <table className="hidden md:table table-fixed w-full text-sm">
+                            <colgroup>
+                                <col className="w-[24%]" />
+                                <col className="w-[24%]" />
+                                <col className="w-[24%]" />
+                                <col className="w-[7%]" />
+                                <col className="w-[7%]" />
+                                <col className="w-[14%]" />
+                            </colgroup>
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Name</th>
@@ -637,26 +774,31 @@ export default function CompanyInfo() {
                                             <input
                                                 value={taxRateEdits[tax.id]?.name ?? tax.name}
                                                 onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), name: e.target.value } }))}
-                                                className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                                className="h-9 w-full rounded-lg border border-gray-200 px-2 text-xs"
                                             />
                                         </td>
                                         <td className="px-3 py-2 text-gray-700">
                                             <input
                                                 value={taxRateEdits[tax.id]?.code ?? tax.code}
                                                 onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), code: String(e.target.value || '').toUpperCase().replace(/[^0-9A-Z_]/g, '').slice(0, 40) } }))}
-                                                className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs"
+                                                className="h-9 w-full rounded-lg border border-gray-200 px-2 text-xs"
                                             />
                                         </td>
                                         <td className="px-3 py-2 text-gray-700">
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                max="100"
-                                                step="0.01"
-                                                value={taxRateEdits[tax.id]?.ratePercent ?? tax.ratePercent}
-                                                onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), ratePercent: e.target.value } }))}
-                                                className="w-full rounded-lg border border-gray-200 px-2 py-1 text-xs"
-                                            />
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max="100"
+                                                    step="0.01"
+                                                    value={taxRateEdits[tax.id]?.ratePercent ?? tax.ratePercent}
+                                                    onChange={(e) => setTaxRateEdits((prev) => ({ ...prev, [tax.id]: { ...(prev[tax.id] || {}), ratePercent: e.target.value } }))}
+                                                    className="h-9 w-full rounded-lg border border-gray-200 px-2 text-xs"
+                                                />
+                                                <span className="hidden xl:inline text-[10px] text-gray-500 whitespace-nowrap">
+                                                    {getGstRateSplit(Number(taxRateEdits[tax.id]?.ratePercent ?? tax.ratePercent ?? 0)).splitRateLabel}
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="px-3 py-2">
                                             <input
@@ -702,6 +844,7 @@ export default function CompanyInfo() {
                                 )}
                             </tbody>
                         </table>
+                    </div>
                     </div>
                 </div>
 
@@ -799,11 +942,3 @@ function Field({
         </label>
     );
 }
-    const saveTaxEdit = async (taxId) => {
-        const draft = taxRateEdits[taxId] || {};
-        await updateTaxRate(taxId, {
-            name: String(draft.name || '').trim(),
-            code: String(draft.code || '').trim().toUpperCase(),
-            ratePercent: Number(draft.ratePercent || 0)
-        });
-    };

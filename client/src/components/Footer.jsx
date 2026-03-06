@@ -17,7 +17,9 @@ export default function Footer() {
         instagramUrl: '',
         youtubeUrl: '',
         facebookUrl: '',
-        whatsappNumber: ''
+        whatsappNumber: '',
+        gstNumber: '',
+        taxEnabled: false
     });
     const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
@@ -59,7 +61,13 @@ export default function Footer() {
         'product:create': () => loadCategories(true),
         'product:update': () => loadCategories(true),
         'product:delete': () => loadCategories(true),
-        'company:info_update': () => loadCompanyInfo()
+        'company:info_update': ({ company: nextCompany } = {}) => {
+            if (nextCompany && typeof nextCompany === 'object') {
+                setCompany((prev) => ({ ...prev, ...nextCompany }));
+            } else {
+                loadCompanyInfo();
+            }
+        }
     });
 
     const categoryLinks = categories
@@ -177,7 +185,7 @@ export default function Footer() {
                     </div>
                 </div>
 
-                <div className="mt-10 border-t border-white/10 pt-8 grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-white/70">
+                <div className="mt-10 border-t border-white/10 pt-8 grid grid-cols-1 md:grid-cols-4 gap-6 text-sm text-white/70">
                     <div className="flex items-start gap-2">
                         <MapPin size={16} className="text-accent mt-0.5" />
                         <span>Registered Address: {company.address || 'Address not set'}</span>
@@ -198,6 +206,14 @@ export default function Footer() {
                             <span className="text-white/40">Phone not set</span>
                         )}
                     </div>
+                    {Boolean(String(company.gstNumber || '').trim()) && (
+                        <div className="flex items-center gap-2">
+                            <FileText size={16} className="text-accent" />
+                            <span className="text-white/60">
+                                GSTIN: <span className="font-semibold text-white/80">{String(company.gstNumber || '').trim()}</span>
+                            </span>
+                        </div>
+                    )}
                 </div>
             </div>
             <div className="bg-black/30 text-center text-xs text-white/60 py-4">

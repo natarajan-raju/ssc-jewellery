@@ -7,6 +7,7 @@ import logo from '../assets/logo.webp';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
+import { getGstDisplayDetails } from '../utils/gst';
 
 export default function PaymentSuccess() {
     const toast = useToast();
@@ -140,10 +141,29 @@ export default function PaymentSuccess() {
                                     ))}
                                 </div>
                                 <div className="mt-4 pt-3 border-t border-gray-100 text-sm text-gray-700 space-y-1">
-                                    <p>Subtotal: ₹{Number(order.subtotal || 0).toLocaleString()}</p>
-                                    <p>Shipping: ₹{Number(order.shipping_fee || 0).toLocaleString()}</p>
-                                    <p>Discount: ₹{Number(order.discount_total || 0).toLocaleString()}</p>
-                                    <p>Tax: ₹{Number(order.tax_total || 0).toLocaleString()}</p>
+                                    {(() => {
+                                        const subtotal = Number(order.subtotal || 0);
+                                        const discount = Number(order.discount_total || 0);
+                                        const shipping = Number(order.shipping_fee || 0);
+                                        const finalBeforeTaxAndShipping = Math.max(0, subtotal - discount);
+                                        return (
+                                            <>
+                                                <p>Subtotal: ₹{subtotal.toLocaleString()}</p>
+                                                <p>Discount: -₹{discount.toLocaleString()}</p>
+                                                <p>Total Savings: ₹{discount.toLocaleString()}</p>
+                                                <p>Final Price (Before Taxes & Shipping): ₹{finalBeforeTaxAndShipping.toLocaleString()}</p>
+                                                <p>Shipping: ₹{shipping.toLocaleString()}</p>
+                                            </>
+                                        );
+                                    })()}
+                                    {Number(order.tax_total || 0) > 0 && (
+                                        <p>
+                                            GST: ₹{Number(order.tax_total || 0).toLocaleString()}
+                                            <span className="block text-[11px] text-gray-500">
+                                                {getGstDisplayDetails({ taxAmount: Number(order.tax_total || 0) }).splitAmountLabel}
+                                            </span>
+                                        </p>
+                                    )}
                                     <p className="font-semibold text-gray-900">Total: ₹{Number(order.total || 0).toLocaleString()}</p>
                                     <p>Payment Method: {String(order.payment_gateway || 'razorpay').toUpperCase()}</p>
                                     <p className="pt-2 text-gray-600">Your items will be dispatched in 2-3 working days.</p>

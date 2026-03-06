@@ -8,6 +8,7 @@ import orderWaitIllustration from '../../assets/order_wait.svg';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
+import { getGstDisplayDetails } from '../../utils/gst';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 
@@ -2693,7 +2694,14 @@ export default function Orders({
                                                         ₹{lineTotal.toLocaleString()}
                                                         {itemTax > 0 && (
                                                             <p className="text-[11px] text-gray-500 font-medium">
-                                                                Tax{itemTaxCode ? ` (${itemTaxCode}${itemTaxRate > 0 ? ` ${itemTaxRate}%` : ''})` : ''}: ₹{itemTax.toLocaleString()}
+                                                                {(() => {
+                                                                    const gst = getGstDisplayDetails({
+                                                                        taxAmount: itemTax,
+                                                                        taxRatePercent: itemTaxRate,
+                                                                        taxLabel: itemTaxCode
+                                                                    });
+                                                                    return `${gst.title}: ${gst.totalAmountLabel} (${gst.splitRateLabel}; ${gst.splitAmountLabel})`;
+                                                                })()}
                                                             </p>
                                                         )}
                                                     </div>
@@ -2709,17 +2717,32 @@ export default function Orders({
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.subtotal || 0).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Shipping</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.shipping_fee || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
                                         <span className="text-gray-500">Total Discount</span>
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
                                     </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Tax</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Total Savings</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
                                     </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-500">Final Price (Before Taxes & Shipping)</span>
+                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) - Number(selectedOrder.discount_total || 0)).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-500">Shipping</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.shipping_fee || 0).toLocaleString()}</span>
+                                    </div>
+                                    {Number(selectedOrder.tax_total || 0) > 0 && (
+                                        <div className="flex items-start justify-between">
+                                            <span className="text-gray-500">
+                                                GST
+                                                <span className="block text-[11px] text-gray-400">
+                                                    {getGstDisplayDetails({ taxAmount: Number(selectedOrder.tax_total || 0) }).splitAmountLabel}
+                                                </span>
+                                            </span>
+                                            <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-base font-semibold">
                                         <span>Total</span>
                                         <span>₹{Number(selectedOrder.total || 0).toLocaleString()}</span>
@@ -2968,7 +2991,16 @@ export default function Orders({
                                                         <div className="text-right">
                                                             <span className="font-semibold text-gray-700">₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}</span>
                                                             {Number(item.taxAmount || 0) > 0 && (
-                                                                <p className="text-[10px] text-gray-500">Tax: ₹{Number(item.taxAmount || 0).toLocaleString('en-IN')}</p>
+                                                                <p className="text-[10px] text-gray-500">
+                                                                    {(() => {
+                                                                        const gst = getGstDisplayDetails({
+                                                                            taxAmount: Number(item.taxAmount || 0),
+                                                                            taxRatePercent: Number(item.taxRatePercent || 0),
+                                                                            taxLabel: item.taxCode || item.taxName || ''
+                                                                        });
+                                                                        return `${gst.title}: ${gst.totalAmountLabel} (${gst.splitAmountLabel})`;
+                                                                    })()}
+                                                                </p>
                                                             )}
                                                         </div>
                                                         <button
@@ -2990,11 +3022,23 @@ export default function Orders({
                                     {!isManualSummaryLoading && effectiveManualSummary && (
                                         <div className="mt-3 space-y-2 text-sm">
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Subtotal</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.subtotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Shipping</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.shippingFee)}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Coupon Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Member Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Shipping Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Tax</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.taxTotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(effectiveManualSummary.discountTotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Final Price (Before Taxes & Shipping)</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) - Number(effectiveManualSummary.discountTotal || 0) + Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0)))}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Shipping</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.shippingFee)}</span></div>
+                                            {Number(effectiveManualSummary.taxTotal || 0) > 0 && (
+                                                <div className="flex items-start justify-between">
+                                                    <span className="text-gray-500">
+                                                        GST
+                                                        <span className="block text-[10px] text-gray-400">
+                                                            {getGstDisplayDetails({ taxAmount: Number(effectiveManualSummary.taxTotal || 0) }).splitAmountLabel}
+                                                        </span>
+                                                    </span>
+                                                    <span className="font-semibold">{formatInrOrDash(effectiveManualSummary.taxTotal)}</span>
+                                                </div>
+                                            )}
                                             <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(effectiveManualSummary.total)}</span></div>
                                             {!manualSummary && (
                                                 <p className="text-xs text-gray-500">

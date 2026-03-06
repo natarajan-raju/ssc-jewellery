@@ -1260,6 +1260,23 @@ class AbandonedCart {
         );
         return Number(result?.affectedRows || 0);
     }
+
+    static async deactivateDiscountByCode({
+        code,
+        connection = db
+    } = {}) {
+        const normalizedCode = String(code || '').trim().toUpperCase();
+        if (!normalizedCode) return 0;
+        const [result] = await connection.execute(
+            `UPDATE abandoned_cart_discounts
+             SET status = 'invalidated',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE UPPER(code) = ?
+               AND status = 'active'`,
+            [normalizedCode]
+        );
+        return Number(result?.affectedRows || 0);
+    }
 }
 
 module.exports = AbandonedCart;
