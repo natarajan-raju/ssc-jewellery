@@ -5,6 +5,7 @@ const {
     sendPaymentWhatsapp,
     sendAbandonedCartWhatsapp
 } = require('./channels/whatsappChannel');
+const { buildInvoiceShareUrl } = require('../invoiceShareService');
 
 const normalizeCustomer = (customer = {}) => ({
     name: String(customer?.name || 'Customer').trim(),
@@ -306,6 +307,11 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
     const recipient = normalizeCustomer(customer);
     const safeStage = String(stage || 'updated').trim().toLowerCase();
     const template = buildOrderLifecycleTemplate({ stage: safeStage, customer: recipient, order, includeInvoice });
+    const invoiceRef = String(order?.order_ref || order?.orderRef || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
+    const invoiceFileName = `invoice-${invoiceRef}.pdf`;
+    const invoiceFileUrl = includeInvoice
+        ? buildInvoiceShareUrl({ orderId: order?.id, userId: order?.user_id })
+        : '';
 
     const [email, whatsapp] = await Promise.all([
         recipient.email
@@ -317,7 +323,14 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
                 attachments: invoiceAttachment ? [invoiceAttachment] : []
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-        sendOrderWhatsapp({ stage: safeStage, customer: recipient, order })
+        sendOrderWhatsapp({
+            stage: safeStage,
+            customer: recipient,
+            order,
+            template: 'order',
+            fileUrl: invoiceFileUrl || '',
+            pdfName: includeInvoice ? invoiceFileName : ''
+        })
     ]);
     return { email, whatsapp };
 };

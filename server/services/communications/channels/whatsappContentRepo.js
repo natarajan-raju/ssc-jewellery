@@ -19,10 +19,8 @@ const fallbackName = (payload = {}) => (
     ) || 'Customer'
 );
 
-const toAmountLabel = (value = 0) => `INR ${Number(value || 0).toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-})}`;
+// WhatsApp provider splits Param by comma, so amount must not include thousand separators.
+const toAmountLabel = (value = 0) => `INR ${Number(value || 0).toFixed(2)}`;
 
 const buildGenericContent = (payload = {}) => ({
     params: Array.isArray(payload?.params) ? payload.params : [],
@@ -33,11 +31,18 @@ const buildGenericContent = (payload = {}) => ({
 const buildLoginOtpContent = (payload = {}) => {
     const otp = normalize(payload?.data?.otp || payload?.otp || '');
     const name = fallbackName(payload);
+    const urlParam = normalize(
+        payload?.data?.urlParam
+        || payload?.urlParam
+        || process.env.WHATSAPP_OTP_URL_PARAM
+        || otp
+    );
     return {
         // Template "Otp" expects a single variable: {{1}} = OTP code.
         params: [otp || '000000'],
         message: normalize(payload?.message || '') || `${otp || '000000'} is your verification code`,
-        name
+        name,
+        urlParam
     };
 };
 
@@ -115,6 +120,7 @@ const buildCouponIssueContent = (payload = {}) => {
 const WORKFLOW_BUILDERS = {
     generic: buildGenericContent,
     default: buildGenericContent,
+    otp: buildLoginOtpContent,
     login_otp: buildLoginOtpContent,
     order: buildOrderContent,
     payment: buildPaymentContent,

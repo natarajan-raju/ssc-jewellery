@@ -13,6 +13,7 @@ const CompanyProfile = require('../models/CompanyProfile');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
+const { verifyInvoiceShareToken } = require('../services/invoiceShareService');
 const { reassessUserTier } = require('../services/loyaltyService');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
@@ -2384,6 +2385,23 @@ const downloadAdminInvoicePdf = async (req, res) => {
     }
 };
 
+const downloadInvoiceBySignedLink = async (req, res) => {
+    try {
+        const { oid, uid, exp, sig } = req.query || {};
+        const verified = verifyInvoiceShareToken({ orderId: oid, userId: uid, exp, sig });
+        if (!verified.ok) {
+            return res.status(400).send('<h3>Invoice link is invalid or expired.</h3>');
+        }
+        const order = await Order.getById(verified.orderId);
+        if (!order || String(order.user_id) !== String(verified.userId)) {
+            return res.status(404).send('<h3>Order not found.</h3>');
+        }
+        return sendInvoicePdf(res, order);
+    } catch (error) {
+        return res.status(400).send(`<h3>${error?.message || 'Unable to open invoice link.'}</h3>`);
+    }
+};
+
 const sendAdminInvoiceCommunication = async (req, res) => {
     try {
         const orderId = Number(req.params.id);
@@ -2425,12 +2443,23 @@ const sendAdminInvoiceCommunication = async (req, res) => {
                     includeInvoice: true,
                     invoiceAttachment
                 });
+                console.info(
+                    `Invoice communication result for order ${order?.id || 'unknown'}`,
+                    {
+                        email: result?.email?.ok === true ? 'ok' : (result?.email?.reason || result?.email?.message || 'failed'),
+                        whatsapp: result?.whatsapp?.ok === true ? 'ok' : (result?.whatsapp?.reason || result?.whatsapp?.message || 'failed'),
+                        whatsappTemplate: result?.whatsapp?.template || null
+                    }
+                );
                 if (result?.email?.ok !== true || result?.whatsapp?.ok !== true) {
                     console.warn(
                         `Invoice communication partial failure for order ${order?.id || 'unknown'}`,
                         {
                             email: result?.email?.reason || result?.email?.message || (result?.email?.ok ? 'ok' : 'failed'),
-                            whatsapp: result?.whatsapp?.reason || result?.whatsapp?.message || (result?.whatsapp?.ok ? 'ok' : 'failed')
+                            whatsapp: result?.whatsapp?.reason || result?.whatsapp?.message || (result?.whatsapp?.ok ? 'ok' : 'failed'),
+                            whatsappTemplate: result?.whatsapp?.template || null,
+                            whatsappRequestUrl: result?.whatsapp?.requestUrl || null,
+                            whatsappResponse: result?.whatsapp?.response || null
                         }
                     );
                 }
@@ -2479,5 +2508,6 @@ module.exports = {
     convertAdminPaymentAttemptToOrder,
     createAdminManualOrder,
     getOverdueShippedSummary,
-    confirmDeliveryBySignedLink
+    confirmDeliveryBySignedLink,
+    downloadInvoiceBySignedLink
 };

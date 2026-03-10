@@ -128,7 +128,15 @@ const buildProviderUrl = (payload = {}, { templateOverride = '', includeTemplate
     const fileUrl = toText(payload.fileUrl || payload.fileurl || content.fileUrl || '');
     url.searchParams.set('Fileurl', fileUrl || '');
 
-    const urlParam = toText(payload.urlParam || payload.URLParam || content.urlParam || '');
+    const explicitUrlParam = toText(payload.urlParam || payload.URLParam || content.urlParam || '');
+    const isOtpWorkflow = ['otp', 'login_otp'].includes(String(workflow || '').toLowerCase());
+    const otpButtonValue = toText(
+        (Array.isArray(payload.params) && payload.params.length > 0 ? payload.params[0] : '')
+        || (Array.isArray(content.params) && content.params.length > 0 ? content.params[0] : '')
+        || payload?.data?.otp
+        || ''
+    );
+    const urlParam = explicitUrlParam || (isOtpWorkflow ? otpButtonValue : '');
     url.searchParams.set('URLParam', urlParam || '');
 
     const headUrl = toText(payload.headUrl || payload.HeadURL || content.headUrl || '');
