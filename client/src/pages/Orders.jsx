@@ -688,20 +688,6 @@ export default function Orders() {
                                     <span>₹{toNumber(selectedOrder.subtotal).toLocaleString()}</span>
                                 </div>
                                 <div className="flex items-center justify-between text-gray-600">
-                                    <span>Discount</span>
-                                    <span>- ₹{toNumber(selectedOrder.discount_total).toLocaleString()}</span>
-                                </div>
-                                {getOrderSavings(selectedOrder) > 0 && (
-                                    <div className="flex items-center justify-between text-emerald-700">
-                                        <span>Total savings</span>
-                                        <span>₹{getOrderSavings(selectedOrder).toLocaleString()}</span>
-                                    </div>
-                                )}
-                                <div className="flex items-center justify-between text-gray-600">
-                                    <span>Final Price (Before Taxes & Shipping)</span>
-                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) - toNumber(selectedOrder.discount_total)).toLocaleString()}</span>
-                                </div>
-                                <div className="flex items-center justify-between text-gray-600">
                                     <span>Shipping</span>
                                     <span>₹{toNumber(selectedOrder.shipping_fee).toLocaleString()}</span>
                                 </div>
@@ -714,6 +700,34 @@ export default function Orders() {
                                             </span>
                                         </span>
                                         <span>₹{toNumber(selectedOrder.tax_total).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Final Price (Before Discounts)</span>
+                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee) + toNumber(selectedOrder.tax_total)).toLocaleString()}</span>
+                                </div>
+                                {toNumber(selectedOrder.coupon_discount_value) > 0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Coupon{selectedOrder.coupon_code ? ` (${selectedOrder.coupon_code})` : ''}</span>
+                                        <span>- ₹{toNumber(selectedOrder.coupon_discount_value).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                {toNumber(selectedOrder.loyalty_discount_total) > 0 && (
+                                    <div className="flex items-center justify-between text-blue-700">
+                                        <span>Member Discount</span>
+                                        <span>- ₹{toNumber(selectedOrder.loyalty_discount_total).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                {toNumber(selectedOrder.loyalty_shipping_discount_total) > 0 && (
+                                    <div className="flex items-center justify-between text-blue-700">
+                                        <span>Member Shipping Benefit</span>
+                                        <span>- ₹{toNumber(selectedOrder.loyalty_shipping_discount_total).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                {toNumber(selectedOrder.discount_total) > 0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Total savings</span>
+                                        <span>₹{toNumber(selectedOrder.discount_total).toLocaleString()}</span>
                                     </div>
                                 )}
                                 <div className="pt-2 border-t border-gray-200 flex items-center justify-between font-semibold text-gray-900">

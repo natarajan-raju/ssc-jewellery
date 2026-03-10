@@ -9,6 +9,8 @@ const pool = mysql.createPool({
     database: process.env.DB_NAME,
     dateStrings: true,
     timezone: 'Z',
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -87,6 +89,7 @@ const initDB = async () => {
                 categories JSON,
                 related_products JSON,
                 additional_info JSON,
+                polish_warranty_months INT NOT NULL DEFAULT 6,
                 options JSON,          -- [NEW] Stores definitions e.g. [{name: 'Size', values: ['S', 'M']}]
                 mrp DECIMAL(10, 2) NOT NULL,
                 discount_price DECIMAL(10, 2),
@@ -104,6 +107,9 @@ const initDB = async () => {
         `);
         try {
             await connection.query('ALTER TABLE products ADD COLUMN tax_config_id INT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE products ADD COLUMN polish_warranty_months INT NOT NULL DEFAULT 6');
         } catch {}
         try {
             await connection.query('ALTER TABLE products ADD INDEX idx_products_status_created (status, created_at)');

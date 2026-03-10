@@ -626,12 +626,12 @@ export default function Checkout() {
         const gross = Number(subtotal || 0) + Number(shippingFee || 0) + Number(taxTotal || 0);
         return Math.max(0, gross - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0));
     }, [checkoutSummary?.total, subtotal, shippingFee, taxTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]);
-    const finalPriceBeforeTaxAndShipping = useMemo(
+    const finalPriceBeforeDiscounts = useMemo(
         () => Math.max(
             0,
-            Number(subtotal || 0) - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0)
+            Number(grandTotal || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0)
         ),
-        [subtotal, couponDiscount, loyaltyDiscount]
+        [grandTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
     );
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
@@ -1272,6 +1272,23 @@ export default function Checkout() {
                                         <span>Subtotal</span>
                                         <span className="font-semibold text-gray-800">₹{subtotal.toLocaleString()}</span>
                                     </div>
+                                    <div className="flex items-center justify-between text-gray-500">
+                                        <span>Shipping</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
+                                    </div>
+                                    {showTaxComponents && (
+                                        <div className="flex items-start justify-between text-gray-500">
+                                            <span>
+                                                GST
+                                                <span className="block text-[11px] text-gray-400">{getGstDisplayDetails({ taxAmount: Number(taxTotal || 0) }).splitAmountLabel}</span>
+                                            </span>
+                                            <span className="font-semibold text-gray-800">₹{Number(taxTotal || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex items-start justify-between text-gray-500">
+                                        <span>Final Price (Before Discounts)</span>
+                                        <span className="font-semibold text-gray-800">₹{Number(finalPriceBeforeDiscounts || 0).toLocaleString()}</span>
+                                    </div>
                                     {productMrpSavings > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
                                             <span>Product Discount (MRP)</span>
@@ -1306,23 +1323,6 @@ export default function Checkout() {
                                         <p className="text-[11px] text-emerald-700/80 pt-1">
                                             Savings = Product Discount + Coupon + Member Discount + Shipping Benefit.
                                         </p>
-                                    )}
-                                    <div className="flex items-start justify-between text-gray-500">
-                                        <span>Final Price (Before Taxes & Shipping)</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(finalPriceBeforeTaxAndShipping || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-gray-500">
-                                        <span>Shipping</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
-                                    </div>
-                                    {showTaxComponents && (
-                                        <div className="flex items-start justify-between text-gray-500">
-                                            <span>
-                                                GST
-                                                <span className="block text-[11px] text-gray-400">{getGstDisplayDetails({ taxAmount: Number(taxTotal || 0) }).splitAmountLabel}</span>
-                                            </span>
-                                            <span className="font-semibold text-gray-800">₹{Number(taxTotal || 0).toLocaleString()}</span>
-                                        </div>
                                     )}
                                     <div className="flex items-center justify-between text-gray-800 text-base font-semibold pt-3">
                                         <span>Total</span>
@@ -1445,44 +1445,17 @@ export default function Checkout() {
                                 <span className="text-gray-500">Subtotal</span>
                                 <span className="font-semibold text-gray-800">₹{Number(orderResult.subtotal || orderResult.sub_total || 0).toLocaleString()}</span>
                             </div>
-                            {Number(orderResult.discountTotal || orderResult.discount_total || 0) > 0 && (
-                                <div className="flex items-center justify-between text-sm mt-2">
-                                    <span className="text-gray-500">Discount{orderResult.couponCode || orderResult.coupon_code ? ` (${orderResult.couponCode || orderResult.coupon_code})` : ''}</span>
-                                    <span className="font-semibold text-emerald-700">-₹{Number(orderResult.discountTotal || orderResult.discount_total || 0).toLocaleString()}</span>
-                                </div>
-                            )}
-                                {Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0) > 0 && (
-                                    <div className="flex items-center justify-between text-sm mt-2">
-                                        <span className="text-gray-500">Member Discount ({formatTierLabel(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular')})</span>
-                                        <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0).toLocaleString()}</span>
-                                    </div>
-                                )}
-                            {Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0) > 0 && (
-                                <div className="flex items-center justify-between text-sm mt-2">
-                                    <span className="text-gray-500">Member Shipping Discount</span>
-                                    <span className="font-semibold text-blue-700">-₹{Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0).toLocaleString()}</span>
-                                </div>
-                            )}
                             {(() => {
                                 const subtotalValue = Number(orderResult.subtotal || orderResult.sub_total || 0);
                                 const shippingValue = Number(orderResult.shippingFee || orderResult.shipping_fee || 0);
                                 const taxValue = Number(orderResult.taxTotal || orderResult.tax_total || 0);
-                                const totalDiscountValue = Number(orderResult.discountTotal || orderResult.discount_total || 0);
+                                const couponValue = Number(orderResult.coupon_discount_value || orderResult.couponDiscountValue || orderResult.couponDiscountTotal || 0);
+                                const loyaltyValue = Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0);
                                 const loyaltyShippingValue = Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0);
-                                const nonShippingDiscount = Math.max(0, totalDiscountValue - loyaltyShippingValue);
-                                const finalBeforeTaxAndShipping = Math.max(0, subtotalValue - nonShippingDiscount);
+                                const totalSavingsValue = Number(orderResult.discountTotal || orderResult.discount_total || (couponValue + loyaltyValue + loyaltyShippingValue));
+                                const finalBeforeDiscountsValue = Math.max(0, subtotalValue + shippingValue + taxValue);
                                 return (
                                     <>
-                                        {totalDiscountValue > 0 && (
-                                            <div className="flex items-center justify-between text-sm mt-2 text-emerald-700">
-                                                <span>Total Savings</span>
-                                                <span className="font-semibold">₹{totalDiscountValue.toLocaleString()}</span>
-                                            </div>
-                                        )}
-                                        <div className="flex items-center justify-between text-sm mt-2">
-                                            <span className="text-gray-500">Final Price (Before Taxes & Shipping)</span>
-                                            <span className="font-semibold text-gray-800">₹{finalBeforeTaxAndShipping.toLocaleString()}</span>
-                                        </div>
                                         <div className="flex items-center justify-between text-sm mt-2">
                                             <span className="text-gray-500">Shipping</span>
                                             <span className="font-semibold text-gray-800">₹{shippingValue.toLocaleString()}</span>
@@ -1496,6 +1469,34 @@ export default function Checkout() {
                                                     </span>
                                                 </span>
                                                 <span className="font-semibold text-gray-800">₹{taxValue.toLocaleString()}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center justify-between text-sm mt-2">
+                                            <span className="text-gray-500">Final Price (Before Discounts)</span>
+                                            <span className="font-semibold text-gray-800">₹{finalBeforeDiscountsValue.toLocaleString()}</span>
+                                        </div>
+                                        {couponValue > 0 && (
+                                            <div className="flex items-center justify-between text-sm mt-2 text-emerald-700">
+                                                <span>Coupon{orderResult.couponCode || orderResult.coupon_code ? ` (${orderResult.couponCode || orderResult.coupon_code})` : ''}</span>
+                                                <span className="font-semibold">-₹{couponValue.toLocaleString()}</span>
+                                            </div>
+                                        )}
+                                        {loyaltyValue > 0 && (
+                                            <div className="flex items-center justify-between text-sm mt-2 text-blue-700">
+                                                <span>Member Discount ({formatTierLabel(orderResult.loyalty_tier || orderResult.loyaltyTier || 'regular')})</span>
+                                                <span className="font-semibold">-₹{loyaltyValue.toLocaleString()}</span>
+                                            </div>
+                                        )}
+                                        {loyaltyShippingValue > 0 && (
+                                            <div className="flex items-center justify-between text-sm mt-2 text-blue-700">
+                                                <span>Member Shipping Benefit</span>
+                                                <span className="font-semibold">-₹{loyaltyShippingValue.toLocaleString()}</span>
+                                            </div>
+                                        )}
+                                        {totalSavingsValue > 0 && (
+                                            <div className="flex items-center justify-between text-sm mt-2 text-emerald-700">
+                                                <span>Total Savings</span>
+                                                <span className="font-semibold">₹{totalSavingsValue.toLocaleString()}</span>
                                             </div>
                                         )}
                                     </>

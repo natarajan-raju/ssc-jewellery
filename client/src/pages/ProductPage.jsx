@@ -310,6 +310,12 @@ export default function ProductPage() {
             return [];
         }
     }, [product]);
+    const polishWarrantyMonths = useMemo(() => {
+        const raw = Number(product?.polish_warranty_months);
+        const allowed = [6, 7, 8, 9, 12];
+        if (Number.isFinite(raw) && allowed.includes(raw)) return raw;
+        return 6;
+    }, [product?.polish_warranty_months]);
 
     // [ENGINEERING FIX] 1. Enforce Client-Side Stability
     // Irrespective of backend order, we strictly sort variants by ID.
@@ -1136,7 +1142,7 @@ export default function ProductPage() {
                                 </button>
                                 {activeAccordion === 'guarantee' && (
                                     <div className="px-5 pb-4 text-gray-600 text-sm animate-fade-in">
-                                        All our products go through rigorous quality checks. We provide up to 12 months of polish warranty on selected items.
+                                        All our products go through rigorous quality checks. This item includes {polishWarrantyMonths}-month polish warranty from delivery date.
                                     </div>
                                 )}
                             </div>

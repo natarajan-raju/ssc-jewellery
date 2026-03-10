@@ -5,6 +5,7 @@ import {
     Facebook,
     Instagram,
     Key,
+    MessageCircle,
     Plus,
     Save,
     ShieldCheck,
@@ -79,6 +80,15 @@ export default function CompanyInfo() {
         message: '',
         targetUser: null
     });
+    const [whatsappTestForm, setWhatsappTestForm] = useState({
+        mobile: '',
+        template: 'generic',
+        params: '',
+        message: '',
+        name: 'Customer'
+    });
+    const [isWhatsappTestSending, setIsWhatsappTestSending] = useState(false);
+    const [whatsappTestResult, setWhatsappTestResult] = useState(null);
 
     const staffAndAdmins = useMemo(
         () => users.filter((u) => u.role === 'admin' || u.role === 'staff'),
@@ -378,6 +388,41 @@ export default function CompanyInfo() {
         });
     };
 
+    const handleSendWhatsappTest = async () => {
+        const mobile = String(whatsappTestForm.mobile || form.whatsappNumber || '').replace(/\D/g, '');
+        if (!mobile || mobile.length < 10) {
+            toast.error('Enter a valid recipient mobile number');
+            return;
+        }
+        setIsWhatsappTestSending(true);
+        setWhatsappTestResult(null);
+        try {
+            const params = String(whatsappTestForm.params || '')
+                .split(',')
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean);
+            const result = await adminService.sendTestWhatsapp({
+                mobile,
+                template: String(whatsappTestForm.template || 'generic').trim(),
+                params,
+                message: String(whatsappTestForm.message || '').trim(),
+                name: String(whatsappTestForm.name || 'Customer').trim() || 'Customer'
+            });
+            setWhatsappTestResult(result);
+            if (result?.ok) {
+                toast.success('WhatsApp test request sent');
+            } else {
+                toast.error(result?.message || 'WhatsApp test failed');
+            }
+        } catch (error) {
+            const message = error?.message || 'Failed to send WhatsApp test';
+            setWhatsappTestResult({ ok: false, message });
+            toast.error(message);
+        } finally {
+            setIsWhatsappTestSending(false);
+        }
+    };
+
     if (isLoading) {
         return <div className="py-16 text-center text-gray-400">Loading settings...</div>;
     }
@@ -619,7 +664,7 @@ export default function CompanyInfo() {
                             GST is applied in checkout/orders only when enabled. Enter GST number first to enable this.
                         </p>
                     </div>
-                    <div className={`relative z-10 transition-all ${Boolean(form.taxEnabled) ? '' : 'pointer-events-none select-none opacity-60 blur-[1.2px]'}`}>
+                    <div className={`relative z-10 transition-all ${form.taxEnabled ? '' : 'pointer-events-none select-none opacity-60 blur-[1.2px]'}`}>
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                         <div className="md:col-span-4">
                             <input
@@ -867,14 +912,16 @@ export default function CompanyInfo() {
                             label="Razorpay Key Secret"
                             value={form.razorpayKeySecret}
                             onChange={(value) => handleChange('razorpayKeySecret', value)}
-                            placeholder={form.hasRazorpayKeySecret ? `Saved (${form.razorpayKeySecretMask || '******'}) - enter to replace` : 'Enter key secret'}
+                            placeholder={form.hasRazorpayKeySecret ? 'Enter key secret to replace' : 'Enter key secret'}
+                            maskedValue={form.hasRazorpayKeySecret ? (form.razorpayKeySecretMask || '******') : ''}
                             type="password"
                         />
                         <Field
                             label="Webhook Secret"
                             value={form.razorpayWebhookSecret}
                             onChange={(value) => handleChange('razorpayWebhookSecret', value)}
-                            placeholder={form.hasRazorpayWebhookSecret ? `Saved (${form.razorpayWebhookSecretMask || '******'}) - enter to replace` : 'Enter webhook secret'}
+                            placeholder={form.hasRazorpayWebhookSecret ? 'Enter webhook secret to replace' : 'Enter webhook secret'}
+                            maskedValue={form.hasRazorpayWebhookSecret ? (form.razorpayWebhookSecretMask || '******') : ''}
                             type="password"
                         />
                         <Field
@@ -894,6 +941,67 @@ export default function CompanyInfo() {
                             error={formErrors.razorpayStartingTenureMonths}
                         />
                     </div>
+                </div>
+
+                <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                    <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                    <div className="relative z-10">
+                        <h3 className="text-sm font-semibold text-gray-800">WhatsApp Test</h3>
+                        <p className="text-xs text-gray-500 mt-1">Send a test template and inspect provider response.</p>
+                    </div>
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Field
+                            label="Recipient Mobile"
+                            value={whatsappTestForm.mobile}
+                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, mobile: String(value || '').replace(/\D/g, '').slice(0, 14) }))}
+                            placeholder={form.whatsappNumber ? `Default: ${form.whatsappNumber}` : '91XXXXXXXXXX'}
+                        />
+                        <Field
+                            label="Template"
+                            value={whatsappTestForm.template}
+                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, template: value }))}
+                            placeholder="generic / login_otp / order ..."
+                        />
+                        <Field
+                            label="Name"
+                            value={whatsappTestForm.name}
+                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, name: value }))}
+                            placeholder="Customer name"
+                        />
+                        <Field
+                            label="Params (Comma Separated)"
+                            value={whatsappTestForm.params}
+                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, params: value }))}
+                            placeholder="Ravi,SSC Jewellery,Today"
+                        />
+                        <div className="md:col-span-2">
+                            <Field
+                                label="Message (Optional Fallback)"
+                                value={whatsappTestForm.message}
+                                onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, message: value }))}
+                                placeholder="Optional plain text fallback"
+                            />
+                        </div>
+                    </div>
+                    <div className="relative z-10 flex items-center justify-between gap-3">
+                        <button
+                            type="button"
+                            onClick={handleSendWhatsappTest}
+                            disabled={isWhatsappTestSending}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100 disabled:opacity-60"
+                        >
+                            <MessageCircle size={14} />
+                            {isWhatsappTestSending ? 'Sending...' : 'Send Test WhatsApp'}
+                        </button>
+                    </div>
+                    {whatsappTestResult && (
+                        <div className="relative z-10">
+                            <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold mb-2">Response</p>
+                            <pre className="max-h-64 overflow-auto rounded-xl border border-gray-200 bg-gray-50 p-3 text-[11px] text-gray-700 whitespace-pre-wrap break-words">
+                                {JSON.stringify(whatsappTestResult, null, 2)}
+                            </pre>
+                        </div>
+                    )}
                 </div>
 
                 <div className="pt-2 flex justify-end">
@@ -920,8 +1028,12 @@ function Field({
     icon: Icon = null,
     iconClassName = 'text-gray-400',
     required = false,
-    error = ''
+    error = '',
+    maskedValue = ''
 }) {
+    const [isFocused, setIsFocused] = useState(false);
+    const shouldShowMask = Boolean(maskedValue) && !String(value || '').length && !isFocused;
+    const resolvedType = shouldShowMask ? 'text' : type;
     return (
         <label className="block">
             <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
@@ -931,10 +1043,13 @@ function Field({
             <div className="relative mt-2">
                 {Icon && <Icon size={16} className={`absolute left-3 top-1/2 -translate-y-1/2 ${iconClassName}`} />}
                 <input
-                    type={type}
-                    value={value || ''}
+                    type={resolvedType}
+                    value={shouldShowMask ? maskedValue : (value || '')}
                     onChange={(e) => onChange(e.target.value)}
+                    onFocus={() => setIsFocused(true)}
+                    onBlur={() => setIsFocused(false)}
                     placeholder={placeholder}
+                    autoComplete={type === 'password' ? 'new-password' : undefined}
                     className={`w-full rounded-xl border py-3 text-sm text-gray-700 focus:border-accent outline-none ${Icon ? 'pl-10 pr-4' : 'px-4'} ${error ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}
                 />
             </div>

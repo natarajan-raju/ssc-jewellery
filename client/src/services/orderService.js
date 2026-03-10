@@ -723,6 +723,15 @@ export const orderService = {
         URL.revokeObjectURL(url);
         return true;
     },
+    sendAdminInvoiceCommunication: async (orderId) => {
+        const id = Number(orderId);
+        if (!Number.isFinite(id) || id <= 0) throw new Error('Invalid order id');
+        const res = await fetch(`${API_URL}/admin/${id}/invoice/send`, {
+            method: 'POST',
+            headers: getAuthHeader()
+        });
+        return handleResponse(res);
+    },
     getCachedMyOrders: ({ page = 1, limit = 10, duration = 'latest_10' } = {}) => {
         const userId = getCurrentUserId();
         let safeDuration = String(duration || '').trim().toLowerCase();

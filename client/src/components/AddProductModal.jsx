@@ -61,6 +61,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         title: '', subtitle: '', description: '', mrp: '', discount_price: '',
         ribbon_tag: '', sku: '', weight_kg: '', status: 'active',
         track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
+        polish_warranty_months: '6',
         categories: []
     });
     const [availableTaxes, setAvailableTaxes] = useState([]);
@@ -125,6 +126,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     weight_kg: productToEdit.weight_kg || '',
                     status: productToEdit.status || 'active', 
                     tax_config_id: productToEdit.tax_config_id ? String(productToEdit.tax_config_id) : '',
+                    polish_warranty_months: String(productToEdit.polish_warranty_months || 6),
                     categories: productToEdit.categories || [],                    
                     track_quantity: toBool(productToEdit.track_quantity),
                     quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
@@ -159,6 +161,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 setFormData({
                     title: '', subtitle: '', description: '', mrp: '', discount_price: '', ribbon_tag: '', sku: '',
                     weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
+                    polish_warranty_months: '6',
                     categories: []
                 });
                 setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
@@ -582,6 +585,21 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                                 </option>
                                             );
                                         })}
+                                    </select>
+                                </div>
+                                <div className="space-y-4">
+                                    <label className="block text-sm font-bold text-gray-700">Polish Warranty</label>
+                                    <select
+                                        name="polish_warranty_months"
+                                        value={formData.polish_warranty_months}
+                                        onChange={handleChange}
+                                        className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white"
+                                    >
+                                        {[6, 7, 8, 9, 12].map((months) => (
+                                            <option key={months} value={String(months)}>
+                                                {months} months
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div className="space-y-4 md:col-span-2">

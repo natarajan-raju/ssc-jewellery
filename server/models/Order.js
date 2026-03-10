@@ -338,7 +338,7 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
         const [rows] = await connection.execute(
             `SELECT p.id as product_id, p.title as product_title, p.status as product_status, p.tax_config_id,
                     p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
-                    p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
+                    p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
                     pv.id as variant_id, pv.product_id as variant_product_id, pv.variant_title,
                     pv.price as variant_price, pv.discount_price as variant_discount_price,
                     pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
@@ -400,8 +400,8 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
             price,
             lineTotal,
             imageUrl,
-            sku: row.variant_sku || row.product_sku || null,
-            snapshot: {
+                sku: row.variant_sku || row.product_sku || null,
+                snapshot: {
                 productId,
                 variantId: variantId || '',
                 title: row.product_title || '',
@@ -413,8 +413,9 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
                 discountValuePerUnit: Math.max(0, originalPrice - price),
                 lineTotal,
                 imageUrl,
-                sku: row.variant_sku || row.product_sku || null,
-                taxConfigId: row.tax_config_id || null,
+                    sku: row.variant_sku || row.product_sku || null,
+                    polishWarrantyMonths: Number(row.polish_warranty_months || 6),
+                    taxConfigId: row.tax_config_id || null,
                 weightKg: itemWeight,
                 productStatus: row.product_status || 'active',
                 capturedAt: new Date().toISOString()
@@ -432,21 +433,29 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
 
 const MAX_FETCH_RANGE_DAYS = 90;
 
-const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) => {
+const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {}) => {
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    if (!normalizedStatus || normalizedStatus === 'all') return '';
+    if (normalizedStatus === 'pending') {
+        return ` AND (${alias}.status = 'pending' OR (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, UTC_TIMESTAMP()) >= 24))`;
+    }
+    if (normalizedStatus === 'confirmed') {
+        return ` AND (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, UTC_TIMESTAMP()) < 24)`;
+    }
+    if (normalizedStatus === 'failed') {
+        return ` AND (${alias}.status = 'failed' OR LOWER(COALESCE(${alias}.payment_status, '')) = 'failed')`;
+    }
+    params.push(normalizedStatus);
+    return ` AND ${alias}.status = ?`;
+};
+
+const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all', includeStatus = true } = {}) => {
     const params = [];
     let where = 'WHERE 1=1';
     let latestLimit = null;
 
-    if (status && status !== 'all') {
-        const normalizedStatus = String(status || '').trim().toLowerCase();
-        if (normalizedStatus === 'pending') {
-            where += " AND (o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) >= 24))";
-        } else if (normalizedStatus === 'confirmed') {
-            where += " AND (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24)";
-        } else {
-            where += ' AND o.status = ?';
-            params.push(normalizedStatus);
-        }
+    if (includeStatus) {
+        where += buildAdminStatusClause({ status, alias: 'o', params });
     }
 
     if (search) {
@@ -773,7 +782,7 @@ class Order {
                 `SELECT ci.product_id, ci.variant_id, ci.quantity,
                         p.title as product_title, p.status as product_status, p.tax_config_id,
                         p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
-                        p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
+                        p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
                         pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
                         pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
                         pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg,
@@ -889,6 +898,7 @@ class Order {
                         lineTotal,
                         imageUrl,
                         sku: row.variant_sku || row.product_sku || null,
+                        polishWarrantyMonths: Number(row.polish_warranty_months || 6),
                         taxConfigId: row.tax_config_id || null,
                         weightKg: itemWeight,
                         productStatus: row.product_status || 'active',
@@ -1157,15 +1167,18 @@ class Order {
             if (recoveryProductIds.length) {
                 const placeholders = recoveryProductIds.map(() => '?').join(',');
                 const [taxRows] = await connection.execute(
-                    `SELECT id, tax_config_id FROM products WHERE id IN (${placeholders})`,
+                    `SELECT id, tax_config_id, polish_warranty_months FROM products WHERE id IN (${placeholders})`,
                     recoveryProductIds
                 );
                 const taxByProductId = new Map(taxRows.map((row) => [String(row.id), row.tax_config_id || null]));
+                const warrantyByProductId = new Map(taxRows.map((row) => [String(row.id), Number(row.polish_warranty_months || 6)]));
                 orderItems.forEach((item) => {
                     item.taxConfigId = taxByProductId.get(String(item.productId || '')) || null;
+                    const polishWarrantyMonths = warrantyByProductId.get(String(item.productId || '')) || Number(item?.snapshot?.polishWarrantyMonths || 6);
                     item.snapshot = {
                         ...(item.snapshot || {}),
-                        taxConfigId: item.taxConfigId
+                        taxConfigId: item.taxConfigId,
+                        polishWarrantyMonths
                     };
                 });
             }
@@ -1562,6 +1575,7 @@ class Order {
                         NULLIF(p.mrp, 0),
                         0
                     ) as unit_price,
+                    p.polish_warranty_months,
                     COALESCE(
                         NULLIF(pv.image_url, ''),
                         NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.media, '$[0].url')), ''),
@@ -1589,6 +1603,7 @@ class Order {
                     lineTotal: Number((quantity * unitPrice).toFixed(2)),
                     imageUrl: row.image_url || '',
                     sku: row.sku || null,
+                    polishWarrantyMonths: Number(row.polish_warranty_months || 6),
                     capturedAt: new Date().toISOString()
                 };
             });
@@ -1939,20 +1954,9 @@ class Order {
         };
 
         const orderParams = [];
+        const orderStatusParams = [];
+        const orderStatusClause = buildAdminStatusClause({ status, alias: 'o', params: orderStatusParams });
         let orderWhere = 'WHERE 1=1';
-        if (status && status !== 'all' && status !== 'failed') {
-            const normalizedStatus = String(status || '').trim().toLowerCase();
-            if (normalizedStatus === 'pending') {
-                orderWhere += " AND (o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) >= 24))";
-            } else if (normalizedStatus === 'confirmed') {
-                orderWhere += " AND (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24)";
-            } else {
-                orderWhere += ' AND o.status = ?';
-                orderParams.push(normalizedStatus);
-            }
-        } else if (status === 'failed') {
-            orderWhere += " AND (o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed')";
-        }
         if (sourceChannel && sourceChannel !== 'all') {
             const normalizedSource = String(sourceChannel || '').trim().toLowerCase();
             if (normalizedSource === 'abandoned_recovery') {
@@ -1966,6 +1970,7 @@ class Order {
         }
         orderWhere += searchClauseForOrder(orderParams);
         orderWhere += buildDateClause('o', orderParams);
+        const orderWhereWithStatus = `${orderWhere}${orderStatusClause}`;
 
         const attemptParams = [];
         let attemptWhere = `WHERE pa.local_order_id IS NULL
@@ -1996,6 +2001,7 @@ class Order {
         attemptWhere += searchClauseForAttempt(attemptParams);
         attemptWhere += buildDateClause('pa', attemptParams);
 
+        const orderWhereForUnion = latestLimit ? orderWhere : orderWhereWithStatus;
         const unionSql = `
             SELECT
                 CAST(o.id AS CHAR) as id,
@@ -2044,7 +2050,7 @@ class Order {
                 NULL as failure_reason
             FROM orders o
             LEFT JOIN users u ON u.id = o.user_id
-            ${orderWhere}
+            ${orderWhereForUnion}
             ${includeAttemptRows ? `
             UNION ALL
             SELECT
@@ -2097,16 +2103,37 @@ class Order {
             ${attemptWhere}` : ''}
         `;
 
-        const queryParams = includeAttemptRows
+        const baseQueryParams = includeAttemptRows
             ? [...orderParams, ...attemptParams]
             : [...orderParams];
+        const normalQueryParams = includeAttemptRows
+            ? [...orderParams, ...orderStatusParams, ...attemptParams]
+            : [...orderParams, ...orderStatusParams];
 
-        const [countRows] = await db.execute(
-            `SELECT COUNT(*) as total FROM (${unionSql}) combined_rows`,
-            queryParams
-        );
-        const totalRaw = Number(countRows[0]?.total || 0);
-        const total = latestLimit ? Math.min(totalRaw, latestLimit) : totalRaw;
+        const latestStatusParams = [];
+        const latestStatusClause = buildAdminStatusClause({ status, alias: 'scoped_rows', params: latestStatusParams });
+
+        let total = 0;
+        if (latestLimit) {
+            const [countRows] = await db.execute(
+                `SELECT COUNT(*) as total
+                 FROM (
+                    SELECT *
+                    FROM (${unionSql}) combined_rows
+                    ORDER BY created_at DESC
+                    LIMIT ${latestLimit}
+                 ) scoped_rows
+                 WHERE 1=1 ${latestStatusClause}`,
+                [...baseQueryParams, ...latestStatusParams]
+            );
+            total = Number(countRows[0]?.total || 0);
+        } else {
+            const [countRows] = await db.execute(
+                `SELECT COUNT(*) as total FROM (${unionSql}) combined_rows`,
+                normalQueryParams
+            );
+            total = Number(countRows[0]?.total || 0);
+        }
         if (total === 0 || offset >= total) {
             return {
                 orders: [],
@@ -2119,13 +2146,20 @@ class Order {
         let rows = [];
 
         if (latestLimit) {
-            const [latestRows] = await db.execute(
-                `SELECT * FROM (${unionSql}) combined_rows
+            const [latestFilteredRows] = await db.execute(
+                `SELECT *
+                 FROM (
+                    SELECT *
+                    FROM (${unionSql}) combined_rows
+                    ORDER BY created_at DESC
+                    LIMIT ${latestLimit}
+                 ) scoped_rows
+                 WHERE 1=1 ${latestStatusClause}
                  ORDER BY created_at DESC
-                 LIMIT ${latestLimit}`,
-                queryParams
+                 LIMIT ? OFFSET ?`,
+                [...baseQueryParams, ...latestStatusParams, Number(queryLimit), Number(offset)]
             );
-            rows = latestRows.slice(offset, offset + queryLimit);
+            rows = latestFilteredRows;
         } else {
             const mappedOrderBy = (() => {
                 if (sortBy === 'priority') {
@@ -2146,7 +2180,7 @@ class Order {
                 `SELECT * FROM (${unionSql}) combined_rows
                  ORDER BY ${mappedOrderBy}
                  LIMIT ? OFFSET ?`,
-                [...queryParams, Number(queryLimit), Number(offset)]
+                [...normalQueryParams, Number(queryLimit), Number(offset)]
             );
             rows = normalRows;
         }
@@ -2501,7 +2535,17 @@ class Order {
     }
 
     static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) {
-        const { where, params, latestLimit } = buildAdminOrderFilters({ status, search, startDate, endDate, quickRange, sourceChannel });
+        const { where, params, latestLimit } = buildAdminOrderFilters({
+            status,
+            search,
+            startDate,
+            endDate,
+            quickRange,
+            sourceChannel,
+            includeStatus: !Boolean(quickRange === 'latest_10')
+        });
+        const latestStatusParams = [];
+        const latestStatusClause = buildAdminStatusClause({ status, alias: 'scoped', params: latestStatusParams });
         let summaryRows = [];
         if (latestLimit) {
             [summaryRows] = await db.execute(
@@ -2519,8 +2563,9 @@ class Order {
                     ${where}
                     ORDER BY o.created_at DESC
                     LIMIT ${latestLimit}
-                 ) scoped`,
-                params
+                 ) scoped
+                 WHERE 1=1 ${latestStatusClause}`,
+                [...params, ...latestStatusParams]
             );
         } else {
             [summaryRows] = await db.execute(

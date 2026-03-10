@@ -51,7 +51,7 @@ export default function Faq() {
         },
         {
             q: 'Do you offer polishing support?',
-            a: 'Yes. A 6-month polishing service is available as per Terms & Conditions.'
+            a: 'Yes. Polish service is available as per product-specific validity (6, 7, 8, 9, or 12 months) and Terms & Conditions.'
         }
     ]), []);
 

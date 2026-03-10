@@ -274,6 +274,30 @@ const mapRazorpayPaymentStatusToLocalPayment = (status) => {
     return null;
 };
 
+const normalizePaymentStatus = (status) => String(status || '').trim().toLowerCase();
+
+const isPaidLikeStatus = (status) => {
+    const normalized = normalizePaymentStatus(status);
+    return normalized === PAYMENT_STATUS.PAID || normalized === PAYMENT_STATUS.REFUNDED;
+};
+
+const maybeTriggerConfirmedEmailOnPaymentTransition = ({
+    order = null,
+    previousPaymentStatus = null,
+    currentPaymentStatus = null,
+    includeInvoice = true
+} = {}) => {
+    if (!order?.id || !order?.user_id) return;
+    const next = normalizePaymentStatus(currentPaymentStatus);
+    if (next !== PAYMENT_STATUS.PAID) return;
+    if (isPaidLikeStatus(previousPaymentStatus)) return;
+    void triggerOrderLifecycleEmail({
+        order,
+        stage: 'confirmed',
+        includeInvoice
+    });
+};
+
 const normalizeSettlementSnapshot = (settlement = null) => {
     if (!settlement) return null;
     const amount = Number(settlement.amount || 0);
@@ -967,6 +991,10 @@ const handleRazorpayWebhook = async (req, res) => {
         }
 
         const refundEntity = req.body?.payload?.refund?.entity || null;
+        const existingLinkedOrder = razorpayOrderId
+            ? await Order.getByRazorpayOrderId(razorpayOrderId)
+            : null;
+        const previousLinkedPaymentStatus = existingLinkedOrder?.payment_status || null;
         const settlementIdFromWebhook = paymentEntity?.settlement_id || null;
         const updatedCount = razorpayOrderId
             ? await Order.updatePaymentByRazorpayOrderId({
@@ -995,6 +1023,12 @@ const handleRazorpayWebhook = async (req, res) => {
                     });
                 } catch {}
             }
+            maybeTriggerConfirmedEmailOnPaymentTransition({
+                order,
+                previousPaymentStatus: previousLinkedPaymentStatus,
+                currentPaymentStatus: paymentStatus,
+                includeInvoice: true
+            });
             emitOrderAndPaymentUpdate(req, {
                 order,
                 payment: {
@@ -1052,6 +1086,13 @@ const handleRazorpayWebhook = async (req, res) => {
                         includeInvoice: true
                     });
                 }
+            } else {
+                maybeTriggerConfirmedEmailOnPaymentTransition({
+                    order: linkedOrder,
+                    previousPaymentStatus: linkedOrder.payment_status,
+                    currentPaymentStatus: paymentStatus,
+                    includeInvoice: true
+                });
             }
 
             if (linkedOrder) {
@@ -2076,8 +2117,11 @@ const fetchAdminPaymentStatus = async (req, res) => {
         const settlementSnapshot = settlementId
             ? await fetchSettlementSnapshotSafe(razorpay, settlementId)
             : null;
+        let previousLinkedPaymentStatus = order?.payment_status || null;
 
         if (razorpayOrderId) {
+            const existingLinkedOrder = await Order.getByRazorpayOrderId(razorpayOrderId);
+            previousLinkedPaymentStatus = existingLinkedOrder?.payment_status || previousLinkedPaymentStatus;
             if (paymentStatus === PAYMENT_STATUS.PAID || paymentStatus === PAYMENT_STATUS.REFUNDED) {
                 await PaymentAttempt.markPaidByRazorpayOrder({
                     razorpayOrderId,
@@ -2121,6 +2165,12 @@ const fetchAdminPaymentStatus = async (req, res) => {
             ? await Order.getByRazorpayOrderId(razorpayOrderId)
             : order;
         if (updatedOrder) {
+            maybeTriggerConfirmedEmailOnPaymentTransition({
+                order: updatedOrder,
+                previousPaymentStatus: previousLinkedPaymentStatus,
+                currentPaymentStatus: paymentStatus,
+                includeInvoice: true
+            });
             if (paymentStatus === PAYMENT_STATUS.PAID) {
                 try {
                     await markRecoveredByOrder({ order: updatedOrder, reason: 'payment_paid_admin_sync' });
@@ -2334,6 +2384,73 @@ const downloadAdminInvoicePdf = async (req, res) => {
     }
 };
 
+const sendAdminInvoiceCommunication = async (req, res) => {
+    try {
+        const orderId = Number(req.params.id);
+        if (!Number.isFinite(orderId) || orderId <= 0) {
+            return res.status(400).json({ message: 'Invalid order id' });
+        }
+        const order = await Order.getById(orderId);
+        if (!order) {
+            return res.status(404).json({ message: 'Order not found' });
+        }
+        const paymentStatus = String(order?.payment_status || '').toLowerCase();
+        if (![PAYMENT_STATUS.PAID, PAYMENT_STATUS.REFUNDED].includes(paymentStatus)) {
+            return res.status(400).json({ message: 'Invoice can be sent only for paid or refunded orders' });
+        }
+        if (!order?.user_id) {
+            return res.status(400).json({ message: 'Customer details are unavailable for this order' });
+        }
+        const customer = await User.findById(order.user_id);
+        if (!customer) {
+            return res.status(404).json({ message: 'Customer not found for this order' });
+        }
+
+        const orderForInvoice = await hydrateOrderForInvoice(order);
+        const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
+        const invoiceRef = String(order?.order_ref || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
+        const invoiceAttachment = {
+            filename: `invoice-${invoiceRef}.pdf`,
+            content: pdfBuffer,
+            contentType: 'application/pdf'
+        };
+
+        // Fire delivery in background so admin UI does not block on channel latency.
+        setImmediate(async () => {
+            try {
+                const result = await sendOrderLifecycleCommunication({
+                    stage: 'updated',
+                    customer,
+                    order,
+                    includeInvoice: true,
+                    invoiceAttachment
+                });
+                if (result?.email?.ok !== true || result?.whatsapp?.ok !== true) {
+                    console.warn(
+                        `Invoice communication partial failure for order ${order?.id || 'unknown'}`,
+                        {
+                            email: result?.email?.reason || result?.email?.message || (result?.email?.ok ? 'ok' : 'failed'),
+                            whatsapp: result?.whatsapp?.reason || result?.whatsapp?.message || (result?.whatsapp?.ok ? 'ok' : 'failed')
+                        }
+                    );
+                }
+            } catch (dispatchError) {
+                console.error(
+                    `Invoice communication dispatch failed for order ${order?.id || 'unknown'}:`,
+                    dispatchError?.message || dispatchError
+                );
+            }
+        });
+
+        return res.status(202).json({
+            message: 'Invoice communication queued for email + WhatsApp',
+            queued: true
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to send invoice communication' });
+    }
+};
+
 module.exports = {
     createOrderFromCheckout,
     createRazorpayOrder,
@@ -2353,6 +2470,7 @@ module.exports = {
     getMyOrderByPaymentRef,
     downloadMyInvoicePdf,
     downloadAdminInvoicePdf,
+    sendAdminInvoiceCommunication,
     updateOrderStatus,
     fetchAdminPaymentStatus,
     fetchMyPaymentStatus,

@@ -264,6 +264,14 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    sendTestWhatsapp: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/communications/whatsapp/test`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
     getTaxConfigs: async () => {
         const res = await fetch(`${API_URL}/taxes`, { headers: getAuthHeader() });
         return handleResponse(res);

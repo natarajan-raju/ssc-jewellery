@@ -992,9 +992,30 @@ const runAbandonedCartMaintenanceOnce = async ({ onJourneyUpdate = null } = {}) 
 
 const startAbandonedCartMaintenanceScheduler = ({ onJourneyUpdate = null } = {}) => {
     const intervalMs = 3 * 60 * 1000;
-    setInterval(async () => {
+    const isTransientMaintenanceError = (error) => {
+        const code = String(error?.code || '').toUpperCase();
+        const message = String(error?.message || '').toUpperCase();
+        return (
+            ['ECONNRESET', 'PROTOCOL_CONNECTION_LOST', 'ETIMEDOUT', 'EPIPE', 'ECONNREFUSED'].includes(code)
+            || message.includes('ECONNRESET')
+            || message.includes('PROTOCOL_CONNECTION_LOST')
+        );
+    };
+
+    const runMaintenanceWithRetry = async () => {
         try {
             await runAbandonedCartMaintenanceOnce({ onJourneyUpdate });
+        } catch (error) {
+            if (!isTransientMaintenanceError(error)) throw error;
+            // One immediate retry for transient network/DB disconnects.
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            await runAbandonedCartMaintenanceOnce({ onJourneyUpdate });
+        }
+    };
+
+    setInterval(async () => {
+        try {
+            await runMaintenanceWithRetry();
         } catch (error) {
             console.error('Abandoned cart maintenance job failed:', error?.message || error);
         }

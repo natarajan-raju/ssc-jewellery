@@ -233,6 +233,7 @@ export const CartProvider = ({ children }) => {
         const updateQueueRef = { current: new Map() };
         const deleteQueueRef = { current: new Set() };
         let debounceTimer = null;
+        let categorySyncTimer = null;
         let isSyncingRemovals = false;
 
         const resolveProductSnapshotForItem = (item, product) => {
@@ -343,21 +344,59 @@ export const CartProvider = ({ children }) => {
             updateQueueRef.current.set(product.id, product);
             scheduleFlush();
         };
+        const handleProductCreate = (product) => {
+            // Usually irrelevant for existing cart rows, but keeps behavior symmetric.
+            if (!product?.id) return;
+            updateQueueRef.current.set(product.id, product);
+            scheduleFlush();
+        };
         const handleProductDelete = ({ id }) => {
             if (!id) return;
             deleteQueueRef.current.add(id);
             scheduleFlush();
         };
+        const scheduleServerCartHydrate = () => {
+            if (!user) return;
+            if (categorySyncTimer) clearTimeout(categorySyncTimer);
+            categorySyncTimer = setTimeout(() => {
+                hydrateFromServer(false).catch(() => {});
+            }, 300);
+        };
+        const handleProductCategoryChange = (payload = {}) => {
+            const product = payload?.product;
+            if (product?.id) {
+                updateQueueRef.current.set(product.id, product);
+                scheduleFlush();
+                return;
+            }
+            // Fallback: if only IDs are emitted, refresh server cart snapshot for logged-in users.
+            if (payload?.id || Array.isArray(payload?.productIds)) {
+                scheduleServerCartHydrate();
+            }
+        };
+        const handleCategoryRefresh = (payload = {}) => {
+            const action = String(payload?.action || '').toLowerCase();
+            if (!action) return;
+            // Keep cart snapshot safe across broad category/product CRUD refresh signals.
+            scheduleServerCartHydrate();
+        };
 
+        socket.on('product:create', handleProductCreate);
         socket.on('product:update', handleProductUpdate);
         socket.on('product:delete', handleProductDelete);
+        socket.on('product:category_change', handleProductCategoryChange);
+        socket.on('refresh:categories', handleCategoryRefresh);
 
         return () => {
             if (debounceTimer) clearTimeout(debounceTimer);
+            if (categorySyncTimer) clearTimeout(categorySyncTimer);
+            socket.off('product:create', handleProductCreate);
             socket.off('product:update', handleProductUpdate);
             socket.off('product:delete', handleProductDelete);
+            socket.off('product:category_change', handleProductCategoryChange);
+            socket.off('refresh:categories', handleCategoryRefresh);
         };
-    }, [socket, shouldShowCartToasts, user]);
+    }, [socket, shouldShowCartToasts, user, hydrateFromServer]);
 
     const itemCount = useMemo(() => items.reduce((sum, i) => sum + i.quantity, 0), [items]);
     const subtotal = useMemo(() => items.reduce((sum, i) => sum + (i.price * i.quantity), 0), [items]);

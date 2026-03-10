@@ -53,7 +53,7 @@ const getPolicyContent = ({ merchantName, registeredOffice, jurisdiction, effect
                 'Durability depends entirely on usage and care by the Customer.'
             ] },
             { heading: '4. 6-Month Polishing Service Guarantee', bullets: [
-                'A 6-month polishing service is provided from the date of delivery.',
+                'Polishing service validity is product-specific (6, 7, 8, 9, or 12 months) from the date of delivery.',
                 'This covers only re-polishing of plating.',
                 'Does not cover breakage, stone fall, misuse, bending, or chemical damage.',
                 'Customer must bear shipping charges both ways.',

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -115,6 +115,41 @@ const getCouponDiscountSplit = (order = {}) => {
     }
     return { productDiscount: couponTotal, shippingDiscount: 0 };
 };
+const getOrderItemSnapshot = (item = {}) => {
+    return item?.item_snapshot && typeof item.item_snapshot === 'object'
+        ? item.item_snapshot
+        : null;
+};
+const getOrderItemTitle = (item = {}) => {
+    const snapshot = getOrderItemSnapshot(item);
+    return item?.title || snapshot?.title || 'Product';
+};
+const getOrderItemVariantTitle = (item = {}) => {
+    const snapshot = getOrderItemSnapshot(item);
+    return item?.variant_title || snapshot?.variantTitle || '';
+};
+const getOrderItemCategoryLabel = (item = {}) => {
+    const snapshot = getOrderItemSnapshot(item);
+    const rawValue = item?.category_name
+        || snapshot?.categoryName
+        || snapshot?.category
+        || snapshot?.primaryCategoryName
+        || snapshot?.categoryTitle
+        || snapshot?.category_name;
+    if (rawValue) return String(rawValue).trim();
+    const categoryList = snapshot?.categoryNames || snapshot?.categories || [];
+    if (Array.isArray(categoryList) && categoryList.length > 0) {
+        return categoryList
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean)
+            .join(', ');
+    }
+    return '';
+};
+const getOrderItemImageUrl = (item = {}) => {
+    const snapshot = getOrderItemSnapshot(item);
+    return item?.image_url || snapshot?.imageUrl || '';
+};
 const getOrderCreatedTimestamp = (order = {}) => {
     const candidates = [
         order?.created_at,
@@ -213,6 +248,7 @@ export default function Orders({
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
+    const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
     const [selectedStatusCount, setSelectedStatusCount] = useState(0);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
@@ -268,8 +304,9 @@ export default function Orders({
         startDate,
         endDate,
         quickRange,
-        sourceChannel
-    }), [endDate, quickRange, search, sourceChannel, startDate]);
+        sourceChannel,
+        status: statusFilter
+    }), [endDate, quickRange, search, sourceChannel, startDate, statusFilter]);
     const metricsKey = toOrderMetricsKey(metricsQuery);
     const sharedMetrics = orderMetricsByKey[metricsKey]?.metrics || null;
     const getPaymentMethodLabel = (order) => {
@@ -632,29 +669,12 @@ export default function Orders({
                 sourceChannel,
                 limit: quickRange === 'latest_10' ? 10 : 12
             };
-            const metricsParams = {
-                page: 1,
-                limit: 1,
-                status: 'all',
-                search,
-                startDate,
-                endDate,
-                quickRange,
-                sortBy,
-                sourceChannel
-            };
-
-            const [listData, metricsData] = await Promise.all([
-                orderService.getAdminOrders(listParams),
-                statusFilter === 'all'
-                    ? Promise.resolve(null)
-                    : orderService.getAdminOrders(metricsParams)
-            ]);
+            const listData = await orderService.getAdminOrders(listParams);
             if (requestSeq !== fetchSeqRef.current) return;
 
             setOrders(sortOrdersForView(listData.orders || [], sortBy));
             setSelectedStatusCount(Number(listData?.pagination?.totalOrders || 0));
-            const resolvedMetrics = (statusFilter === 'all' ? listData.metrics : metricsData?.metrics) || null;
+            const resolvedMetrics = listData?.metrics || null;
             setMetrics(resolvedMetrics);
             if (resolvedMetrics) {
                 setOrderMetricsSnapshot(metricsQuery, resolvedMetrics);
@@ -952,6 +972,36 @@ export default function Orders({
             toast.error(error.message || 'Unable to generate invoice');
         } finally {
             setDownloadingInvoiceId(null);
+        }
+    };
+
+    const handleSendInvoiceCommunication = async (order, e = null) => {
+        if (e) e.stopPropagation();
+        if (!order || isAttemptEntry(order) || !canDownloadInvoice(order)) return;
+        const targetId = order.order_id || order.id;
+        setSendingInvoiceId(targetId);
+        try {
+            const response = await orderService.sendAdminInvoiceCommunication(targetId);
+            if (response?.queued === true) {
+                toast.success(response?.message || 'Invoice communication queued');
+                return;
+            }
+            const emailSent = response?.delivery?.email?.ok === true;
+            const whatsappSent = response?.delivery?.whatsapp?.ok === true;
+            if (emailSent && whatsappSent) {
+                toast.success('Invoice sent to customer via email and WhatsApp');
+                return;
+            }
+            if (emailSent || whatsappSent) {
+                const sentChannels = [emailSent ? 'email' : '', whatsappSent ? 'WhatsApp' : ''].filter(Boolean).join(' + ');
+                toast.success(`Invoice sent via ${sentChannels}`);
+                return;
+            }
+            toast.error('Invoice could not be sent on email/WhatsApp for this customer');
+        } catch (error) {
+            toast.error(error.message || 'Unable to send invoice to customer');
+        } finally {
+            setSendingInvoiceId(null);
         }
     };
 
@@ -2106,6 +2156,17 @@ export default function Orders({
                                                             <Download size={14} />
                                                         </button>
                                                     )}
+                                                    {canDownloadInvoice(order) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleSendInvoiceCommunication(order, e)}
+                                                            disabled={sendingInvoiceId === (order.order_id || order.id)}
+                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                                                            title="Send invoice to email + WhatsApp"
+                                                        >
+                                                            <Send size={14} />
+                                                        </button>
+                                                    )}
                                                     {canDeleteRow(order) && (
                                                         <button
                                                             type="button"
@@ -2201,6 +2262,17 @@ export default function Orders({
                                                 title="Download invoice"
                                             >
                                                 <Download size={14} />
+                                            </button>
+                                        )}
+                                        {canDownloadInvoice(order) && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleSendInvoiceCommunication(order, e)}
+                                                disabled={sendingInvoiceId === (order.order_id || order.id)}
+                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                                                title="Send invoice to email + WhatsApp"
+                                            >
+                                                <Send size={14} />
                                             </button>
                                         )}
                                         {canDeleteRow(order) && (
@@ -2366,6 +2438,17 @@ export default function Orders({
                                                 <Download size={14} />
                                                 {downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating...' : 'Download Invoice'}
                                             </button>
+                                            )}
+                                            {canDownloadInvoice(selectedOrder) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => handleSendInvoiceCommunication(selectedOrder, e)}
+                                                    disabled={sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
+                                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60"
+                                                >
+                                                    <Send size={14} />
+                                                    {sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Sending...' : 'Send Invoice (Email + WhatsApp)'}
+                                                </button>
                                             )}
                                         </div>
                                     </div>
@@ -2678,14 +2761,22 @@ export default function Orders({
                                             const itemTax = Number(item.tax_amount ?? snapshot?.taxAmount ?? 0);
                                             const itemTaxRate = Number(item.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
                                             const itemTaxCode = item.tax_code || snapshot?.taxCode || item.tax_name || snapshot?.taxName || '';
+                                            const parsedWarrantyMonths = Number(snapshot?.polishWarrantyMonths ?? 0);
+                                            const itemWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : null;
+                                            const itemTitle = getOrderItemTitle(item);
+                                            const itemVariantTitle = getOrderItemVariantTitle(item);
+                                            const itemCategoryLabel = getOrderItemCategoryLabel(item);
+                                            const itemImageUrl = getOrderItemImageUrl(item);
                                             return (
                                                 <div key={item.id} className="flex items-center gap-4 p-4">
                                                     <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
-                                                        {item.image_url && <img src={item.image_url} alt={item.title} className="w-full h-full object-cover" />}
+                                                        {itemImageUrl && <img src={itemImageUrl} alt={itemTitle} className="w-full h-full object-cover" />}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
-                                                        {item.variant_title && <p className="text-xs text-gray-500">{item.variant_title}</p>}
+                                                        <p className="text-sm font-semibold text-gray-800 line-clamp-1">{itemTitle}</p>
+                                                        {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
+                                                        {itemCategoryLabel && <p className="text-[11px] text-gray-400 line-clamp-1">Category: {itemCategoryLabel}</p>}
+                                                        {itemWarrantyMonths && <p className="text-[11px] text-gray-400 line-clamp-1">Polish Warranty: {itemWarrantyMonths} months</p>}
                                                         <p className="text-xs text-gray-400 mt-1">
                                                             ₹{unitPrice.toLocaleString()} x {quantity}
                                                         </p>
@@ -2700,7 +2791,7 @@ export default function Orders({
                                                                         taxRatePercent: itemTaxRate,
                                                                         taxLabel: itemTaxCode
                                                                     });
-                                                                    return `${gst.title}: ${gst.totalAmountLabel} (${gst.splitRateLabel}; ${gst.splitAmountLabel})`;
+                                                                    return `${gst.title}: ${gst.totalAmountLabel}`;
                                                                 })()}
                                                             </p>
                                                         )}
@@ -2711,22 +2802,10 @@ export default function Orders({
                                     </div>
                                 </div>
 
-                                <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                                <div className="mt-5 grid grid-cols-1 gap-2 text-sm">
                                     <div className="flex items-center justify-between">
                                         <span className="text-gray-500">Subtotal</span>
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.subtotal || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Total Discount</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between text-emerald-700">
-                                        <span>Total Savings</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Final Price (Before Taxes & Shipping)</span>
-                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) - Number(selectedOrder.discount_total || 0)).toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <span className="text-gray-500">Shipping</span>
@@ -2743,6 +2822,32 @@ export default function Orders({
                                             <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
                                         </div>
                                     )}
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-500">Final Price (Before Discounts)</span>
+                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0) + Number(selectedOrder.tax_total || 0)).toLocaleString()}</span>
+                                    </div>
+                                    {Number(selectedOrder.coupon_discount_value || 0) > 0 && (
+                                        <div className="flex items-center justify-between text-emerald-700">
+                                            <span>Coupon{selectedOrder.coupon_code ? ` (${selectedOrder.coupon_code})` : ''}</span>
+                                            <span className="font-semibold">- ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    {Number(selectedOrder.loyalty_discount_total || 0) > 0 && (
+                                        <div className="flex items-center justify-between text-blue-700">
+                                            <span>Member Discount</span>
+                                            <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    {Number(selectedOrder.loyalty_shipping_discount_total || 0) > 0 && (
+                                        <div className="flex items-center justify-between text-blue-700">
+                                            <span>Member Shipping Benefit</span>
+                                            <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_shipping_discount_total || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Total Savings</span>
+                                        <span className="font-semibold">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
+                                    </div>
                                     <div className="flex items-center justify-between text-base font-semibold">
                                         <span>Total</span>
                                         <span>₹{Number(selectedOrder.total || 0).toLocaleString()}</span>
@@ -3022,11 +3127,6 @@ export default function Orders({
                                     {!isManualSummaryLoading && effectiveManualSummary && (
                                         <div className="mt-3 space-y-2 text-sm">
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Subtotal</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.subtotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Coupon Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Member Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Shipping Discount</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(effectiveManualSummary.discountTotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Final Price (Before Taxes & Shipping)</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) - Number(effectiveManualSummary.discountTotal || 0) + Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0)))}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Shipping</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.shippingFee)}</span></div>
                                             {Number(effectiveManualSummary.taxTotal || 0) > 0 && (
                                                 <div className="flex items-start justify-between">
@@ -3039,6 +3139,17 @@ export default function Orders({
                                                     <span className="font-semibold">{formatInrOrDash(effectiveManualSummary.taxTotal)}</span>
                                                 </div>
                                             )}
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Final Price (Before Discounts)</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0) + Number(effectiveManualSummary.taxTotal || 0)))}</span></div>
+                                            {Number(effectiveManualSummary.couponDiscountTotal || 0) > 0 && (
+                                                <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
+                                            )}
+                                            {Number(effectiveManualSummary.loyaltyDiscountTotal || 0) > 0 && (
+                                                <div className="flex items-center justify-between text-blue-700"><span>Member Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
+                                            )}
+                                            {Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0) > 0 && (
+                                                <div className="flex items-center justify-between text-blue-700"><span>Member Shipping Benefit</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
+                                            )}
+                                            <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(effectiveManualSummary.discountTotal)}</span></div>
                                             <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(effectiveManualSummary.total)}</span></div>
                                             {!manualSummary && (
                                                 <p className="text-xs text-gray-500">

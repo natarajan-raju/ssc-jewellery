@@ -22,6 +22,12 @@ const asObject = (value) => {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 };
 const asString = (value = '') => String(value || '').trim();
+const ALLOWED_POLISH_WARRANTY_MONTHS = [6, 7, 8, 9, 12];
+const normalizePolishWarrantyMonths = (value) => {
+    const parsed = Number(value);
+    const rounded = Number.isFinite(parsed) ? Math.round(parsed) : 6;
+    return ALLOWED_POLISH_WARRANTY_MONTHS.includes(rounded) ? rounded : 6;
+};
 const normalizeVideoType = (value = '') => {
     const raw = String(value || '').trim().toLowerCase();
     if (raw === 'youtube' || raw === 'instagram') return raw;
@@ -150,6 +156,7 @@ const createProduct = async (req, res) => {
 
         const productData = {
             ...req.body,
+            polish_warranty_months: normalizePolishWarrantyMonths(req.body.polish_warranty_months),
             tax_config_id: Number.isFinite(Number(req.body.tax_config_id)) && Number(req.body.tax_config_id) > 0
                 ? Number(req.body.tax_config_id)
                 : null,
@@ -230,6 +237,7 @@ const updateProduct = async (req, res) => {
             sku: req.body.sku || null,
             weight_kg: req.body.weight_kg || null,
             status: req.body.status || 'active',
+            polish_warranty_months: normalizePolishWarrantyMonths(req.body.polish_warranty_months),
             tax_config_id: Number.isFinite(Number(req.body.tax_config_id)) && Number(req.body.tax_config_id) > 0
                 ? Number(req.body.tax_config_id)
                 : null,

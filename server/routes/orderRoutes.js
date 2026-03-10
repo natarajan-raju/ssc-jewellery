@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { createOrderFromCheckout, createRazorpayOrder, getCheckoutSummary, retryRazorpayPayment, verifyRazorpayPayment, handleRazorpayWebhook, getAdminOrders, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, convertAdminPaymentAttemptToOrder, createAdminManualOrder, getAdminManualCoupons, getAdminManualPreview, validateRecoveryCoupon, getAvailableCoupons, getCustomerPopupData, getPublicPopupData, downloadMyInvoicePdf, downloadAdminInvoicePdf, getOverdueShippedSummary, confirmDeliveryBySignedLink } = require('../controllers/orderController');
+const { createOrderFromCheckout, createRazorpayOrder, getCheckoutSummary, retryRazorpayPayment, verifyRazorpayPayment, handleRazorpayWebhook, getAdminOrders, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, convertAdminPaymentAttemptToOrder, createAdminManualOrder, getAdminManualCoupons, getAdminManualPreview, validateRecoveryCoupon, getAvailableCoupons, getCustomerPopupData, getPublicPopupData, downloadMyInvoicePdf, downloadAdminInvoicePdf, sendAdminInvoiceCommunication, getOverdueShippedSummary, confirmDeliveryBySignedLink } = require('../controllers/orderController');
 
 router.post('/checkout', protect, createOrderFromCheckout);
 router.post('/razorpay/order', protect, createRazorpayOrder);
@@ -26,6 +26,7 @@ router.delete('/admin/attempt/:id', protect, authorize('admin', 'staff'), delete
 router.post('/admin/attempt/:id/convert', protect, authorize('admin', 'staff'), convertAdminPaymentAttemptToOrder);
 router.post('/admin/payment/fetch-status', protect, authorize('admin', 'staff'), fetchAdminPaymentStatus);
 router.get('/admin/:id/invoice', protect, authorize('admin', 'staff'), downloadAdminInvoicePdf);
+router.post('/admin/:id/invoice/send', protect, authorize('admin', 'staff'), sendAdminInvoiceCommunication);
 router.get('/my', protect, getMyOrders);
 router.get('/my/payment/:paymentId', protect, getMyOrderByPaymentRef);
 router.post('/my/payment/fetch-status', protect, fetchMyPaymentStatus);

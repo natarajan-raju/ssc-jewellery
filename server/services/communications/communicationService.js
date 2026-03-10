@@ -307,17 +307,18 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
     const safeStage = String(stage || 'updated').trim().toLowerCase();
     const template = buildOrderLifecycleTemplate({ stage: safeStage, customer: recipient, order, includeInvoice });
 
-    const email = recipient.email
-        ? await sendEmailCommunication({
-            to: recipient.email,
-            subject: template.subject,
-            text: template.text,
-            html: template.html,
-            attachments: invoiceAttachment ? [invoiceAttachment] : []
-        })
-        : { ok: false, skipped: true, reason: 'missing_email' };
-
-    const whatsapp = await sendOrderWhatsapp({ stage: safeStage, customer: recipient, order });
+    const [email, whatsapp] = await Promise.all([
+        recipient.email
+            ? sendEmailCommunication({
+                to: recipient.email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html,
+                attachments: invoiceAttachment ? [invoiceAttachment] : []
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+        sendOrderWhatsapp({ stage: safeStage, customer: recipient, order })
+    ]);
     return { email, whatsapp };
 };
 
@@ -360,11 +361,12 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
         closing
     });
 
-    const email = recipient.email
-        ? await sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
-        : { ok: false, skipped: true, reason: 'missing_email' };
-
-    const whatsapp = await sendPaymentWhatsapp({ stage: safeStage, customer: recipient, order, payment });
+    const [email, whatsapp] = await Promise.all([
+        recipient.email
+            ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+        sendPaymentWhatsapp({ stage: safeStage, customer: recipient, order, payment })
+    ]);
     return { email, whatsapp };
 };
 
@@ -406,11 +408,12 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
         closing
     });
 
-    const email = recipient.email
-        ? await sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
-        : { ok: false, skipped: true, reason: 'missing_email' };
-
-    const whatsapp = await sendAbandonedCartWhatsapp({ customer: recipient, cart });
+    const [email, whatsapp] = await Promise.all([
+        recipient.email
+            ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+        sendAbandonedCartWhatsapp({ customer: recipient, cart })
+    ]);
     return { email, whatsapp };
 };
 

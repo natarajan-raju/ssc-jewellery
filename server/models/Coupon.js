@@ -48,6 +48,64 @@ const normalizeDiscountType = (value = 'percent') => {
 };
 
 class Coupon {
+    static async autoArchiveStaleCoupons({ connection = db } = {}) {
+        // 1) Expired coupons should not stay active in admin management tables.
+        await connection.execute(
+            `UPDATE coupons
+             SET is_active = 0,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE is_active = 1
+               AND expires_at IS NOT NULL
+               AND expires_at < NOW()`
+        );
+
+        // 2) Coupons with exhausted global usage should be archived.
+        await connection.execute(
+            `UPDATE coupons c
+             LEFT JOIN (
+                SELECT coupon_id, COUNT(*) AS used_count
+                FROM coupon_redemptions
+                GROUP BY coupon_id
+             ) usage_stats ON usage_stats.coupon_id = c.id
+             SET c.is_active = 0,
+                 c.updated_at = CURRENT_TIMESTAMP
+             WHERE c.is_active = 1
+               AND c.usage_limit_total IS NOT NULL
+               AND COALESCE(usage_stats.used_count, 0) >= c.usage_limit_total`
+        );
+
+        // 3) Customer-target coupons are archived once all targeted users exhaust per-user usage.
+        await connection.execute(
+            `UPDATE coupons c
+             JOIN (
+                SELECT cut.coupon_id,
+                       COUNT(*) AS target_count,
+                       SUM(
+                           CASE
+                               WHEN COALESCE(user_usage.used_by_user, 0) >= GREATEST(1, COALESCE(c2.usage_limit_per_user, 1))
+                               THEN 1 ELSE 0
+                           END
+                       ) AS exhausted_targets
+                FROM coupon_user_targets cut
+                JOIN coupons c2 ON c2.id = cut.coupon_id
+                LEFT JOIN (
+                    SELECT coupon_id, user_id, COUNT(*) AS used_by_user
+                    FROM coupon_redemptions
+                    GROUP BY coupon_id, user_id
+                ) user_usage
+                    ON user_usage.coupon_id = cut.coupon_id
+                   AND user_usage.user_id = cut.user_id
+                GROUP BY cut.coupon_id
+             ) target_stats ON target_stats.coupon_id = c.id
+             SET c.is_active = 0,
+                 c.updated_at = CURRENT_TIMESTAMP
+             WHERE c.is_active = 1
+               AND c.scope_type = 'customer'
+               AND target_stats.target_count > 0
+               AND target_stats.exhausted_targets >= target_stats.target_count`
+        );
+    }
+
     static async generateUniqueCode({ connection = db, prefix = 'SSC' } = {}) {
         for (let i = 0; i < 10; i += 1) {
             const code = generateCouponCode(prefix);
@@ -188,6 +246,8 @@ class Coupon {
         const includeStandardCoupons = normalizedSourceType !== 'abandoned';
         const includeAbandonedCoupons = normalizedSourceType === 'all' || normalizedSourceType === 'abandoned';
 
+        await Coupon.autoArchiveStaleCoupons({ connection });
+
         let rows = [];
         if (includeStandardCoupons) {
             const params = [];
@@ -244,7 +304,13 @@ class Coupon {
         if (includeAbandonedCoupons) {
             const abandonedParams = [];
             let abandonedWhere = `WHERE d.status = 'active'
-                AND (d.expires_at IS NULL OR d.expires_at >= NOW())`;
+                AND (d.expires_at IS NULL OR d.expires_at >= NOW())
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM abandoned_cart_discounts dx
+                    WHERE UPPER(dx.code) = UPPER(d.code)
+                      AND dx.status = 'redeemed'
+                )`;
             if (normalizedSearch) {
                 abandonedWhere += ' AND (d.code LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)';
                 const term = `%${normalizedSearch}%`;

@@ -1166,6 +1166,8 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
         if (whatsappRecipients.length) {
             for (const mobile of whatsappRecipients) {
                 await sendWhatsapp({
+                    type: 'dashboard_alert',
+                    template: 'dashboard_alert',
                     mobile,
                     message: `SSC Dashboard Alert: ${candidate.message}`
                 }).catch(() => {});
@@ -1737,6 +1739,61 @@ const sendTestEmail = async (req, res) => {
     }
 };
 
+const sendTestWhatsapp = async (req, res) => {
+    try {
+        const {
+            mobile,
+            template = 'generic',
+            message = '',
+            params = '',
+            fileUrl = '',
+            urlParam = '',
+            headUrl = '',
+            headParam = '',
+            name = 'Customer',
+            pdfName = ''
+        } = req.body || {};
+
+        const normalizedMobile = String(mobile || '').replace(/\D/g, '');
+        if (!normalizedMobile || normalizedMobile.length < 10) {
+            return res.status(400).json({ message: 'Valid recipient mobile is required' });
+        }
+
+        const resolvedParams = Array.isArray(params)
+            ? params
+            : String(params || '')
+                .split(',')
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean);
+
+        const result = await sendWhatsapp({
+            type: String(template || 'generic').trim().toLowerCase(),
+            template: String(template || 'generic').trim(),
+            mobile: normalizedMobile,
+            message: String(message || '').trim(),
+            params: resolvedParams,
+            fileUrl: String(fileUrl || '').trim(),
+            urlParam: String(urlParam || '').trim(),
+            headUrl: String(headUrl || '').trim(),
+            headParam: String(headParam || '').trim(),
+            name: String(name || 'Customer').trim(),
+            pdfName: String(pdfName || '').trim()
+        });
+
+        return res.json({
+            ok: Boolean(result?.ok),
+            channel: 'whatsapp',
+            result
+        });
+    } catch (error) {
+        return res.status(400).json({
+            ok: false,
+            channel: 'whatsapp',
+            message: error?.message || 'Failed to send test WhatsApp'
+        });
+    }
+};
+
 const getCompanyInfo = async (_req, res) => {
     try {
         const [company, taxes] = await Promise.all([
@@ -2148,8 +2205,17 @@ const issueCouponToUser = async (req, res) => {
                 : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
             user.mobile
                 ? sendWhatsapp({
+                    type: 'coupon_issue',
+                    template: 'coupon_issue',
                     mobile: user.mobile,
-                    message: `${message}${categoryEligibilityLine ? ` ${categoryEligibilityLine}` : ''}${categoryCtaLine ? ` ${categoryCtaLine}` : ''} Use once per order.`
+                    message: `${message}${categoryEligibilityLine ? ` ${categoryEligibilityLine}` : ''}${categoryCtaLine ? ` ${categoryCtaLine}` : ''} Use once per order.`,
+                    data: {
+                        storeName: 'SSC Jewellery',
+                        couponCode: coupon.code,
+                        discount: offerLabel,
+                        validUntil: expiryLabel,
+                        shopUrl: categoryContext?.categoryUrl || process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || 'https://sscjewellery.com/'
+                    }
                 }).catch(() => ({ ok: false }))
                 : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
         ]);
@@ -2307,6 +2373,7 @@ module.exports = {
     getUserAvailableCoupons,
     verifyEmailChannel,
     sendTestEmail,
+    sendTestWhatsapp,
     getCompanyInfo,
     updateCompanyInfo,
     listTaxConfigs,

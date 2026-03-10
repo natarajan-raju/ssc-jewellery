@@ -82,6 +82,15 @@ const isBirthdayToday = (dob) => {
 };
 
 const tierLabel = (tier = 'regular') => formatTierLabel(tier);
+const getCustomerProfileImage = (user = {}) => {
+    return String(
+        user?.profileImage
+        || user?.profile_image
+        || user?.avatar
+        || user?.avatar_url
+        || ''
+    ).trim();
+};
 const formatLongDate = (value) => {
     if (!value) return 'No expiry';
     const date = new Date(value);
@@ -757,11 +766,18 @@ export default function Customers({
                                     const waLink = getWhatsappLink(user.mobile);
                                     const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                     const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
+                                    const profileImage = getCustomerProfileImage(user);
                                     return (
                                         <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''}`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary">{String(user.name || 'U').charAt(0)}</div>
+                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary overflow-hidden">
+                                                        {profileImage ? (
+                                                            <img src={profileImage} alt={user.name || 'Customer'} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            String(user.name || 'U').charAt(0)
+                                                        )}
+                                                    </div>
                                                     <span className="font-medium text-gray-900">{user.name}</span>
                                                 </div>
                                             </td>
@@ -824,10 +840,17 @@ export default function Customers({
                                         const waLink = getWhatsappLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                         const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
+                                        const profileImage = getCustomerProfileImage(user);
                                         return (
                                             <div key={`m-${user.id}`} onClick={() => openProfile(user)} className={`rounded-xl border p-3 bg-white ${isBirthdayToday(user.dob) ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
                                                 <div className="flex items-center gap-2">
-                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary">{String(user.name || 'U').charAt(0)}</div>
+                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary overflow-hidden">
+                                                        {profileImage ? (
+                                                            <img src={profileImage} alt={user.name || 'Customer'} className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            String(user.name || 'U').charAt(0)
+                                                        )}
+                                                    </div>
                                                     <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
                                                 </div>
                                                 <p className="text-[11px] text-gray-500 mt-2 line-clamp-1">{user.mobile || '—'}</p>

@@ -143,27 +143,33 @@ export default function PaymentSuccess() {
                                 <div className="mt-4 pt-3 border-t border-gray-100 text-sm text-gray-700 space-y-1">
                                     {(() => {
                                         const subtotal = Number(order.subtotal || 0);
-                                        const discount = Number(order.discount_total || 0);
+                                        const couponDiscount = Number(order.coupon_discount_value || 0);
+                                        const memberDiscount = Number(order.loyalty_discount_total || 0);
+                                        const memberShippingBenefit = Number(order.loyalty_shipping_discount_total || 0);
+                                        const discount = Number(order.discount_total || (couponDiscount + memberDiscount + memberShippingBenefit));
                                         const shipping = Number(order.shipping_fee || 0);
-                                        const finalBeforeTaxAndShipping = Math.max(0, subtotal - discount);
+                                        const tax = Number(order.tax_total || 0);
+                                        const finalBeforeDiscounts = Math.max(0, subtotal + shipping + tax);
                                         return (
                                             <>
                                                 <p>Subtotal: ₹{subtotal.toLocaleString()}</p>
-                                                <p>Discount: -₹{discount.toLocaleString()}</p>
-                                                <p>Total Savings: ₹{discount.toLocaleString()}</p>
-                                                <p>Final Price (Before Taxes & Shipping): ₹{finalBeforeTaxAndShipping.toLocaleString()}</p>
                                                 <p>Shipping: ₹{shipping.toLocaleString()}</p>
+                                                {tax > 0 && (
+                                                    <p>
+                                                        GST: ₹{tax.toLocaleString()}
+                                                        <span className="block text-[11px] text-gray-500">
+                                                            {getGstDisplayDetails({ taxAmount: tax }).splitAmountLabel}
+                                                        </span>
+                                                    </p>
+                                                )}
+                                                <p>Final Price (Before Discounts): ₹{finalBeforeDiscounts.toLocaleString()}</p>
+                                                {couponDiscount > 0 && <p>Coupon{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
+                                                {memberDiscount > 0 && <p>Member Discount: -₹{memberDiscount.toLocaleString()}</p>}
+                                                {memberShippingBenefit > 0 && <p>Member Shipping Benefit: -₹{memberShippingBenefit.toLocaleString()}</p>}
+                                                <p>Total Savings: ₹{discount.toLocaleString()}</p>
                                             </>
                                         );
                                     })()}
-                                    {Number(order.tax_total || 0) > 0 && (
-                                        <p>
-                                            GST: ₹{Number(order.tax_total || 0).toLocaleString()}
-                                            <span className="block text-[11px] text-gray-500">
-                                                {getGstDisplayDetails({ taxAmount: Number(order.tax_total || 0) }).splitAmountLabel}
-                                            </span>
-                                        </p>
-                                    )}
                                     <p className="font-semibold text-gray-900">Total: ₹{Number(order.total || 0).toLocaleString()}</p>
                                     <p>Payment Method: {String(order.payment_gateway || 'razorpay').toUpperCase()}</p>
                                     <p className="pt-2 text-gray-600">Your items will be dispatched in 2-3 working days.</p>
