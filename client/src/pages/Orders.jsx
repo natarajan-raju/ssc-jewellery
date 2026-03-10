@@ -100,11 +100,33 @@ const getItemTaxLabel = (item) => {
 };
 const getItemTitle = (item) => {
     const snapshot = getItemSnapshot(item);
-    return item?.title || snapshot?.title || 'Order item';
+    return item?.title || item?.product_title || item?.name || snapshot?.title || snapshot?.productTitle || 'Order item';
 };
 const getItemVariantTitle = (item) => {
     const snapshot = getItemSnapshot(item);
-    return item?.variant_title || snapshot?.variantTitle || '';
+    return item?.variant_title || item?.variant_name || snapshot?.variantTitle || snapshot?.variant || '';
+};
+const getItemCategoryLabel = (item) => {
+    const snapshot = getItemSnapshot(item);
+    const rawValue = item?.category_name
+        || snapshot?.categoryName
+        || snapshot?.category
+        || snapshot?.primaryCategoryName
+        || snapshot?.categoryTitle
+        || snapshot?.category_name;
+    if (rawValue) return String(rawValue).trim();
+    const categoryList = snapshot?.categoryNames || snapshot?.categories || [];
+    if (Array.isArray(categoryList) && categoryList.length > 0) {
+        return categoryList
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean)
+            .join(', ');
+    }
+    return '';
+};
+const getItemSku = (item) => {
+    const snapshot = getItemSnapshot(item);
+    return item?.sku || snapshot?.sku || '';
 };
 const getItemImage = (item) => {
     const snapshot = getItemSnapshot(item);
@@ -535,7 +557,13 @@ export default function Orders() {
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-semibold text-gray-800 line-clamp-1">{getItemTitle(item)}</p>
-                                            {getItemVariantTitle(item) && <p className="text-xs text-gray-500">{getItemVariantTitle(item)}</p>}
+                                            <p className="text-xs text-gray-500 line-clamp-1">
+                                                {getItemVariantTitle(item) || 'Default variant'}
+                                                {getItemSku(item) ? ` • SKU: ${getItemSku(item)}` : ''}
+                                            </p>
+                                            {getItemCategoryLabel(item) && (
+                                                <p className="text-[11px] text-gray-400 line-clamp-1">Category: {getItemCategoryLabel(item)}</p>
+                                            )}
                                             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                                                 <p className="text-xs text-gray-700 font-semibold">₹{getItemUnitPrice(item).toLocaleString()}</p>
                                                 {getItemOriginalPrice(item) > getItemUnitPrice(item) && (
@@ -559,7 +587,7 @@ export default function Orders() {
                                                             taxRatePercent: getItemTaxRate(item),
                                                             taxLabel: getItemTaxLabel(item)
                                                         });
-                                                        return `${gst.title}: ${gst.totalAmountLabel} (${gst.splitRateLabel}; ${gst.splitAmountLabel})`;
+                                                        return `${gst.title}: ${gst.totalAmountLabel}`;
                                                     })()}
                                                 </p>
                                             )}
