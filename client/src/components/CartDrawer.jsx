@@ -73,6 +73,7 @@ export default function CartDrawer() {
         [subtotal, shippingPreview?.fee]
     );
     const canRenderDrawerWidget = !['/cart', '/checkout'].includes(String(location.pathname || '').toLowerCase());
+    const isAtMaxQuantity = (item) => Boolean(item?.trackQuantity && Number(item?.availableQuantity || 0) > 0 && Number(item?.quantity || 0) >= Number(item?.availableQuantity || 0));
 
     useEffect(() => {
         const layer = confettiLayerRef.current;
@@ -258,7 +259,7 @@ export default function CartDrawer() {
                                                 vibrateTap();
                                                 updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity + 1 });
                                             }}
-                                            disabled={item.isOutOfStock}
+                                            disabled={item.isOutOfStock || isAtMaxQuantity(item)}
                                             className="p-1.5 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                                         >
                                             <Plus size={14} />

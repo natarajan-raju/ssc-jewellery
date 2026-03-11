@@ -351,7 +351,7 @@ const updateProduct = async (req, res) => {
     // --- 5. GET CATEGORY LIST ---
 const getCategories = async (req, res) => {
     try {
-        const categories = await Product.getAllCategories();
+        const categories = await Product.getAllCategories({ publicOnly: !canViewAdminProductData(req) });
         res.json(categories);
     } catch (error) {
         res.status(500).json({ message: 'Failed to fetch categories' });
@@ -362,7 +362,7 @@ const getCategories = async (req, res) => {
 
 const getCategoryStats = async (req, res) => {
     try {
-        const stats = await Product.getCategoriesWithStats();
+        const stats = await Product.getCategoriesWithStats({ publicOnly: !canViewAdminProductData(req) });
         res.json(stats);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching category stats' });

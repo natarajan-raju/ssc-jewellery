@@ -86,6 +86,26 @@ test('admin product API path returns full product payload', async () => {
     assert.equal(res.body.variants[0].quantity, 12);
 });
 
+test('public category endpoints exclude empty categories while admin can still access full lists', async () => {
+    const publicReq = {};
+    const adminReq = { user: { role: 'admin' } };
+    const publicRes = createMockRes();
+    const adminRes = createMockRes();
+
+    await withPatched(Product, {
+        getAllCategories: async ({ publicOnly = false } = {}) => publicOnly ? ['Gold'] : ['Gold', 'Empty'],
+        getCategoriesWithStats: async ({ publicOnly = false } = {}) => publicOnly
+            ? [{ id: 1, name: 'Gold', product_count: 2 }]
+            : [{ id: 1, name: 'Gold', product_count: 2 }, { id: 2, name: 'Empty', product_count: 0 }]
+    }, async () => {
+        await productController.getCategories(publicReq, publicRes);
+        await productController.getCategories(adminReq, adminRes);
+    });
+
+    assert.deepEqual(publicRes.body, ['Gold']);
+    assert.deepEqual(adminRes.body, ['Gold', 'Empty']);
+});
+
 test('product update emit sends public payload to non-admins and full payload to admins', () => {
     const emitted = [];
     const io = {

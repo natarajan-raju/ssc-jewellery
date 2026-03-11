@@ -321,11 +321,11 @@ const buildAttemptSnapshot = async ({
         `SELECT ci.product_id, ci.variant_id, ci.quantity,
                 p.title as product_title, p.status as product_status,
                 p.mrp, p.discount_price as product_discount_price, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
-                pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
+                pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
                 pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg, pv.variant_options
          FROM cart_items ci
          JOIN products p ON p.id = ci.product_id
-         LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+         LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
          WHERE ci.user_id = ?`,
         [userId]
     );
@@ -340,6 +340,7 @@ const buildAttemptSnapshot = async ({
     for (const row of (cartRows || [])) {
         const quantity = Math.max(0, Number(row.quantity || 0));
         if (quantity <= 0) continue;
+        if (row.variant_id && !row.resolved_variant_id) continue;
         const unitPrice = Number(
             row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
         );

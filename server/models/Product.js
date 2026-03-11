@@ -704,23 +704,41 @@ class Product {
     }
 
     // --- HELPER: GET ALL CATEGORIES ---
-    static async getAllCategories() {
-        const [rows] = await db.execute('SELECT name FROM categories ORDER BY name ASC');
+    static async getAllCategories({ publicOnly = false } = {}) {
+        const query = publicOnly
+            ? `SELECT c.name
+               FROM categories c
+               JOIN product_categories pc ON pc.category_id = c.id
+               JOIN products p ON p.id = pc.product_id AND p.status = 'active'
+               GROUP BY c.id, c.name
+               HAVING COUNT(p.id) > 0
+               ORDER BY c.name ASC`
+            : 'SELECT name FROM categories ORDER BY name ASC';
+        const [rows] = await db.execute(query);
         return rows.map(r => r.name);
     }
 
     // --- 5. CATEGORY MANAGEMENT ---
     
     // A. Get All Categories with Product Counts
-    static async getCategoriesWithStats() {
-        // [FIX] Added c.image_url to the SELECT list
-        const query = `
-            SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(pc.product_id) as product_count 
-            FROM categories c 
-            LEFT JOIN product_categories pc ON c.id = pc.category_id 
-            GROUP BY c.id 
-            ORDER BY c.name ASC
-        `;
+    static async getCategoriesWithStats({ publicOnly = false } = {}) {
+        const query = publicOnly
+            ? `
+                SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(p.id) as product_count
+                FROM categories c
+                LEFT JOIN product_categories pc ON c.id = pc.category_id
+                LEFT JOIN products p ON p.id = pc.product_id AND p.status = 'active'
+                GROUP BY c.id
+                HAVING COUNT(p.id) > 0
+                ORDER BY c.name ASC
+            `
+            : `
+                SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(pc.product_id) as product_count
+                FROM categories c
+                LEFT JOIN product_categories pc ON c.id = pc.category_id
+                GROUP BY c.id
+                ORDER BY c.name ASC
+            `;
         const [rows] = await db.execute(query);
         return rows;
     }

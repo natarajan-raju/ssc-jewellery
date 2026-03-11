@@ -124,6 +124,27 @@ const notifyCartItemAdded = (productId, variantId = '') => {
     window.dispatchEvent(new CustomEvent('cart:item-added', { detail: { productId, variantId } }));
 };
 
+const clampCartQuantity = (item, requestedQuantity) => {
+    const normalizedRequested = Math.max(0, Math.floor(Number(requestedQuantity) || 0));
+    if (!item?.trackQuantity) return normalizedRequested;
+    const available = Math.max(0, Number(item?.availableQuantity || 0));
+    return Math.min(normalizedRequested, available);
+};
+
+const upsertLocalCartItem = (prev, snapshot, quantityDelta = 1, toast = null) => {
+    const key = buildKey(snapshot.productId, snapshot.variantId);
+    const existing = prev.find((item) => item.key === key);
+    if (existing) {
+        const nextQuantity = clampCartQuantity(existing, Number(existing.quantity || 0) + Number(quantityDelta || 0));
+        if (existing.trackQuantity && nextQuantity === Number(existing.quantity || 0) && Number(quantityDelta || 0) > 0) {
+            toast?.warning?.(`Only ${Number(existing.availableQuantity || 0)} left in stock.`);
+            return prev;
+        }
+        return prev.map((item) => item.key === key ? { ...item, quantity: nextQuantity } : item);
+    }
+    return [...prev, snapshot];
+};
+
 export const CartProvider = ({ children }) => {
     const { user } = useAuth();
     const { socket } = useSocket();
@@ -181,20 +202,20 @@ export const CartProvider = ({ children }) => {
             return;
         }
         if (user) {
-            const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
-            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
-            await removeFromWishlist(product.id, variant?.id || '', { silent: true, removeAllVariants: !variant?.id });
             notifyCartItemAdded(product.id, variant?.id || '');
             playFacebookLikeSound();
+            const previousItems = items;
+            setItems((prev) => upsertLocalCartItem(prev, snapshot, quantity, toast));
+            try {
+                const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
+                setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+                await removeFromWishlist(product.id, variant?.id || '', { silent: true, removeAllVariants: !variant?.id });
+            } catch (error) {
+                setItems(previousItems);
+                throw error;
+            }
         } else {
-            setItems(prev => {
-                const key = buildKey(product.id, variant?.id || '');
-                const existing = prev.find(p => p.key === key);
-                if (existing) {
-                    return prev.map(p => p.key === key ? { ...p, quantity: p.quantity + quantity } : p);
-                }
-                return [...prev, snapshot];
-            });
+            setItems(prev => upsertLocalCartItem(prev, snapshot, quantity, toast));
             notifyCartItemAdded(product.id, variant?.id || '');
             playFacebookLikeSound();
         }
@@ -206,8 +227,15 @@ export const CartProvider = ({ children }) => {
             setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
         } else {
             setItems(prev => {
-                if (quantity <= 0) return prev.filter(p => !(p.productId === productId && p.variantId === variantId));
-                return prev.map(p => (p.productId === productId && p.variantId === variantId) ? { ...p, quantity } : p);
+                const current = prev.find((p) => p.productId === productId && p.variantId === variantId);
+                if (!current) return prev;
+                const nextQuantity = clampCartQuantity(current, quantity);
+                if (nextQuantity <= 0) return prev.filter(p => !(p.productId === productId && p.variantId === variantId));
+                if (current.trackQuantity && Number(nextQuantity) === Number(current.quantity || 0) && Number(quantity || 0) > Number(current.quantity || 0)) {
+                    toast.warning(`Only ${Number(current.availableQuantity || 0)} left in stock.`);
+                    return prev;
+                }
+                return prev.map(p => (p.productId === productId && p.variantId === variantId) ? { ...p, quantity: nextQuantity } : p);
             });
         }
     };

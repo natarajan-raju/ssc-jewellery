@@ -541,7 +541,7 @@ class Order {
                         pv.price as variant_price, pv.discount_price as variant_discount_price
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
-                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
                  WHERE ci.user_id = ?`,
                 [userId]
             );
@@ -616,10 +616,12 @@ class Order {
                 `SELECT ci.quantity, ci.product_id, ci.variant_id,
                         p.title as product_title, p.status as product_status, p.tax_config_id,
                         p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
-                        pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg
+                        p.track_quantity as product_track_quantity, p.quantity as product_quantity,
+                        pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg,
+                        pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
-                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
                  WHERE ci.user_id = ?`,
                 [userId]
             );
@@ -639,6 +641,15 @@ class Order {
 
                 if (row.product_status && row.product_status !== 'active') {
                     throw new Error('Some items are no longer available');
+                }
+                if (row.variant_id && !row.resolved_variant_id) {
+                    throw new Error('Some selected variants are unavailable');
+                }
+                if (row.variant_id && Number(row.variant_track_quantity) === 1 && Number(row.variant_quantity || 0) < quantity) {
+                    throw new Error('Insufficient stock for some items');
+                }
+                if (!row.variant_id && Number(row.product_track_quantity) === 1 && Number(row.product_quantity || 0) < quantity) {
+                    throw new Error('Insufficient stock for some items');
                 }
 
                 const unitPrice = Number(
@@ -783,13 +794,13 @@ class Order {
                         p.title as product_title, p.status as product_status, p.tax_config_id,
                         p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
                         p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
-                        pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
+                        pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
                         pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
                         pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg,
                         pv.variant_options
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
-                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
                  WHERE ci.user_id = ?`,
                 [userId]
             );
@@ -808,6 +819,9 @@ class Order {
 
                 if (row.product_status && row.product_status !== 'active') {
                     throw new Error('Some items are no longer available');
+                }
+                if (row.variant_id && !row.resolved_variant_id) {
+                    throw new Error('Some selected variants are unavailable');
                 }
 
                 const hasVariant = !!row.variant_id;

@@ -30,6 +30,7 @@ test('cart maps variant items with low-stock metadata and out-of-stock state', a
         product_quantity: 10,
         product_track_low_stock: 1,
         product_low_stock_threshold: 3,
+        resolved_variant_id: 'var_1',
         variant_title: '16 inch',
         variant_price: 1300,
         variant_discount_price: 1100,
@@ -120,6 +121,77 @@ test('guest cart merge after login uses bulk add and returns merged items', asyn
     assert.deepEqual(res.body.items, [{ productId: 'prod_1', variantId: 'var_1', quantity: 2 }]);
 });
 
+test('cart add rejects variants that do not belong to the selected product', async () => {
+    const originalGetConnection = db.getConnection;
+    const fakeConnection = {
+        async beginTransaction() {},
+        async commit() {},
+        async rollback() {},
+        release() {},
+        async execute(sql) {
+            if (sql.includes('FROM products p')) {
+                return [[{
+                    product_id: 'prod_1',
+                    product_status: 'active',
+                    product_track_quantity: 1,
+                    product_quantity: 5,
+                    resolved_variant_id: null,
+                    variant_track_quantity: null,
+                    variant_quantity: null
+                }]];
+            }
+            if (sql.includes('SELECT quantity FROM cart_items')) {
+                return [[{ quantity: 0 }]];
+            }
+            return [[]];
+        }
+    };
+
+    db.getConnection = async () => fakeConnection;
+    try {
+        await assert.rejects(
+            () => Cart.addItem('u1', 'prod_1', 'foreign_variant', 1),
+            /selected variant is unavailable/i
+        );
+    } finally {
+        db.getConnection = originalGetConnection;
+    }
+});
+
+test('cart quantity update rejects values above tracked stock', async () => {
+    const originalGetConnection = db.getConnection;
+    const fakeConnection = {
+        async beginTransaction() {},
+        async commit() {},
+        async rollback() {},
+        release() {},
+        async execute(sql) {
+            if (sql.includes('FROM products p')) {
+                return [[{
+                    product_id: 'prod_1',
+                    product_status: 'active',
+                    product_track_quantity: 1,
+                    product_quantity: 2,
+                    resolved_variant_id: null,
+                    variant_track_quantity: null,
+                    variant_quantity: null
+                }]];
+            }
+            return [[]];
+        }
+    };
+
+    db.getConnection = async () => fakeConnection;
+    try {
+        await assert.rejects(
+            () => Cart.setItemQuantity('u1', 'prod_1', '', 3),
+            /only 2 item\(s\) available/i
+        );
+    } finally {
+        db.getConnection = originalGetConnection;
+    }
+});
+
 test('checkout pricing computes GST after discounts and on mixed product tax rates', async () => {
     const originalCompanyGet = CompanyProfile.get;
     const originalListActive = TaxConfig.listActive;
@@ -164,4 +236,46 @@ test('checkout blocks low-stock or inactive checkout items correctly', async () 
     assert.equal(availability.hasUnavailableCheckoutItems([{ status: 'active', isOutOfStock: false }]), false);
     assert.equal(availability.hasUnavailableCheckoutItems([{ status: 'inactive', isOutOfStock: false }]), true);
     assert.equal(availability.hasUnavailableCheckoutItems([{ status: 'active', isOutOfStock: true }]), true);
+});
+
+test('checkout summary rejects insufficient stock before payment initiation', async () => {
+    const originalGetConnection = db.getConnection;
+    const fakeConnection = {
+        async execute(sql) {
+            if (sql.includes('FROM cart_items ci')) {
+                return [[{
+                    quantity: 3,
+                    product_id: 'prod_1',
+                    variant_id: '',
+                    product_title: 'Chain',
+                    product_status: 'active',
+                    tax_config_id: 1,
+                    mrp: 1500,
+                    product_discount_price: 1200,
+                    product_weight_kg: 0.02,
+                    product_track_quantity: 1,
+                    product_quantity: 2,
+                    resolved_variant_id: null,
+                    variant_title: null,
+                    variant_price: null,
+                    variant_discount_price: null,
+                    variant_weight_kg: null,
+                    variant_track_quantity: null,
+                    variant_quantity: null
+                }]];
+            }
+            return [[]];
+        },
+        release() {}
+    };
+    db.getConnection = async () => fakeConnection;
+
+    try {
+        await assert.rejects(
+            () => Order.getCheckoutSummary('u1', { shippingAddress: { state: 'TN' } }),
+            /insufficient stock/i
+        );
+    } finally {
+        db.getConnection = originalGetConnection;
+    }
 });

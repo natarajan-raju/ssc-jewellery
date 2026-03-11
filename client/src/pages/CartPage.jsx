@@ -32,6 +32,7 @@ export default function CartPage() {
     const prevShippingFeeRef = useRef(0);
     const freeFxTimerRef = useRef(null);
     const { recommendations } = useCartRecommendations({ items, wishlistProductIds: wishlist, limit: 6 });
+    const isAtMaxQuantity = (item) => Boolean(item?.trackQuantity && Number(item?.availableQuantity || 0) > 0 && Number(item?.quantity || 0) >= Number(item?.availableQuantity || 0));
 
     const moveToWishlist = async (item) => {
         const moved = await addToWishlist({
@@ -276,7 +277,7 @@ export default function CartPage() {
                                                     vibrateTap();
                                                     updateQuantity({ productId: item.productId, variantId: item.variantId, quantity: item.quantity + 1 });
                                                 }}
-                                                disabled={item.isOutOfStock}
+                                                disabled={item.isOutOfStock || isAtMaxQuantity(item)}
                                                 className="p-1 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                                             >
                                                 <Plus size={14} />

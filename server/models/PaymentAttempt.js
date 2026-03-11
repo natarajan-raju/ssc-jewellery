@@ -241,10 +241,10 @@ class PaymentAttempt {
             const [cartRows] = await connection.execute(
                 `SELECT ci.product_id, ci.variant_id, ci.quantity,
                         p.status as product_status, p.track_quantity as product_track_quantity,
-                        pv.track_quantity as variant_track_quantity
+                        pv.id as resolved_variant_id, pv.track_quantity as variant_track_quantity
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
-                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id
+                 LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
                  WHERE ci.user_id = ?`,
                 [userId]
             );
@@ -259,6 +259,9 @@ class PaymentAttempt {
                 if (quantity <= 0) continue;
                 if (row.product_status && row.product_status !== 'active') {
                     throw new Error('Some items are no longer available');
+                }
+                if (row.variant_id && !row.resolved_variant_id) {
+                    throw new Error('Some selected variants are unavailable');
                 }
 
                 const hasVariant = !!row.variant_id;

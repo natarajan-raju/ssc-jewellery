@@ -3,6 +3,13 @@ const AbandonedCart = require('../models/AbandonedCart');
 const Wishlist = require('../models/Wishlist');
 const { trackCartActivity } = require('../services/abandonedCartRecoveryService');
 
+const getCartMutationStatus = (error) => {
+    const message = String(error?.message || '');
+    if (/productid required/i.test(message)) return 400;
+    if (/product not found|variant is unavailable|product is unavailable|only \d+ item\(s\) available/i.test(message)) return 400;
+    return 500;
+};
+
 const emitAbandonedCartUpdate = async (req, { userId, reason = 'cart_update', journeyId = null } = {}) => {
     try {
         const io = req.app.get('io');
@@ -70,7 +77,7 @@ const addCartItem = async (req, res) => {
         res.json({ items });
     } catch (error) {
         console.error('Cart add error:', error);
-        res.status(500).json({ message: 'Failed to add item' });
+        res.status(getCartMutationStatus(error)).json({ message: error?.message || 'Failed to add item' });
     }
 };
 
@@ -93,7 +100,7 @@ const updateCartItem = async (req, res) => {
         res.json({ items });
     } catch (error) {
         console.error('Cart update error:', error);
-        res.status(500).json({ message: 'Failed to update item' });
+        res.status(getCartMutationStatus(error)).json({ message: error?.message || 'Failed to update item' });
     }
 };
 
@@ -167,7 +174,7 @@ const bulkAddCart = async (req, res) => {
         res.json({ items: updated });
     } catch (error) {
         console.error('Cart bulk error:', error);
-        res.status(500).json({ message: 'Failed to merge cart' });
+        res.status(getCartMutationStatus(error)).json({ message: error?.message || 'Failed to merge cart' });
     }
 };
 
