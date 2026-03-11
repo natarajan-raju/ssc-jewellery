@@ -24,6 +24,13 @@ const sendEmailCommunication = async ({
     attachments = []
 }) => sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
 
+const toChannelFailure = (error, fallbackReason = 'channel_failed') => ({
+    ok: false,
+    skipped: false,
+    reason: fallbackReason,
+    message: error?.message || fallbackReason
+});
+
 const formatCurrency = (amount) => `INR ${Number(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatDate = (value) => {
     try {
@@ -313,7 +320,7 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
         ? buildInvoiceShareUrl({ orderId: order?.id, userId: order?.user_id })
         : '';
 
-    const [email, whatsapp] = await Promise.all([
+    const [emailResult, whatsappResult] = await Promise.allSettled([
         recipient.email
             ? sendEmailCommunication({
                 to: recipient.email,
@@ -332,7 +339,14 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
             pdfName: includeInvoice ? invoiceFileName : ''
         })
     ]);
-    return { email, whatsapp };
+    return {
+        email: emailResult.status === 'fulfilled'
+            ? emailResult.value
+            : toChannelFailure(emailResult.reason, 'email_send_failed'),
+        whatsapp: whatsappResult.status === 'fulfilled'
+            ? whatsappResult.value
+            : toChannelFailure(whatsappResult.reason, 'whatsapp_send_failed')
+    };
 };
 
 const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order = {}, payment = {} }) => {
@@ -374,13 +388,20 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
         closing
     });
 
-    const [email, whatsapp] = await Promise.all([
+    const [emailResult, whatsappResult] = await Promise.allSettled([
         recipient.email
             ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
         sendPaymentWhatsapp({ stage: safeStage, customer: recipient, order, payment })
     ]);
-    return { email, whatsapp };
+    return {
+        email: emailResult.status === 'fulfilled'
+            ? emailResult.value
+            : toChannelFailure(emailResult.reason, 'email_send_failed'),
+        whatsapp: whatsappResult.status === 'fulfilled'
+            ? whatsappResult.value
+            : toChannelFailure(whatsappResult.reason, 'whatsapp_send_failed')
+    };
 };
 
 const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {} }) => {
@@ -421,13 +442,20 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
         closing
     });
 
-    const [email, whatsapp] = await Promise.all([
+    const [emailResult, whatsappResult] = await Promise.allSettled([
         recipient.email
             ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
         sendAbandonedCartWhatsapp({ customer: recipient, cart })
     ]);
-    return { email, whatsapp };
+    return {
+        email: emailResult.status === 'fulfilled'
+            ? emailResult.value
+            : toChannelFailure(emailResult.reason, 'email_send_failed'),
+        whatsapp: whatsappResult.status === 'fulfilled'
+            ? whatsappResult.value
+            : toChannelFailure(whatsappResult.reason, 'whatsapp_send_failed')
+    };
 };
 
 module.exports = {

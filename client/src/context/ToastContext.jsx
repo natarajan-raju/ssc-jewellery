@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { X, CheckCircle, AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import successDing from '../assets/success_ding.mp3';
@@ -11,6 +12,7 @@ export const useToast = () => useContext(ToastContext);
 export const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
   const toastSeqRef = useRef(0);
+  const toastTimersRef = useRef(new Map());
   const successAudioRef = useRef(null);
   const failureAudioRef = useRef(null);
   const location = useLocation();
@@ -35,21 +37,31 @@ export const ToastProvider = ({ children }) => {
     }
   }, [location?.pathname]);
 
+  const removeToast = useCallback((id) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      toastTimersRef.current.delete(id);
+    }
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
+
   const addToast = useCallback((message, type = 'info') => {
     toastSeqRef.current += 1;
     const id = `${Date.now()}-${toastSeqRef.current}`;
     setToasts((prev) => [...prev, { id, message, type }]);
     playToastSound(type);
 
-    // Auto-hide after 3 seconds
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       removeToast(id);
     }, 3000);
-  }, [playToastSound]);
+    toastTimersRef.current.set(id, timer);
+  }, [playToastSound, removeToast]);
 
-  const removeToast = (id) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id));
-  };
+  useEffect(() => () => {
+    toastTimersRef.current.forEach((timer) => clearTimeout(timer));
+    toastTimersRef.current.clear();
+  }, []);
 
   return (
     <ToastContext.Provider value={{

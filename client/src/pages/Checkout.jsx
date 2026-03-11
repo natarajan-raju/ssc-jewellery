@@ -626,13 +626,6 @@ export default function Checkout() {
         const gross = Number(subtotal || 0) + Number(shippingFee || 0) + Number(taxTotal || 0);
         return Math.max(0, gross - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0));
     }, [checkoutSummary?.total, subtotal, shippingFee, taxTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]);
-    const finalPriceBeforeDiscounts = useMemo(
-        () => Math.max(
-            0,
-            Number(grandTotal || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0)
-        ),
-        [grandTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
-    );
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
     const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
@@ -1286,8 +1279,12 @@ export default function Checkout() {
                                         </div>
                                     )}
                                     <div className="flex items-start justify-between text-gray-500">
-                                        <span>Final Price (Before Discounts)</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(finalPriceBeforeDiscounts || 0).toLocaleString()}</span>
+                                        <span>Base Price (Before Discounts)</span>
+                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0)).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex items-start justify-between text-gray-500">
+                                        <span>Taxable Value After Discounts</span>
+                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0) - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)).toLocaleString()}</span>
                                     </div>
                                     {productMrpSavings > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
@@ -1453,7 +1450,6 @@ export default function Checkout() {
                                 const loyaltyValue = Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0);
                                 const loyaltyShippingValue = Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0);
                                 const totalSavingsValue = Number(orderResult.discountTotal || orderResult.discount_total || (couponValue + loyaltyValue + loyaltyShippingValue));
-                                const finalBeforeDiscountsValue = Math.max(0, subtotalValue + shippingValue + taxValue);
                                 return (
                                     <>
                                         <div className="flex items-center justify-between text-sm mt-2">
@@ -1472,8 +1468,12 @@ export default function Checkout() {
                                             </div>
                                         )}
                                         <div className="flex items-center justify-between text-sm mt-2">
-                                            <span className="text-gray-500">Final Price (Before Discounts)</span>
-                                            <span className="font-semibold text-gray-800">₹{finalBeforeDiscountsValue.toLocaleString()}</span>
+                                            <span className="text-gray-500">Base Price (Before Discounts)</span>
+                                            <span className="font-semibold text-gray-800">₹{Math.max(0, subtotalValue + shippingValue).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-sm mt-2">
+                                            <span className="text-gray-500">Taxable Value After Discounts</span>
+                                            <span className="font-semibold text-gray-800">₹{Math.max(0, subtotalValue + shippingValue - couponValue - loyaltyValue - loyaltyShippingValue).toLocaleString()}</span>
                                         </div>
                                         {couponValue > 0 && (
                                             <div className="flex items-center justify-between text-sm mt-2 text-emerald-700">

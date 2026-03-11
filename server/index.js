@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
+const jwt = require('jsonwebtoken');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
@@ -79,14 +80,37 @@ const io = new Server(server, {
 });
 
 io.on('connection', (socket) => {
-    socket.on('auth', (payload = {}) => {
-        const userId = payload.userId || payload.id;
-        if (userId) {
+    socket.on('auth', async (payload = {}) => {
+        try {
+            const token = String(payload.token || '').trim();
+            if (!token || token === 'undefined' || token === 'null') {
+                socket.emit('auth:error', { message: 'Authentication token is required' });
+                return;
+            }
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            const userId = decoded?.id ? String(decoded.id) : '';
+            if (!userId) {
+                socket.emit('auth:error', { message: 'Invalid socket token payload' });
+                return;
+            }
+            const user = await User.findById(userId);
+            if (!user) {
+                socket.emit('auth:error', { message: 'Socket user not found' });
+                return;
+            }
+
+            const normalizedRole = String(user.role || '').toLowerCase();
+            const joinedRooms = [...socket.rooms].filter((room) => room !== socket.id);
+            joinedRooms.forEach((room) => socket.leave(room));
             socket.join(`user:${userId}`);
-        }
-        const role = String(payload.role || '').toLowerCase();
-        if (role === 'admin' || role === 'staff') {
-            socket.join('admin');
+            if (normalizedRole === 'admin' || normalizedRole === 'staff') {
+                socket.join('admin');
+            }
+            socket.data.userId = userId;
+            socket.data.role = normalizedRole;
+            socket.emit('auth:ok', { userId, role: normalizedRole });
+        } catch (error) {
+            socket.emit('auth:error', { message: 'Socket authentication failed' });
         }
     });
 });

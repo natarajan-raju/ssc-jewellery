@@ -731,8 +731,12 @@ export default function Orders() {
                                     </div>
                                 )}
                                 <div className="flex items-center justify-between text-gray-600">
-                                    <span>Final Price (Before Discounts)</span>
-                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee) + toNumber(selectedOrder.tax_total)).toLocaleString()}</span>
+                                    <span>Base Price (Before Discounts)</span>
+                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee)).toLocaleString()}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-600">
+                                    <span>Taxable Value After Discounts</span>
+                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee) - toNumber(selectedOrder.coupon_discount_value) - toNumber(selectedOrder.loyalty_discount_total) - toNumber(selectedOrder.loyalty_shipping_discount_total)).toLocaleString()}</span>
                                 </div>
                                 {toNumber(selectedOrder.coupon_discount_value) > 0 && (
                                     <div className="flex items-center justify-between text-emerald-700">

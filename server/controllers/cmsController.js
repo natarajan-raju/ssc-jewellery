@@ -145,7 +145,8 @@ const resolveCarouselCardLink = async (card = {}) => {
 // 1. GET ALL SLIDES (Public & Admin)
 const getSlides = async (req, res) => {
     try {
-        const isAdmin = req.query.admin === 'true';
+        const auth = getOptionalAuthContext(req);
+        const isAdmin = req.query.admin === 'true' && (auth.role === 'admin' || auth.role === 'staff');
         const [slides] = isAdmin
             ? await db.execute('SELECT * FROM hero_slides ORDER BY display_order ASC')
             : await db.execute("SELECT * FROM hero_slides WHERE status = 'active' ORDER BY display_order ASC");
@@ -158,7 +159,8 @@ const getSlides = async (req, res) => {
 // 1.0 GET HERO TEXTS (Public & Admin)
 const getHeroTexts = async (req, res) => {
     try {
-        const isAdmin = req.query.admin === 'true';
+        const auth = getOptionalAuthContext(req);
+        const isAdmin = req.query.admin === 'true' && (auth.role === 'admin' || auth.role === 'staff');
         const [rows] = isAdmin
             ? await db.execute('SELECT * FROM hero_texts ORDER BY display_order ASC')
             : await db.execute("SELECT * FROM hero_texts WHERE status = 'active' ORDER BY display_order ASC");
@@ -198,7 +200,8 @@ const getTertiaryBanner = async (req, res) => {
 
 const getFeaturedCategory = async (req, res) => {
     try {
-        const isAdmin = req.query.admin === 'true';
+        const auth = getOptionalAuthContext(req);
+        const isAdmin = req.query.admin === 'true' && (auth.role === 'admin' || auth.role === 'staff');
         const [rows] = await db.execute(
             `SELECT h.id, h.category_id, h.title, h.subtitle, c.name AS category_name
              FROM home_featured_category h
@@ -223,7 +226,6 @@ const getFeaturedCategory = async (req, res) => {
             }
         }
 
-        const auth = getOptionalAuthContext(req);
         const shouldApplyAutopilot = !isAdmin
             && autopilotEnabled
             && (!auth.role || auth.role === 'customer');

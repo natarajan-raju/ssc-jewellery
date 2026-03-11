@@ -149,7 +149,8 @@ export default function PaymentSuccess() {
                                         const discount = Number(order.discount_total || (couponDiscount + memberDiscount + memberShippingBenefit));
                                         const shipping = Number(order.shipping_fee || 0);
                                         const tax = Number(order.tax_total || 0);
-                                        const finalBeforeDiscounts = Math.max(0, subtotal + shipping + tax);
+                                        const taxableTotal = Math.max(0, subtotal + shipping - couponDiscount - memberDiscount - memberShippingBenefit);
+                                        const grossBeforeDiscounts = Math.max(0, subtotal + shipping);
                                         return (
                                             <>
                                                 <p>Subtotal: ₹{subtotal.toLocaleString()}</p>
@@ -162,10 +163,11 @@ export default function PaymentSuccess() {
                                                         </span>
                                                     </p>
                                                 )}
-                                                <p>Final Price (Before Discounts): ₹{finalBeforeDiscounts.toLocaleString()}</p>
+                                                <p>Base Price (Before Discounts): ₹{grossBeforeDiscounts.toLocaleString()}</p>
                                                 {couponDiscount > 0 && <p>Coupon{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
                                                 {memberDiscount > 0 && <p>Member Discount: -₹{memberDiscount.toLocaleString()}</p>}
                                                 {memberShippingBenefit > 0 && <p>Member Shipping Benefit: -₹{memberShippingBenefit.toLocaleString()}</p>}
+                                                <p>Taxable Value After Discounts: ₹{taxableTotal.toLocaleString()}</p>
                                                 <p>Total Savings: ₹{discount.toLocaleString()}</p>
                                             </>
                                         );

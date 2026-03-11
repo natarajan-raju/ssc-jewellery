@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check } from 'lucide-react';
 
@@ -9,9 +9,10 @@ const isVariantInStock = (variant) => {
 };
 
 export default function QuickAddModal({ product, onClose, onConfirm }) {
-    if (!product) return null;
-
-    const variants = Array.isArray(product.variants) ? product.variants : [];
+    const variants = useMemo(
+        () => (Array.isArray(product?.variants) ? product.variants : []),
+        [product?.variants]
+    );
     const [selectedId, setSelectedId] = useState(variants[0]?.id || '');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
@@ -25,13 +26,15 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
             clearTimeout(closeTimerRef.current);
             closeTimerRef.current = null;
         }
-    }, [product?.id]);
+    }, [product?.id, variants]);
 
     useEffect(() => () => {
         if (closeTimerRef.current) {
             clearTimeout(closeTimerRef.current);
         }
     }, []);
+
+    if (!product) return null;
 
     const selected = variants.find(v => String(v.id) === String(selectedId));
     const canAdd = selected ? isVariantInStock(selected) : true;

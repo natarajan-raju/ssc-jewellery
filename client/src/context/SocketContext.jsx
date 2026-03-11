@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -26,7 +27,7 @@ const ADMIN_NEW_ORDER_POPUP_DEDUPE_MS = 10 * 60 * 1000;
 const adminNewOrderPopupSeen = new Map();
 
 export const SocketProvider = ({ children }) => {
-    const [socket, setSocket] = useState(globalSocket);
+    const [socket] = useState(globalSocket);
     const { user } = useAuth();
     const toast = useToast();
 
@@ -46,10 +47,23 @@ export const SocketProvider = ({ children }) => {
     }, []);
 
     useEffect(() => {
-        if (!socket || !socket.connected) return;
-        if (user?.id) {
-            socket.emit('auth', { userId: user.id, role: user.role });
+        if (!socket) return;
+
+        const authenticateSocket = () => {
+            const token = localStorage.getItem('token');
+            if (user?.id && token && token !== 'undefined' && token !== 'null') {
+                socket.emit('auth', { token });
+            }
+        };
+
+        if (socket.connected) {
+            authenticateSocket();
         }
+
+        socket.on('connect', authenticateSocket);
+        return () => {
+            socket.off('connect', authenticateSocket);
+        };
     }, [socket, user]);
 
     useEffect(() => {

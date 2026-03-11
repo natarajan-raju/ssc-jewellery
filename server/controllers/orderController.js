@@ -51,20 +51,22 @@ const buildReceipt = (userId) => {
     return `ssc_${uid}_${stamp}`.slice(0, 40);
 };
 
+const emitToOrderAudiences = (io, order = null, eventName = '', payload = {}) => {
+    if (!io || !order || !eventName) return;
+    io.to('admin').emit(eventName, payload);
+    if (order?.user_id) {
+        io.to(`user:${order.user_id}`).emit(eventName, payload);
+    }
+};
+
 const emitOrderAndPaymentUpdate = (req, { order, payment = null, silent = false } = {}) => {
     const io = req.app.get('io');
     if (!io || !order) return;
     const payload = { orderId: order.id, status: order.status, order, silent: Boolean(silent) };
-    io.emit('order:update', payload);
-    if (order?.user_id) {
-        io.to(`user:${order.user_id}`).emit('order:update', payload);
-    }
+    emitToOrderAudiences(io, order, 'order:update', payload);
     if (!payment) return;
     const paymentPayload = { ...payload, payment };
-    io.emit('payment:update', paymentPayload);
-    if (order?.user_id) {
-        io.to(`user:${order.user_id}`).emit('payment:update', paymentPayload);
-    }
+    emitToOrderAudiences(io, order, 'payment:update', paymentPayload);
 };
 
 const emitAbandonedRecoveryUpdate = (req, { journeyId = null, userId = null, reason = 'order_paid' } = {}) => {
@@ -732,8 +734,12 @@ const verifyRazorpayPayment = async (req, res) => {
         if (io) {
             const hydratedOrder = await Order.getById(order.id);
             const finalOrder = hydratedOrder || order;
-            io.emit('order:create', { order: finalOrder });
-            io.to(`user:${userId}`).emit('order:update', { orderId: finalOrder.id || order.id, status: finalOrder.status || 'confirmed', order: finalOrder });
+            emitToOrderAudiences(io, finalOrder, 'order:create', { order: finalOrder });
+            emitToOrderAudiences(io, finalOrder, 'order:update', {
+                orderId: finalOrder.id || order.id,
+                status: finalOrder.status || 'confirmed',
+                order: finalOrder
+            });
             const paymentPayload = {
                 orderId: finalOrder.id || order.id,
                 status: finalOrder.status || 'confirmed',
@@ -745,8 +751,7 @@ const verifyRazorpayPayment = async (req, res) => {
                     razorpayOrderId: attempt.razorpay_order_id
                 }
             };
-            io.emit('payment:update', paymentPayload);
-            io.to(`user:${userId}`).emit('payment:update', paymentPayload);
+            emitToOrderAudiences(io, finalOrder, 'payment:update', paymentPayload);
             emitCouponChangedForOrder(req, finalOrder);
         }
 
@@ -1072,14 +1077,12 @@ const handleRazorpayWebhook = async (req, res) => {
                     if (io) {
                         const hydratedLinkedOrder = await Order.getById(linkedOrder.id);
                         const finalLinkedOrder = hydratedLinkedOrder || linkedOrder;
-                        io.emit('order:create', { order: finalLinkedOrder });
-                        if (finalLinkedOrder.user_id) {
-                            io.to(`user:${finalLinkedOrder.user_id}`).emit('order:update', {
-                                orderId: finalLinkedOrder.id,
-                                status: finalLinkedOrder.status,
-                                order: finalLinkedOrder
-                            });
-                        }
+                        emitToOrderAudiences(io, finalLinkedOrder, 'order:create', { order: finalLinkedOrder });
+                        emitToOrderAudiences(io, finalLinkedOrder, 'order:update', {
+                            orderId: finalLinkedOrder.id,
+                            status: finalLinkedOrder.status,
+                            order: finalLinkedOrder
+                        });
                     }
                     void triggerOrderLifecycleEmail({
                         order: linkedOrder,
@@ -1758,10 +1761,7 @@ const updateOrderStatus = async (req, res) => {
         const order = await Order.getById(req.params.id);
         const io = req.app.get('io');
         if (io) {
-            io.emit('order:update', { orderId: req.params.id, status: nextStatus, order });
-            if (order?.user_id) {
-                io.to(`user:${order.user_id}`).emit('order:update', { orderId: req.params.id, status: nextStatus, order });
-            }
+            emitToOrderAudiences(io, order, 'order:update', { orderId: req.params.id, status: nextStatus, order });
         }
         if (
             order?.user_id
@@ -1812,10 +1812,7 @@ const confirmDeliveryBySignedLink = async (req, res) => {
         const updated = await Order.getById(order.id);
         const io = req.app.get('io');
         if (io && updated) {
-            io.emit('order:update', { orderId: updated.id, status: 'completed', order: updated });
-            if (updated.user_id) {
-                io.to(`user:${updated.user_id}`).emit('order:update', { orderId: updated.id, status: 'completed', order: updated });
-            }
+            emitToOrderAudiences(io, updated, 'order:update', { orderId: updated.id, status: 'completed', order: updated });
         }
         void triggerOrderLifecycleEmail({
             order: updated,
@@ -1848,10 +1845,7 @@ const deleteAdminOrder = async (req, res) => {
 
         const io = req.app.get('io');
         if (io) {
-            io.emit('order:update', { orderId, deleted: true, status: 'deleted' });
-            if (order?.user_id) {
-                io.to(`user:${order.user_id}`).emit('order:update', { orderId, deleted: true, status: 'deleted' });
-            }
+            emitToOrderAudiences(io, order, 'order:update', { orderId, deleted: true, status: 'deleted' });
         }
 
         return res.json({ ok: true, id: orderId });
@@ -1928,10 +1922,7 @@ const convertAdminPaymentAttemptToOrder = async (req, res) => {
         const updatedAttempt = await PaymentAttempt.getById(attempt.id);
         const io = req.app.get('io');
         if (io) {
-            io.emit('order:update', { orderId: order.id, status: order.status, order });
-            if (order?.user_id) {
-                io.to(`user:${order.user_id}`).emit('order:update', { orderId: order.id, status: order.status, order });
-            }
+            emitToOrderAudiences(io, order, 'order:update', { orderId: order.id, status: order.status, order });
         }
         emitCouponChangedForOrder(req, order);
         void triggerOrderLifecycleEmail({
@@ -1996,10 +1987,7 @@ const createAdminManualOrder = async (req, res) => {
         const persisted = await Order.getById(order.id);
         const io = req.app.get('io');
         if (io && persisted) {
-            io.emit('order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
-            if (persisted?.user_id) {
-                io.to(`user:${persisted.user_id}`).emit('order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
-            }
+            emitToOrderAudiences(io, persisted, 'order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
         }
         emitCouponChangedForOrder(req, persisted || order);
         void triggerOrderLifecycleEmail({
@@ -2288,11 +2276,12 @@ const triggerOrderLifecycleEmail = async ({
     stage = 'updated',
     includeInvoice = false
 } = {}) => {
-    if (!order?.user_id) return;
+    const orderUserId = order?.user_id || order?.userId || null;
+    if (!orderUserId) return;
     try {
         const hydratedOrder = order?.id ? await Order.getById(order.id) : null;
         const orderForCommunication = hydratedOrder || order;
-        const customer = await User.findById(orderForCommunication.user_id);
+        const customer = await User.findById(orderForCommunication.user_id || orderForCommunication.userId || orderUserId);
         if (!customer?.email) {
             console.warn(`Order lifecycle email skipped for order ${orderForCommunication?.id || order?.id || 'unknown'}: missing customer email`);
             return;

@@ -3,8 +3,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, OAuthProvider } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
-// TODO: Replace these with your actual keys from Firebase Console
-// (Project Settings > General > Your apps > SDK Setup/Configuration)
+
 const firebaseConfig = {
   apiKey: "AIzaSyAV4JSY_ArHlddGqS-4H7UMzTeYF1wRM4s",
   authDomain: "ssc-impon-jewellery.firebaseapp.com",
