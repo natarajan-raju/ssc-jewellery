@@ -126,13 +126,21 @@ export const AuthProvider = ({ children }) => {
                 setUser(mergedUser);
             } catch (error) {
                 console.error('Current user sync failed:', error);
+                const message = String(error?.message || '').toLowerCase();
+                if (message.includes('deactivated') || message.includes('not authorized') || message.includes('session expired')) {
+                    await performLogout();
+                }
             }
         };
 
-        const handleUserUpdated = (event) => {
+        const handleUserUpdated = async (event) => {
             const updatedUser = event?.detail || {};
             if (!updatedUser?.id || !user?.id) return;
             if (String(updatedUser.id) !== String(user.id)) return;
+            if (updatedUser?.isActive === false) {
+                await performLogout();
+                return;
+            }
             void syncCurrentUser();
         };
 

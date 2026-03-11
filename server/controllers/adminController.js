@@ -16,6 +16,7 @@ const {
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
+const { emitToUserAudiences } = require('../utils/socketAudience');
 
 const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1467,7 +1468,7 @@ const getUsers = async (req, res) => {
         const result = await User.getPaginated(page, limit, role, search);
         
         res.json({
-            users: result.users,
+            users: result.users.map((entry) => User.toSafePayload(entry)),
             pagination: {
                 currentPage: page,
                 totalPages: result.totalPages,
@@ -1485,15 +1486,27 @@ const createUser = async (req, res) => {
     const { name, email, mobile, password, address, role, dob } = req.body;
 
     try {
+        const normalizedEmail = String(email || '').trim().toLowerCase();
         const userExists = await User.findByMobile(mobile);
         if (userExists) {
             return res.status(400).json({ message: 'User already exists' });
         }
+        if (normalizedEmail) {
+            const emailExists = await User.findByEmail(normalizedEmail);
+            if (emailExists) {
+                return res.status(400).json({ message: 'Email already in use' });
+            }
+        }
 
         // SECURITY: Role Assignment
+        const allowedRoles = new Set(['customer', 'staff', 'admin']);
         let roleToAssign = 'customer'; 
         if (req.user.role === 'admin' && role) {
-            roleToAssign = role; 
+            const requestedRole = String(role || '').trim().toLowerCase();
+            if (!allowedRoles.has(requestedRole)) {
+                return res.status(400).json({ message: 'Invalid role' });
+            }
+            roleToAssign = requestedRole;
         } else if (req.user.role === 'staff') {
             roleToAssign = 'customer';
         }
@@ -1502,18 +1515,19 @@ const createUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, salt);
 
         const newUser = await User.create({
-            name, email, mobile,
+            name, email: normalizedEmail || null, mobile,
             password: hashedPassword,
             role: roleToAssign,
             address,
             dob: dob || null
         });
+        const safeUser = User.toSafePayload(newUser);
 
         const io = req.app.get('io');
         if (io) {
-            io.emit('user:create', newUser);
+            emitToUserAudiences(io, safeUser, 'user:create', safeUser);
         }
-        res.status(201).json({ message: 'User created successfully', user: newUser });
+        res.status(201).json({ message: 'User created successfully', user: safeUser });
 
     } catch (error) {
         console.error(error);
@@ -1538,14 +1552,60 @@ const deleteUser = async (req, res) => {
             return res.status(403).json({ message: 'Access Denied: Staff can only delete customers.' });
         }
 
+        if (String(userToDelete.role || '').toLowerCase() === 'customer') {
+            const updatedUser = await User.setActiveStatus(req.params.id, {
+                isActive: false,
+                reason: 'Deactivated by admin'
+            });
+            const safeUser = User.toSafePayload(updatedUser);
+            const io = req.app.get('io');
+            if (io) {
+                emitToUserAudiences(io, safeUser, 'user:update', safeUser);
+            }
+            return res.json({ message: 'Customer deactivated', user: safeUser, action: 'deactivated' });
+        }
+
         await User.delete(req.params.id);
         const io = req.app.get('io');
         if (io) {
-            io.emit('user:delete', { id: req.params.id });
+            emitToUserAudiences(io, { id: req.params.id }, 'user:delete', { id: req.params.id });
         }
         res.json({ message: 'User removed' });
     } catch (error) {
         res.status(500).json({ message: 'Server Error' });
+    }
+};
+
+const setUserStatus = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const userToUpdate = await User.findById(userId);
+        if (!userToUpdate) return res.status(404).json({ message: 'User not found' });
+
+        if (String(userToUpdate.role || '').toLowerCase() !== 'customer') {
+            return res.status(400).json({ message: 'Only customer accounts can be activated or deactivated.' });
+        }
+
+        const requestedActive = req.body?.isActive;
+        const isActive = requestedActive === true || requestedActive === 'true' || requestedActive === 1 || requestedActive === '1';
+        const reason = String(req.body?.reason || '').trim();
+
+        if (!isActive && !reason) {
+            return res.status(400).json({ message: 'Deactivation reason is required' });
+        }
+
+        const updatedUser = await User.setActiveStatus(userId, { isActive, reason });
+        const safeUser = User.toSafePayload(updatedUser);
+        const io = req.app.get('io');
+        if (io) {
+            emitToUserAudiences(io, safeUser, 'user:update', safeUser);
+        }
+        return res.json({
+            message: isActive ? 'Customer reactivated' : 'Customer deactivated',
+            user: safeUser
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Server Error' });
     }
 };
 
@@ -2367,6 +2427,7 @@ module.exports = {
     getUsers,
     createUser,
     deleteUser,
+    setUserStatus,
     resetUserPassword,
     getUserCart,
     addUserCartItem,

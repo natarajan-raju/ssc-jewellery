@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getUserLoyaltyStatus, issueBirthdayCouponForUser } = require('../services/loyaltyService');
 const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
+const { emitToUserAudiences } = require('../utils/socketAudience');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 if (!JWT_SECRET) {
@@ -14,6 +15,14 @@ if (!JWT_SECRET) {
 
 const generateToken = (user) => {
     return jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+};
+
+const rejectIfInactiveUser = (user, res) => {
+    if (user && user.isActive === false) {
+        res.status(403).json({ message: 'Account is deactivated. Please contact support.' });
+        return true;
+    }
+    return false;
 };
 
 // --- SECURITY HELPER FUNCTIONS ---
@@ -428,11 +437,11 @@ exports.register = async (req, res) => {
 
         const io = req.app.get('io');
         if (io) {
-            io.emit('user:create', user);
+            emitToUserAudiences(io, user, 'user:create', User.toSafePayload(user));
         }
         const token = generateToken(user);
         dispatchWelcomeCommunication(user);
-        res.status(201).json({ message: 'Registered successfully', token, user });
+        res.status(201).json({ message: 'Registered successfully', token, user: User.toSafePayload(user) });
 
     } catch (error) {
         console.error("Register Error:", error);
@@ -454,6 +463,7 @@ exports.login = async (req, res) => {
             const userByMobile = await User.findByMobile(identifier);
             user = userByEmail || userByMobile;
             if (!user) return res.status(400).json({ message: 'User not found' });
+            if (rejectIfInactiveUser(user, res)) return;
 
             const isMatch = await bcrypt.compare(password, user.password);
             if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
@@ -465,6 +475,7 @@ exports.login = async (req, res) => {
                 ? await User.findByEmail(otpIdentifier)
                 : await User.findByMobile(otpIdentifier);
             if (!user) return res.status(400).json({ message: 'User not found' });
+            if (rejectIfInactiveUser(user, res)) return;
 
             const emailIdentity = String(user.email || '').trim().toLowerCase();
             if (!emailIdentity || !isEmail(emailIdentity)) {
@@ -482,7 +493,7 @@ exports.login = async (req, res) => {
         } catch {}
 
         const token = generateToken(user);
-        res.json({ message: 'Login successful', token, user });
+        res.json({ message: 'Login successful', token, user: User.toSafePayload(user) });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -529,6 +540,7 @@ exports.socialLogin = async (req, res) => {
                 picture: picture
             };
         }
+        if (rejectIfInactiveUser(user, res)) return;
 
         // 3. Trigger welcome communication for first-time Google users
         if (isNewUser) {
@@ -542,7 +554,7 @@ exports.socialLogin = async (req, res) => {
         res.json({ 
             message: 'Social Login successful', 
             token, 
-            user: { ...user, picture } // Ensure 'role' is present in this object
+            user: User.toSafePayload({ ...user, picture }) // Ensure 'role' is present in this object
         });
 
     } catch (error) {
@@ -566,7 +578,7 @@ exports.getProfile = async (req, res) => {
             user.loyaltyProfile = loyalty.profile;
         } catch {}
         await issueBirthdayCouponForUser(user.id, { sendEmail: true }).catch(() => {});
-        res.json({ user });
+        res.json({ user: User.toSafePayload(user) });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -711,10 +723,10 @@ exports.updateProfile = async (req, res) => {
         const updatedUser = await User.findById(userId);
         const io = req.app.get('io');
         if (io) {
-            io.emit('user:update', updatedUser);
+            emitToUserAudiences(io, updatedUser, 'user:update', User.toSafePayload(updatedUser));
         }
 
-        res.json({ message: 'Profile updated successfully', user: updatedUser });
+        res.json({ message: 'Profile updated successfully', user: User.toSafePayload(updatedUser) });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

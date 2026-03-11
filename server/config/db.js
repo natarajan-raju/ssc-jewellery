@@ -74,6 +74,15 @@ const initDB = async () => {
             await connection.query('ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
         } catch {}
         try {
+            await connection.query('ALTER TABLE users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN deactivated_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN deactivation_reason VARCHAR(255) NULL DEFAULT NULL');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE users ADD INDEX idx_users_created_at (created_at)');
         } catch {}
 

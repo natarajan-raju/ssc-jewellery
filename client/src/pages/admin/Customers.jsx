@@ -192,8 +192,10 @@ export default function Customers({
 
     const canDeleteUser = (targetUser) => {
         if (!currentUser) return false;
+        if (String(targetUser.role || '').toLowerCase() === 'customer') {
+            return currentUser.role === 'admin' || currentUser.role === 'staff';
+        }
         if (currentUser.role === 'admin' && targetUser.role !== 'admin') return true;
-        if (currentUser.role === 'staff' && targetUser.role === 'customer') return true;
         return false;
     };
 
@@ -261,11 +263,17 @@ export default function Customers({
     };
 
     const openDeleteModal = (user) => {
+        const isCustomer = String(user.role || '').toLowerCase() === 'customer';
+        const isInactive = user.isActive === false;
         setModalConfig({
             isOpen: true,
             type: 'delete',
-            title: 'Delete User?',
-            message: `Are you sure you want to remove ${user.name}?`,
+            title: isCustomer ? (isInactive ? 'Reactivate Customer?' : 'Deactivate Customer?') : 'Delete User?',
+            message: isCustomer
+                ? (isInactive
+                    ? `Reactivate ${user.name} and allow the customer to sign in again?`
+                    : `Deactivate ${user.name}? The account will be preserved, but the customer will no longer be able to sign in.`)
+                : `Are you sure you want to remove ${user.name}?`,
             targetUser: user
         });
     };
@@ -275,9 +283,19 @@ export default function Customers({
         const { type, targetUser } = modalConfig;
         try {
             if (type === 'delete') {
-                await adminService.deleteUser(targetUser.id);
+                const isCustomer = String(targetUser?.role || '').toLowerCase() === 'customer';
+                if (isCustomer) {
+                    const isInactive = targetUser?.isActive === false;
+                    await adminService.setUserStatus(targetUser.id, {
+                        isActive: isInactive,
+                        reason: isInactive ? undefined : 'Deactivated by admin'
+                    });
+                    toast.success(isInactive ? 'Customer reactivated successfully' : 'Customer deactivated successfully');
+                } else {
+                    await adminService.deleteUser(targetUser.id);
+                    toast.success('User deleted successfully');
+                }
                 await refreshUsers(true);
-                toast.success('User deleted successfully');
             } else if (type === 'password') {
                 if (!inputValue || inputValue.length < 6) {
                     toast.error('Password must be at least 6 characters');
@@ -641,9 +659,13 @@ export default function Customers({
                                 <button
                                     type="button"
                                     onClick={() => openDeleteModal(selectedUser)}
-                                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-red-200 hover:bg-red-50 text-red-700"
+                                    className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border ${
+                                        selectedUser.isActive === false
+                                            ? 'border-emerald-200 hover:bg-emerald-50 text-emerald-700'
+                                            : 'border-red-200 hover:bg-red-50 text-red-700'
+                                    }`}
                                 >
-                                    <Trash2 size={13} /> Delete
+                                    <Trash2 size={13} /> {selectedUser.isActive === false ? 'Reactivate' : 'Deactivate'}
                                 </button>
                             )}
                         </div>
@@ -652,6 +674,11 @@ export default function Customers({
                             <p className="text-sm text-gray-500 mt-1">{selectedUser.email || '—'}</p>
                             <p className="text-sm text-gray-500">{selectedUser.mobile || '—'}</p>
                             <p className="text-xs text-gray-400 mt-2">Tier: {tierLabel(selectedUser.loyaltyTier || 'regular')}</p>
+                            {selectedUser.isActive === false && (
+                                <p className="mt-2 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                                    Inactive customer
+                                </p>
+                            )}
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="p-4 rounded-xl border border-gray-200 bg-white"><p className="text-xs text-gray-400 font-bold uppercase">Overall Volume</p><p className="text-lg font-bold text-gray-800 mt-1">₹{Number(selectedUser.totalSpend || 0).toLocaleString('en-IN')}</p></div>
@@ -778,7 +805,10 @@ export default function Customers({
                                                             String(user.name || 'U').charAt(0)
                                                         )}
                                                     </div>
-                                                    <span className="font-medium text-gray-900">{user.name}</span>
+                                                    <div>
+                                                        <span className="font-medium text-gray-900">{user.name}</span>
+                                                        {user.isActive === false && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">Inactive</span>}
+                                                    </div>
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
@@ -805,7 +835,7 @@ export default function Customers({
                                                     <ShoppingCart size={16} />
                                                     {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[10px] font-bold bg-green-600 text-white rounded-full px-1.5 py-0.5">{cartCount}</span>}
                                                 </button>
-                                                {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-all" title="Delete User"><Trash2 size={18} /></button>}
+                                                {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`p-2 rounded-lg transition-all ${user.isActive === false ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={18} /></button>}
                                             </td>
                                         </tr>
                                     );
@@ -851,7 +881,10 @@ export default function Customers({
                                                             String(user.name || 'U').charAt(0)
                                                         )}
                                                     </div>
-                                                    <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
+                                                        {user.isActive === false && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200 mt-1">Inactive</span>}
+                                                    </div>
                                                 </div>
                                                 <p className="text-[11px] text-gray-500 mt-2 line-clamp-1">{user.mobile || '—'}</p>
                                                 <p className="text-[11px] text-gray-500 line-clamp-1">{user.email || '—'}</p>
@@ -871,7 +904,7 @@ export default function Customers({
                                                         <ShoppingCart size={14} />
                                                         {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-green-600 text-white rounded-full px-1 py-0.5">{cartCount}</span>}
                                                     </button>
-                                                    {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-md transition-all" title="Delete User"><Trash2 size={16} /></button>}
+                                                    {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`p-1.5 rounded-md transition-all ${user.isActive === false ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={16} /></button>}
                                                 </div>
                                             </div>
                                         );

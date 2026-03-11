@@ -34,6 +34,10 @@ const protect = async (req, res, next) => {
                 return res.status(401).json({ message: 'Not authorized, user not found' });
             }
 
+            if (user.isActive === false) {
+                return res.status(403).json({ message: 'Account is deactivated. Please contact support.' });
+            }
+
             // 3. Remove password from the object manually if needed
             delete user.password; 
 
@@ -74,6 +78,7 @@ const optionalProtect = async (req, _res, next) => {
 
         const user = await User.findById(String(userId));
         if (!user) return next();
+        if (user.isActive === false) return next();
 
         delete user.password;
         req.user = user;

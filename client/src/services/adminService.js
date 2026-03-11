@@ -76,6 +76,16 @@ export const adminService = {
         return handleResponse(res);
     },
 
+    setUserStatus: async (id, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${id}/status`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        userCache = {};
+        return handleResponse(res);
+    },
+
     resetPassword: async (id, newPassword) => {
         // Sends 'password' to match controller expectation
         const res = await fetch(`${API_URL}/users/${id}/reset-password`, { 

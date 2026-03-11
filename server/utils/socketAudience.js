@@ -19,7 +19,23 @@ const emitToOrderAudiences = (io, order = null, eventName = '', payload = {}) =>
     }
 };
 
+const emitToUserAudiences = (io, user = null, eventName = '', payload = {}) => {
+    if (!io || !eventName) return;
+    io.to('admin').emit(eventName, payload);
+    const userId = String(
+        user?.id
+        || user?.userId
+        || payload?.id
+        || payload?.userId
+        || ''
+    ).trim();
+    if (userId) {
+        io.to(`user:${userId}`).emit(eventName, payload);
+    }
+};
+
 module.exports = {
     getSocketRoomsForUser,
-    emitToOrderAudiences
+    emitToOrderAudiences,
+    emitToUserAudiences
 };

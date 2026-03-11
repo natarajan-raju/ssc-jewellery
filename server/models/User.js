@@ -23,6 +23,11 @@ class User {
             avgOrderValue: Number(row.avg_order_value || row.avgOrderValue || 0),
             lastOrderAt: row.last_order_at || row.lastOrderAt || null,
             activeCouponCount: Number(row.active_coupon_count || row.activeCouponCount || 0),
+            isActive: row.is_active !== undefined
+                ? (row.is_active === 1 || row.is_active === true)
+                : (row.isActive === undefined ? true : Boolean(row.isActive)),
+            deactivatedAt: row.deactivated_at || row.deactivatedAt || null,
+            deactivationReason: row.deactivation_reason || row.deactivationReason || null,
             dob: row.dob
                 ? (row.dob instanceof Date
                     ? `${row.dob.getFullYear()}-${String(row.dob.getMonth() + 1).padStart(2, '0')}-${String(row.dob.getDate()).padStart(2, '0')}`
@@ -31,6 +36,28 @@ class User {
             dobLocked: row.dob_locked === 1 || row.dob_locked === true,
             birthdayOfferClaimedYear: row.birthday_offer_claimed_year ?? null
         };
+    }
+
+    static toSafePayload(row, { includeSensitive = false } = {}) {
+        if (!row) return row;
+        const normalized = User.normalizeRow(row);
+        if (!normalized) return normalized;
+
+        const safe = { ...normalized };
+        if (!includeSensitive) {
+            delete safe.password;
+        }
+
+        // Remove duplicate raw DB field aliases when camel-cased fields are already present.
+        delete safe.billing_address;
+        delete safe.profile_image;
+        delete safe.dob_locked;
+        delete safe.birthday_offer_claimed_year;
+        delete safe.is_active;
+        delete safe.deactivated_at;
+        delete safe.deactivation_reason;
+
+        return safe;
     }
     
     // --- 1. GET ALL (Ordered by Role & Date) ---
@@ -178,6 +205,33 @@ class User {
         return { id: uniqueId, ...baseData, dobLocked: false, birthdayOfferClaimedYear: null };
     }
 
+    static async getDeletionBlockers(id) {
+        const [
+            [orderRows],
+            [attemptRows],
+            [couponRows],
+            [loyaltyRows],
+            [loyaltyHistoryRows],
+            [abandonedRows]
+        ] = await Promise.all([
+            db.execute('SELECT COUNT(*) AS total FROM orders WHERE user_id = ?', [id]),
+            db.execute('SELECT COUNT(*) AS total FROM payment_attempts WHERE user_id = ?', [id]),
+            db.execute('SELECT COUNT(*) AS total FROM coupon_user_targets WHERE user_id = ?', [id]),
+            db.execute('SELECT COUNT(*) AS total FROM user_loyalty WHERE user_id = ?', [id]),
+            db.execute('SELECT COUNT(*) AS total FROM user_loyalty_history WHERE user_id = ?', [id]),
+            db.execute('SELECT COUNT(*) AS total FROM abandoned_cart_journeys WHERE user_id = ?', [id])
+        ]);
+
+        return {
+            orders: Number(orderRows?.[0]?.total || 0),
+            paymentAttempts: Number(attemptRows?.[0]?.total || 0),
+            couponTargets: Number(couponRows?.[0]?.total || 0),
+            loyaltyProfile: Number(loyaltyRows?.[0]?.total || 0),
+            loyaltyHistory: Number(loyaltyHistoryRows?.[0]?.total || 0),
+            abandonedJourneys: Number(abandonedRows?.[0]?.total || 0)
+        };
+    }
+
     // --- 5. DELETE USER (Transaction Safe) ---
     static async delete(id) {
         let connection;
@@ -208,6 +262,22 @@ class User {
     static async updatePasswordById(id, hashedPassword) {
         await db.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, id]);
         return true;
+    }
+
+    static async setActiveStatus(id, { isActive = true, reason = null } = {}) {
+        const activeFlag = isActive ? 1 : 0;
+        await db.execute(
+            `UPDATE users
+             SET is_active = ?, deactivated_at = ?, deactivation_reason = ?
+             WHERE id = ?`,
+            [
+                activeFlag,
+                activeFlag ? null : new Date(),
+                activeFlag ? null : (String(reason || '').trim() || null),
+                id
+            ]
+        );
+        return User.findById(id);
     }
     
     // Legacy support if needed
