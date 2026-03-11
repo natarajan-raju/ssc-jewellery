@@ -2811,24 +2811,9 @@ export default function Orders({
                                         <span className="text-gray-500">Shipping</span>
                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrder.shipping_fee || 0).toLocaleString()}</span>
                                     </div>
-                                    {Number(selectedOrder.tax_total || 0) > 0 && (
-                                        <div className="flex items-start justify-between">
-                                            <span className="text-gray-500">
-                                                GST
-                                                <span className="block text-[11px] text-gray-400">
-                                                    {getGstDisplayDetails({ taxAmount: Number(selectedOrder.tax_total || 0) }).splitAmountLabel}
-                                                </span>
-                                            </span>
-                                            <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
                                     <div className="flex items-center justify-between">
                                         <span className="text-gray-500">Base Price (Before Discounts)</span>
                                         <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0)).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Taxable Value After Discounts</span>
-                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0) - Number(selectedOrder.coupon_discount_value || 0) - Number(selectedOrder.loyalty_discount_total || 0) - Number(selectedOrder.loyalty_shipping_discount_total || 0)).toLocaleString()}</span>
                                     </div>
                                     {Number(selectedOrder.coupon_discount_value || 0) > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
@@ -2852,6 +2837,21 @@ export default function Orders({
                                         <span>Total Savings</span>
                                         <span className="font-semibold">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
                                     </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-500">Taxable Value After Discounts</span>
+                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0) - Number(selectedOrder.coupon_discount_value || 0) - Number(selectedOrder.loyalty_discount_total || 0) - Number(selectedOrder.loyalty_shipping_discount_total || 0)).toLocaleString()}</span>
+                                    </div>
+                                    {Number(selectedOrder.tax_total || 0) > 0 && (
+                                        <div className="flex items-start justify-between">
+                                            <span className="text-gray-500">
+                                                GST
+                                                <span className="block text-[11px] text-gray-400">
+                                                    {getGstDisplayDetails({ taxAmount: Number(selectedOrder.tax_total || 0) }).splitAmountLabel}
+                                                </span>
+                                            </span>
+                                            <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     <div className="flex items-center justify-between text-base font-semibold">
                                         <span>Total</span>
                                         <span>₹{Number(selectedOrder.total || 0).toLocaleString()}</span>
@@ -3132,6 +3132,18 @@ export default function Orders({
                                         <div className="mt-3 space-y-2 text-sm">
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Subtotal</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.subtotal)}</span></div>
                                             <div className="flex items-center justify-between"><span className="text-gray-500">Shipping</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.shippingFee)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Base Price (Before Discounts)</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0)))}</span></div>
+                                            {Number(effectiveManualSummary.couponDiscountTotal || 0) > 0 && (
+                                                <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
+                                            )}
+                                            {Number(effectiveManualSummary.loyaltyDiscountTotal || 0) > 0 && (
+                                                <div className="flex items-center justify-between text-blue-700"><span>Member Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
+                                            )}
+                                            {Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0) > 0 && (
+                                                <div className="flex items-center justify-between text-blue-700"><span>Member Shipping Benefit</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
+                                            )}
+                                            <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(effectiveManualSummary.discountTotal)}</span></div>
+                                            <div className="flex items-center justify-between"><span className="text-gray-500">Taxable Value After Discounts</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0) - Number(effectiveManualSummary.couponDiscountTotal || 0) - Number(effectiveManualSummary.loyaltyDiscountTotal || 0) - Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0)))}</span></div>
                                             {Number(effectiveManualSummary.taxTotal || 0) > 0 && (
                                                 <div className="flex items-start justify-between">
                                                     <span className="text-gray-500">
@@ -3143,18 +3155,6 @@ export default function Orders({
                                                     <span className="font-semibold">{formatInrOrDash(effectiveManualSummary.taxTotal)}</span>
                                                 </div>
                                             )}
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Base Price (Before Discounts)</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0)))}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Taxable Value After Discounts</span><span className="font-semibold">{formatInrOrDash(Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0) - Number(effectiveManualSummary.couponDiscountTotal || 0) - Number(effectiveManualSummary.loyaltyDiscountTotal || 0) - Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0)))}</span></div>
-                                            {Number(effectiveManualSummary.couponDiscountTotal || 0) > 0 && (
-                                                <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
-                                            )}
-                                            {Number(effectiveManualSummary.loyaltyDiscountTotal || 0) > 0 && (
-                                                <div className="flex items-center justify-between text-blue-700"><span>Member Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
-                                            )}
-                                            {Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0) > 0 && (
-                                                <div className="flex items-center justify-between text-blue-700"><span>Member Shipping Benefit</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
-                                            )}
-                                            <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(effectiveManualSummary.discountTotal)}</span></div>
                                             <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(effectiveManualSummary.total)}</span></div>
                                             {!manualSummary && (
                                                 <p className="text-xs text-gray-500">

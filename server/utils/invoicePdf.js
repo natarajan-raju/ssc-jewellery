@@ -496,17 +496,12 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         return y + rowHeight + rowGap;
     };
 
-    const finalBeforeDiscounts = Math.max(0, subtotal + shippingFee + taxTotal);
+    const basePriceBeforeDiscounts = Math.max(0, subtotal + shippingFee);
+    const taxableValueAfterDiscounts = Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount);
     let runningY = totalsY;
     runningY = writeTotal('Subtotal', inr(subtotal), runningY);
     runningY = writeTotal('Shipping', inr(shippingFee), runningY);
-    if (showTaxTotals) {
-        const taxSplit = getGstAmountSplit(taxTotal);
-        runningY = writeTotal('GST Total', inr(taxTotal), runningY, false, { rowGap: 3 });
-        doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
-        runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
-    }
-    runningY = writeTotal('Final (Before Discounts)', inr(finalBeforeDiscounts), runningY);
+    runningY = writeTotal('Base Price (Before Discounts)', inr(basePriceBeforeDiscounts), runningY);
     runningY = writeTotal(
         `Coupon Discount${couponCode ? ` (${couponCode})` : ''}`,
         `- ${inr(couponDiscount)}`,
@@ -515,6 +510,13 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     runningY = writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, runningY);
     runningY = writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, runningY);
     runningY = writeTotal('Total Savings', inr(totalDiscount), runningY);
+    runningY = writeTotal('Taxable Value After Discounts', inr(taxableValueAfterDiscounts), runningY);
+    if (showTaxTotals) {
+        const taxSplit = getGstAmountSplit(taxTotal);
+        runningY = writeTotal('GST Total', inr(taxTotal), runningY, false, { rowGap: 3 });
+        doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
+        runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
+    }
     doc.moveTo(totalsX, runningY).lineTo(totalsX + 215, runningY).strokeColor('#D1D5DB').stroke();
     writeTotal('Grand Total', inr(total), runningY + 8, true);
 

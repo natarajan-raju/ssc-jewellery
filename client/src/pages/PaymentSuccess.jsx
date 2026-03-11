@@ -155,6 +155,12 @@ export default function PaymentSuccess() {
                                             <>
                                                 <p>Subtotal: ₹{subtotal.toLocaleString()}</p>
                                                 <p>Shipping: ₹{shipping.toLocaleString()}</p>
+                                                <p>Base Price (Before Discounts): ₹{grossBeforeDiscounts.toLocaleString()}</p>
+                                                {couponDiscount > 0 && <p>Coupon{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
+                                                {memberDiscount > 0 && <p>Member Discount: -₹{memberDiscount.toLocaleString()}</p>}
+                                                {memberShippingBenefit > 0 && <p>Member Shipping Benefit: -₹{memberShippingBenefit.toLocaleString()}</p>}
+                                                <p>Total Savings: ₹{discount.toLocaleString()}</p>
+                                                <p>Taxable Value After Discounts: ₹{taxableTotal.toLocaleString()}</p>
                                                 {tax > 0 && (
                                                     <p>
                                                         GST: ₹{tax.toLocaleString()}
@@ -163,12 +169,6 @@ export default function PaymentSuccess() {
                                                         </span>
                                                     </p>
                                                 )}
-                                                <p>Base Price (Before Discounts): ₹{grossBeforeDiscounts.toLocaleString()}</p>
-                                                {couponDiscount > 0 && <p>Coupon{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
-                                                {memberDiscount > 0 && <p>Member Discount: -₹{memberDiscount.toLocaleString()}</p>}
-                                                {memberShippingBenefit > 0 && <p>Member Shipping Benefit: -₹{memberShippingBenefit.toLocaleString()}</p>}
-                                                <p>Taxable Value After Discounts: ₹{taxableTotal.toLocaleString()}</p>
-                                                <p>Total Savings: ₹{discount.toLocaleString()}</p>
                                             </>
                                         );
                                     })()}

@@ -46,6 +46,11 @@ const formatTier = (value) => {
     if (!tier || tier === 'regular') return 'Basic';
     return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
 };
+const formatSplitTaxLabel = (amount) => {
+    const total = Math.max(0, Number(amount || 0));
+    const half = total / 2;
+    return `SGST ${formatCurrency(half)} + CGST ${formatCurrency(half)}`;
+};
 const parseSnapshotSafe = (value) => {
     if (!value) return null;
     if (typeof value === 'object') return value;
@@ -71,13 +76,23 @@ const buildOrderSnapshotLine = (order = {}) => {
     const couponDiscount = Number(order?.coupon_discount_value || 0);
     const loyaltyDiscount = Number(order?.loyalty_discount_total || 0);
     const loyaltyShippingDiscount = Number(order?.loyalty_shipping_discount_total || 0);
+    const totalDiscount = Number(order?.discount_total || (couponDiscount + loyaltyDiscount + loyaltyShippingDiscount));
+    const subtotal = Number(order?.subtotal || 0);
+    const shippingFee = Number(order?.shipping_fee || 0);
+    const taxTotal = Number(order?.tax_total || 0);
+    const basePriceBeforeDiscounts = Math.max(0, subtotal + shippingFee);
+    const taxableValueAfterDiscounts = Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount);
     const couponCode = String(order?.coupon_code || '').trim().toUpperCase();
     const summaryParts = [
         `Tier: <strong>${formatTier(order?.loyalty_tier || order?.loyaltyTier)}</strong>`,
+        `Base Price (Before Discounts): <strong>${formatCurrency(basePriceBeforeDiscounts)}</strong>`,
         couponCode ? `Coupon: <strong>${couponCode}</strong>` : null,
         couponDiscount > 0 ? `Coupon discount: <strong>${formatCurrency(couponDiscount)}</strong>` : null,
         loyaltyDiscount > 0 ? `Member discount: <strong>${formatCurrency(loyaltyDiscount)}</strong>` : null,
-        loyaltyShippingDiscount > 0 ? `Member shipping discount: <strong>${formatCurrency(loyaltyShippingDiscount)}</strong>` : null
+        loyaltyShippingDiscount > 0 ? `Member shipping discount: <strong>${formatCurrency(loyaltyShippingDiscount)}</strong>` : null,
+        totalDiscount > 0 ? `Total savings: <strong>${formatCurrency(totalDiscount)}</strong>` : null,
+        `Taxable Value After Discounts: <strong>${formatCurrency(taxableValueAfterDiscounts)}</strong>`,
+        taxTotal > 0 ? `GST: <strong>${formatCurrency(taxTotal)}</strong> (${formatSplitTaxLabel(taxTotal)})` : null
     ].filter(Boolean);
     const visibleItems = resolvedItems.slice(0, 10);
     const lines = visibleItems.map((item, idx) => (

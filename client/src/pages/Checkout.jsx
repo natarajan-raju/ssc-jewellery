@@ -1269,22 +1269,9 @@ export default function Checkout() {
                                         <span>Shipping</span>
                                         <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
                                     </div>
-                                    {showTaxComponents && (
-                                        <div className="flex items-start justify-between text-gray-500">
-                                            <span>
-                                                GST
-                                                <span className="block text-[11px] text-gray-400">{getGstDisplayDetails({ taxAmount: Number(taxTotal || 0) }).splitAmountLabel}</span>
-                                            </span>
-                                            <span className="font-semibold text-gray-800">₹{Number(taxTotal || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
                                     <div className="flex items-start justify-between text-gray-500">
                                         <span>Base Price (Before Discounts)</span>
                                         <span className="font-semibold text-gray-800">₹{Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0)).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-start justify-between text-gray-500">
-                                        <span>Taxable Value After Discounts</span>
-                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0) - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)).toLocaleString()}</span>
                                     </div>
                                     {productMrpSavings > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
@@ -1320,6 +1307,19 @@ export default function Checkout() {
                                         <p className="text-[11px] text-emerald-700/80 pt-1">
                                             Savings = Product Discount + Coupon + Member Discount + Shipping Benefit.
                                         </p>
+                                    )}
+                                    <div className="flex items-start justify-between text-gray-500">
+                                        <span>Taxable Value After Discounts</span>
+                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0) - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)).toLocaleString()}</span>
+                                    </div>
+                                    {showTaxComponents && (
+                                        <div className="flex items-start justify-between text-gray-500">
+                                            <span>
+                                                GST
+                                                <span className="block text-[11px] text-gray-400">{getGstDisplayDetails({ taxAmount: Number(taxTotal || 0) }).splitAmountLabel}</span>
+                                            </span>
+                                            <span className="font-semibold text-gray-800">₹{Number(taxTotal || 0).toLocaleString()}</span>
+                                        </div>
                                     )}
                                     <div className="flex items-center justify-between text-gray-800 text-base font-semibold pt-3">
                                         <span>Total</span>
@@ -1456,24 +1456,9 @@ export default function Checkout() {
                                             <span className="text-gray-500">Shipping</span>
                                             <span className="font-semibold text-gray-800">₹{shippingValue.toLocaleString()}</span>
                                         </div>
-                                        {taxValue > 0 && (
-                                            <div className="flex items-start justify-between text-sm mt-2">
-                                                <span className="text-gray-500">
-                                                    GST
-                                                    <span className="block text-[11px] text-gray-400">
-                                                        {getGstDisplayDetails({ taxAmount: taxValue }).splitAmountLabel}
-                                                    </span>
-                                                </span>
-                                                <span className="font-semibold text-gray-800">₹{taxValue.toLocaleString()}</span>
-                                            </div>
-                                        )}
                                         <div className="flex items-center justify-between text-sm mt-2">
                                             <span className="text-gray-500">Base Price (Before Discounts)</span>
                                             <span className="font-semibold text-gray-800">₹{Math.max(0, subtotalValue + shippingValue).toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex items-center justify-between text-sm mt-2">
-                                            <span className="text-gray-500">Taxable Value After Discounts</span>
-                                            <span className="font-semibold text-gray-800">₹{Math.max(0, subtotalValue + shippingValue - couponValue - loyaltyValue - loyaltyShippingValue).toLocaleString()}</span>
                                         </div>
                                         {couponValue > 0 && (
                                             <div className="flex items-center justify-between text-sm mt-2 text-emerald-700">
@@ -1497,6 +1482,21 @@ export default function Checkout() {
                                             <div className="flex items-center justify-between text-sm mt-2 text-emerald-700">
                                                 <span>Total Savings</span>
                                                 <span className="font-semibold">₹{totalSavingsValue.toLocaleString()}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex items-center justify-between text-sm mt-2">
+                                            <span className="text-gray-500">Taxable Value After Discounts</span>
+                                            <span className="font-semibold text-gray-800">₹{Math.max(0, subtotalValue + shippingValue - couponValue - loyaltyValue - loyaltyShippingValue).toLocaleString()}</span>
+                                        </div>
+                                        {taxValue > 0 && (
+                                            <div className="flex items-start justify-between text-sm mt-2">
+                                                <span className="text-gray-500">
+                                                    GST
+                                                    <span className="block text-[11px] text-gray-400">
+                                                        {getGstDisplayDetails({ taxAmount: taxValue }).splitAmountLabel}
+                                                    </span>
+                                                </span>
+                                                <span className="font-semibold text-gray-800">₹{taxValue.toLocaleString()}</span>
                                             </div>
                                         )}
                                     </>
