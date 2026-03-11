@@ -108,16 +108,6 @@ const applyJourneyNextAttemptSchedule = (journey = {}, campaign = DEFAULT_CAMPAI
 
 const toDateSafe = (value) => parseUtcDateSafe(value);
 
-const isJourneyAbandonedReady = (journey = {}, campaign = DEFAULT_CAMPAIGN) => {
-    const status = String(journey.status || '').toLowerCase();
-    if (status !== 'active') return true;
-    if (Number(journey.last_attempt_no || 0) > 0) return true;
-    const inactivityMinutes = Math.max(1, Number(campaign?.inactivityMinutes || DEFAULT_CAMPAIGN.inactivityMinutes));
-    const lastActivity = toDateSafe(journey.last_activity_at);
-    if (!lastActivity) return true;
-    return (Date.now() - lastActivity.getTime()) >= inactivityMinutes * 60 * 1000;
-};
-
 const normalizeJourneyTimes = (journey = {}) => {
     const row = { ...journey };
     const computedLast = [
@@ -275,6 +265,9 @@ class AbandonedCart {
         );
         const recoveryWindowHours = Math.max(recoveryWindowHoursInput, minRecoveryWindowHours);
 
+        const sendWhatsapp = Boolean(next.sendWhatsapp);
+        const sendEmail = Boolean(next.sendEmail) || !sendWhatsapp;
+
         await db.execute(
             `INSERT INTO abandoned_cart_campaigns
                 (id, enabled, inactivity_minutes, max_attempts, attempt_delays_json, discount_ladder_json, max_discount_percent, min_discount_cart_subunits, recovery_window_hours, send_email, send_whatsapp, send_payment_link, reminder_enable)
@@ -302,8 +295,8 @@ class AbandonedCart {
                 maxDiscountPercent,
                 minDiscountCartSubunits,
                 recoveryWindowHours,
-                next.sendEmail ? 1 : 0,
-                next.sendWhatsapp ? 1 : 0,
+                sendEmail ? 1 : 0,
+                sendWhatsapp ? 1 : 0,
                 next.sendPaymentLink ? 1 : 0,
                 next.reminderEnable ? 1 : 0
             ]
@@ -622,6 +615,7 @@ class AbandonedCart {
              LEFT JOIN users u ON u.id = j.user_id
              WHERE j.status = 'active'
                AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1
                AND next_attempt_at IS NOT NULL
                AND next_attempt_at <= DATE_ADD(?, INTERVAL ? SECOND)
                AND (expires_at IS NULL OR expires_at > ?)
@@ -886,8 +880,15 @@ class AbandonedCart {
 
     static async listJourneys({ status = 'all', limit = 50, offset = 0 } = {}) {
         const campaign = await AbandonedCart.getCampaign();
+        const inactivityMinutes = Math.max(1, Number(campaign?.inactivityMinutes || DEFAULT_CAMPAIGN.inactivityMinutes));
         const params = [];
-        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'";
+        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer' AND COALESCE(u.is_active, 0) = 1";
+        where += ` AND (
+            j.status <> 'active'
+            OR j.last_attempt_no > 0
+            OR COALESCE(j.last_activity_at, j.updated_at, j.created_at) <= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+        )`;
+        params.push(inactivityMinutes);
         if (status && status !== 'all') {
             where += ' AND j.status = ?';
             params.push(status);
@@ -917,7 +918,7 @@ class AbandonedCart {
             ...row,
             cart_snapshot_json: parseJson(row.cart_snapshot_json, [])
         }, campaign)).map(normalizeJourneyTimes);
-        return mapped.filter((row) => isJourneyAbandonedReady(row, campaign));
+        return mapped;
     }
 
     static async getJourneyTimeline(journeyId) {
@@ -928,6 +929,7 @@ class AbandonedCart {
              LEFT JOIN users u ON u.id = j.user_id
              WHERE j.id = ?
                AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1
              LIMIT 1`,
             [journeyId]
         );
@@ -1025,9 +1027,16 @@ class AbandonedCart {
         rangeDays = 90
     } = {}) {
         const campaign = await AbandonedCart.getCampaign();
+        const inactivityMinutes = Math.max(1, Number(campaign?.inactivityMinutes || DEFAULT_CAMPAIGN.inactivityMinutes));
         const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 90)));
         const params = [];
-        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'";
+        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer' AND COALESCE(u.is_active, 0) = 1";
+        where += ` AND (
+            j.status <> 'active'
+            OR j.last_attempt_no > 0
+            OR COALESCE(j.last_activity_at, j.updated_at, j.created_at) <= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+        )`;
+        params.push(inactivityMinutes);
         where += ' AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
         params.push(safeRangeDays);
         if (status && status !== 'all') {
@@ -1081,9 +1090,8 @@ class AbandonedCart {
                 ...row,
                 cart_snapshot_json: parseJson(row.cart_snapshot_json, [])
             }, campaign)).map(normalizeJourneyTimes);
-        const filtered = mapped.filter((row) => isJourneyAbandonedReady(row, campaign));
         return {
-            journeys: filtered,
+            journeys: mapped,
             total
         };
     }
@@ -1101,7 +1109,8 @@ class AbandonedCart {
              FROM abandoned_cart_journeys j
              LEFT JOIN users u ON u.id = j.user_id
              WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'`,
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1`,
             [safeDays]
         );
         const [attemptRows] = await db.execute(
@@ -1124,6 +1133,7 @@ class AbandonedCart {
              LEFT JOIN users u ON u.id = j.user_id
              WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
                AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1
              GROUP BY DATE(created_at)
              ORDER BY DATE(created_at) ASC`,
             [safeDays]

@@ -616,6 +616,27 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                 }
 
                 const user = await User.findById(workingJourney.user_id);
+                const userRole = String(user?.role || '').toLowerCase();
+                if (!user || user.isActive === false || (userRole && userRole !== 'customer')) {
+                    await AbandonedCart.closeActiveJourneyByUser({
+                        userId: workingJourney.user_id,
+                        status: 'cancelled',
+                        reason: 'customer_inactive'
+                    });
+                    if (typeof onJourneyUpdate === 'function') {
+                        onJourneyUpdate({
+                            event: 'cancelled',
+                            journeyId: workingJourney.id,
+                            userId: workingJourney.user_id,
+                            status: 'cancelled',
+                            reason: 'customer_inactive'
+                        });
+                    }
+                    stats.cancelled += 1;
+                    doneForJourney = true;
+                    continue;
+                }
+
                 const discountPercent = AbandonedCart.resolveDiscountPercent(campaign, attemptNo);
                 const loyaltyStatus = await getUserLoyaltyStatus(workingJourney.user_id).catch(() => ({ tier: 'regular' }));
                 const loyaltyProfile = getLoyaltyProfileByTier(loyaltyStatus?.tier || 'regular');
