@@ -40,6 +40,30 @@ class PaymentAttempt {
         };
     }
 
+    static async getLatestRetryableForOrder({ userId, razorpayOrderId }) {
+        const safeUserId = String(userId || '').trim();
+        const safeRazorpayOrderId = String(razorpayOrderId || '').trim();
+        if (!safeUserId || !safeRazorpayOrderId) return null;
+        const [rows] = await db.execute(
+            `SELECT * FROM payment_attempts
+             WHERE user_id = ?
+               AND razorpay_order_id = ?
+               AND status IN (?, ?)
+               AND local_order_id IS NULL
+             ORDER BY updated_at DESC
+             LIMIT 1`,
+            [safeUserId, safeRazorpayOrderId, PAYMENT_STATUS.FAILED, PAYMENT_STATUS.EXPIRED]
+        );
+        if (!rows.length) return null;
+        const row = rows[0];
+        return {
+            ...row,
+            billing_address: parseJsonField(row.billing_address),
+            shipping_address: parseJsonField(row.shipping_address),
+            notes: parseJsonField(row.notes)
+        };
+    }
+
     static async create({
         userId,
         razorpayOrderId,

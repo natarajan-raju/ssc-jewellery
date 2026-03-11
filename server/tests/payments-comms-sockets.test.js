@@ -10,6 +10,7 @@ const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const Order = require('../models/Order');
 const WebhookEvent = require('../models/WebhookEvent');
 const socketAudience = require('../utils/socketAudience');
+const db = require('../config/db');
 
 const loadOrderController = ({
     razorpayConfig = null,
@@ -258,6 +259,135 @@ test('duplicate Razorpay webhook delivery is idempotent', async () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.duplicate, true);
     assert.equal(res.body.eventId, 'evt_1');
+});
+
+test('retryRazorpayPayment resolves the retryable attempt for the selected order', async () => {
+    const controller = loadOrderController({
+        razorpayConfig: async () => ({ keyId: 'rzp_test_123' }),
+        razorpayClient: async () => ({
+            orders: {
+                create: async () => ({ id: 'rzp_order_retry', amount: 2500, currency: 'INR' })
+            }
+        })
+    });
+    const req = {
+        user: { id: 'u1' },
+        body: { orderId: 42 }
+    };
+    const res = createMockRes();
+    let retryLookupPayload = null;
+    let createdAttemptPayload = null;
+
+    await withPatched(db, {
+        execute: async () => [[{
+            product_id: 'prod_1',
+            variant_id: '',
+            quantity: 1,
+            product_title: 'Chain',
+            product_status: 'active',
+            mrp: 2500,
+            product_discount_price: 2500,
+            product_sku: 'CH-1',
+            product_media: '[]',
+            product_weight_kg: 0.02,
+            resolved_variant_id: null,
+            variant_title: null,
+            variant_price: null,
+            variant_discount_price: null,
+            variant_sku: null,
+            variant_image_url: null,
+            variant_weight_kg: null,
+            variant_options: null
+        }]]
+    }, async () => withPatched(Order, {
+        getById: async (id) => ({
+            id,
+            user_id: 'u1',
+            razorpay_order_id: 'order_for_42'
+        }),
+        getCheckoutSummary: async () => ({
+            total: 25,
+            currency: 'INR',
+            itemCount: 1
+        })
+    }, async () => withPatched(PaymentAttempt, {
+        getLatestRetryableForOrder: async ({ userId, razorpayOrderId }) => {
+            retryLookupPayload = { userId, razorpayOrderId };
+            return {
+            id: 77,
+            user_id: userId,
+            razorpay_order_id: razorpayOrderId,
+            status: PAYMENT_STATUS.FAILED,
+            billing_address: { line1: 'Billing', city: 'Chennai', state: 'TN', zip: '600001' },
+            shipping_address: { line1: 'Shipping', city: 'Chennai', state: 'TN', zip: '600001' },
+            notes: {}
+            };
+        },
+        create: async (payload) => {
+            createdAttemptPayload = payload;
+            return { id: 88 };
+        },
+        reserveInventoryForAttempt: async () => ({ reservedItems: 1 })
+    }, async () => {
+        await controller.retryRazorpayPayment(req, res);
+    })));
+
+    assert.equal(res.statusCode, 201);
+    assert.deepEqual(retryLookupPayload, { userId: 'u1', razorpayOrderId: 'order_for_42' });
+    assert.equal(createdAttemptPayload.notes.retryOfAttemptId, 77);
+});
+
+test('updateOrderStatus rejects invalid lifecycle reversal', async () => {
+    const controller = loadOrderController();
+    const req = {
+        params: { id: '12' },
+        body: { status: 'pending' },
+        user: { id: 'admin_1' },
+        app: { get: () => null }
+    };
+    const res = createMockRes();
+
+    await withPatched(Order, {
+        getById: async () => ({
+            id: 12,
+            status: 'completed',
+            payment_status: 'paid'
+        })
+    }, async () => {
+        await controller.updateOrderStatus(req, res);
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.match(res.body.message, /cannot move from completed to pending/i);
+});
+
+test('deleteAdminOrder blocks deletion of paid orders', async () => {
+    const controller = loadOrderController();
+    const req = {
+        params: { id: '9' },
+        app: { get: () => null }
+    };
+    const res = createMockRes();
+    let deleteCalled = false;
+
+    await withPatched(Order, {
+        getById: async () => ({
+            id: 9,
+            status: 'confirmed',
+            payment_status: 'paid',
+            razorpay_payment_id: 'pay_123'
+        }),
+        deleteById: async () => {
+            deleteCalled = true;
+            return true;
+        }
+    }, async () => {
+        await controller.deleteAdminOrder(req, res);
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(deleteCalled, false);
+    assert.match(res.body.message, /cannot be deleted/i);
 });
 
 test('failed payment webhook updates payment attempt state and inventory release', async () => {

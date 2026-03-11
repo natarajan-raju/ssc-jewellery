@@ -31,7 +31,7 @@ const formatTimelineDate = (value) => {
     });
 };
 
-const STATUS_STEPS = ['confirmed', 'pending', 'shipped', 'completed'];
+const STATUS_STEPS = ['confirmed', 'shipped', 'completed'];
 const normalizeStatus = (status) => {
     return status || 'confirmed';
 };
@@ -55,6 +55,7 @@ const getStatusBadgeClasses = (status) => {
 };
 const statusIndex = (status) => {
     const normalized = normalizeStatus(status);
+    if (normalized === 'pending') return 0;
     const idx = STATUS_STEPS.indexOf(normalized);
     return idx >= 0 ? idx : 0;
 };
@@ -157,6 +158,7 @@ const getClientTimeline = (order) => {
     if (status === 'pending') return events;
     return events.filter((evt) => normalizeStatus(evt?.status) !== 'pending');
 };
+const isPendingDelayState = (order) => normalizeStatus(order?.status) === 'pending';
 const getPaymentMethodLabel = (order) => {
     const method = String(order?.payment_gateway || order?.paymentGateway || 'razorpay').toLowerCase();
     if (method === 'razorpay') return 'Razorpay';
@@ -498,6 +500,11 @@ export default function Orders() {
                                 </div>
                             ) : (
                                     <div className="mt-3">
+                                        {isPendingDelayState(selectedOrder) && (
+                                            <div className="mb-3 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
+                                                Processing delay: your order is still in queue and will move to shipped once dispatch begins.
+                                            </div>
+                                        )}
                                         <input
                                             type="range"
                                             min="0"
@@ -645,7 +652,7 @@ export default function Orders() {
                                                 if (isRetryingPayment) return;
                                                 setIsRetryingPayment(true);
                                                 try {
-                                                    await orderService.retryRazorpayOrder({});
+                                                    await orderService.retryRazorpayOrder({ orderId: selectedOrder.id });
                                                     toast.success('New payment session created. Redirecting to checkout...');
                                                     navigate('/checkout');
                                                 } catch (error) {

@@ -103,6 +103,8 @@ export const SocketProvider = ({ children }) => {
         const handleOrderUpdate = (payload = {}) => {
             if (payload?.order) {
                 orderService.patchMyOrdersCache(payload.order);
+            } else if (payload?.deleted || String(payload?.status || '').toLowerCase() === 'deleted') {
+                orderService.removeMyOrderFromCache(payload?.orderId);
                 if (user && (user.role === 'admin' || user.role === 'staff') && shouldTreatAsFreshOrder(payload.order, payload?.status)) {
                     dispatchAdminNewOrderPopup(payload.order);
                 }

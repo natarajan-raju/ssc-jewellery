@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Search, Truck, PackageCheck, Clock3, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { orderService } from '../services/orderService';
+import { useMyOrders } from '../context/OrderContext';
 import courierIllustration from '../assets/courier.svg';
 
 const formatDate = (value) => {
@@ -42,34 +42,12 @@ export default function TrackOrder() {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [query, setQuery] = useState('');
-    const [orders, setOrders] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        if (!user) return;
-        let cancelled = false;
-        const loadOrders = async () => {
-            setIsLoading(true);
-            setError('');
-            try {
-                const data = await orderService.getMyOrders({ page: 1, limit: 5, duration: 'latest_10', force: true });
-                if (cancelled) return;
-                const list = Array.isArray(data?.orders) ? data.orders : [];
-                setOrders(list);
-            } catch (err) {
-                if (cancelled) return;
-                setError(err?.message || 'Unable to load your orders right now.');
-                setOrders([]);
-            } finally {
-                if (!cancelled) setIsLoading(false);
-            }
-        };
-        loadOrders();
-        return () => {
-            cancelled = true;
-        };
-    }, [user]);
+    const {
+        orders = [],
+        isLoading = false,
+        error: ordersError
+    } = useMyOrders({ page: 1, limit: 5, duration: 'latest_10', autoLoad: true });
+    const error = ordersError?.message || '';
 
     const filtered = useMemo(() => {
         const term = String(query || '').trim().toLowerCase();
@@ -139,7 +117,7 @@ export default function TrackOrder() {
                     {filtered.map((order) => {
                         const statusLabel = getPrimaryLabel(order);
                         const events = Array.isArray(order?.events) ? order.events : [];
-                        const latestEvent = events[0] || null;
+                        const latestEvent = events[events.length - 1] || null;
                         return (
                             <button
                                 key={order.id}

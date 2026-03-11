@@ -45,6 +45,13 @@ const MANUAL_REFUND_METHODS = [
     'Voucher code'
 ];
 const MANUAL_PAYMENT_MODES = ['cash', 'upi', 'bank_transfer', 'card_swipe', 'net_banking', 'manual'];
+const ORDER_TRANSITIONS = Object.freeze({
+    confirmed: new Set(['confirmed', 'pending', 'shipped', 'cancelled']),
+    pending: new Set(['pending', 'shipped', 'cancelled']),
+    shipped: new Set(['shipped', 'completed', 'cancelled']),
+    completed: new Set(['completed']),
+    cancelled: new Set(['cancelled'])
+});
 
 const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
@@ -259,6 +266,14 @@ const mapRazorpayOrderStatusToLocalPayment = (status) => {
     if (normalized === 'refunded') return PAYMENT_STATUS.REFUNDED;
     if (normalized === 'cancelled') return PAYMENT_STATUS.FAILED;
     return null;
+};
+
+const isAllowedOrderTransition = (currentStatus = '', nextStatus = '') => {
+    const current = String(currentStatus || '').trim().toLowerCase() || 'confirmed';
+    const next = String(nextStatus || '').trim().toLowerCase() || 'confirmed';
+    const allowed = ORDER_TRANSITIONS[current];
+    if (!allowed) return false;
+    return allowed.has(next);
 };
 
 const mapRazorpayPaymentStatusToLocalPayment = (status) => {
@@ -788,10 +803,26 @@ const verifyRazorpayPayment = async (req, res) => {
 const retryRazorpayPayment = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { attemptId } = req.body || {};
-        const sourceAttempt = attemptId
-            ? await PaymentAttempt.getById(attemptId)
-            : await PaymentAttempt.getLatestRetryableByUser(userId);
+        const { attemptId, orderId } = req.body || {};
+        let sourceAttempt = null;
+        if (attemptId) {
+            sourceAttempt = await PaymentAttempt.getById(attemptId);
+        } else if (Number.isFinite(Number(orderId)) && Number(orderId) > 0) {
+            const order = await Order.getById(Number(orderId));
+            if (!order || String(order.user_id) !== String(userId)) {
+                return res.status(404).json({ message: 'Order not found' });
+            }
+            const razorpayOrderId = String(order.razorpay_order_id || '').trim();
+            if (!razorpayOrderId) {
+                return res.status(400).json({ message: 'Retryable payment is not available for this order' });
+            }
+            sourceAttempt = await PaymentAttempt.getLatestRetryableForOrder({
+                userId,
+                razorpayOrderId
+            });
+        } else {
+            sourceAttempt = await PaymentAttempt.getLatestRetryableByUser(userId);
+        }
 
         if (!sourceAttempt || String(sourceAttempt.user_id) !== String(userId)) {
             return res.status(404).json({ message: 'No retryable payment found' });
@@ -1587,6 +1618,9 @@ const updateOrderStatus = async (req, res) => {
             return res.status(404).json({ message: 'Order not found' });
         }
         const existingStatus = String(existingOrder?.status || '').toLowerCase();
+        if (!isAllowedOrderTransition(existingStatus, nextStatus)) {
+            return res.status(400).json({ message: `Order cannot move from ${existingStatus || 'confirmed'} to ${nextStatus || 'unknown'}` });
+        }
         if (existingStatus === 'pending' && nextStatus === 'confirmed') {
             return res.status(400).json({ message: 'Pending orders cannot be moved back to confirmed' });
         }
@@ -1910,6 +1944,21 @@ const deleteAdminOrder = async (req, res) => {
         const order = await Order.getById(orderId);
         if (!order) {
             return res.status(404).json({ message: 'Order not found' });
+        }
+
+        const status = String(order?.status || '').toLowerCase();
+        const paymentStatus = String(order?.payment_status || '').toLowerCase();
+        const hasFinancialRecord = Boolean(
+            ['paid', 'refunded'].includes(paymentStatus)
+            || String(order?.razorpay_payment_id || '').trim()
+            || String(order?.refund_reference || '').trim()
+            || String(order?.refund_status || '').trim()
+            || Number(order?.refund_amount || 0) > 0
+            || String(order?.settlement_id || '').trim()
+        );
+        const hasFulfilmentRecord = ['shipped', 'completed'].includes(status);
+        if (hasFinancialRecord || hasFulfilmentRecord) {
+            return res.status(400).json({ message: 'This order cannot be deleted. Use status updates instead.' });
         }
 
         const deleted = await Order.deleteById(orderId);

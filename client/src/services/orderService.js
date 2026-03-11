@@ -800,6 +800,37 @@ export const orderService = {
         });
         writeMyOrdersCache();
     },
+    removeMyOrderFromCache: (orderId) => {
+        const targetId = String(orderId || '').trim();
+        if (!targetId) return;
+        const currentUserId = getCurrentUserId();
+        const entries = Object.entries(myOrdersCache);
+        let changed = false;
+        entries.forEach(([key, value]) => {
+            const meta = parseMyOrdersCacheKey(key);
+            if (!meta.userId || meta.userId !== currentUserId) return;
+            const data = value?.data;
+            if (!data || !Array.isArray(data.orders)) return;
+            const nextOrders = data.orders.filter((order) => String(order?.id) !== targetId);
+            if (nextOrders.length === data.orders.length) return;
+            changed = true;
+            const totalOrders = Math.max(0, Number(data.pagination?.totalOrders || data.orders.length) - 1);
+            myOrdersCache[key] = {
+                ...value,
+                ts: Date.now(),
+                data: {
+                    ...data,
+                    orders: nextOrders,
+                    pagination: {
+                        currentPage: Number(data.pagination?.currentPage || meta.page),
+                        totalPages: Math.max(1, Math.ceil(Math.max(totalOrders, 1) / Number(meta.limit || 1))),
+                        totalOrders
+                    }
+                }
+            };
+        });
+        if (changed) writeMyOrdersCache();
+    },
     clearAdminCache: () => {
         adminOrdersCache = {};
         adminOrderDetailCache = {};
