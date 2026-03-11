@@ -326,6 +326,7 @@ export const SocketProvider = ({ children }) => {
         socket.on('cms:featured_category_update', handleAdminCrud);
         socket.on('cms:carousel_cards_update', handleAdminCrud);
         socket.on('cms:autopilot_update', handleAdminCrud);
+        socket.on('loyalty:popup_update', handleAdminCrud);
 
         return () => {
             socket.off('product:create', handleProductCreate);
@@ -348,6 +349,7 @@ export const SocketProvider = ({ children }) => {
             socket.off('cms:featured_category_update', handleAdminCrud);
             socket.off('cms:carousel_cards_update', handleAdminCrud);
             socket.off('cms:autopilot_update', handleAdminCrud);
+            socket.off('loyalty:popup_update', handleAdminCrud);
         };
     }, [socket, user]);
 

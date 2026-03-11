@@ -775,7 +775,7 @@ const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendN
 
 const runMonthlyLoyaltyReassessment = async () => {
     await ensureLoyaltyConfigLoaded({ force: true });
-    const [rows] = await db.execute("SELECT id FROM users WHERE role = 'customer'");
+    const [rows] = await db.execute("SELECT id FROM users WHERE role = 'customer' AND COALESCE(is_active, 1) = 1");
     let upgraded = 0;
     let changed = 0;
     for (const row of rows) {
@@ -801,6 +801,7 @@ const isUserBirthdayToday = (dob) => {
 const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => {
     const user = await User.findById(userId);
     if (!user?.id || !user?.email) return { created: false, coupon: null, reason: 'user_missing' };
+    if (user.isActive === false) return { created: false, coupon: null, reason: 'user_inactive' };
     if (!isUserBirthdayToday(user.dob)) return { created: false, coupon: null, reason: 'not_birthday' };
     const year = new Date().getFullYear();
     const [existingRows] = await db.execute(
@@ -902,6 +903,7 @@ const issueBirthdayCouponsForEligibleUsersToday = async () => {
         `SELECT id, dob, email
          FROM users
          WHERE role = 'customer'
+           AND COALESCE(is_active, 1) = 1
            AND email IS NOT NULL
            AND dob IS NOT NULL`
     );

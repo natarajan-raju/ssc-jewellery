@@ -26,6 +26,7 @@ export const ADMIN_CRUD_EVENTS = [
     'cms:carousel_cards_update',
     'cms:autopilot_update',
     'loyalty:config_update',
+    'loyalty:popup_update',
     'abandoned_cart:update',
     'abandoned_cart:journey:update',
     'abandoned_cart:recovered'

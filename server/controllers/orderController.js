@@ -1459,7 +1459,7 @@ const getCustomerPopupData = async (req, res) => {
 
         const genericCandidate = genericPopup ? {
             type: 'generic',
-            key: `generic:${genericPopup.id || 1}:${genericPopup.updatedAt || ''}`,
+            key: genericPopup.key || `generic:${genericPopup.id || 1}:${genericPopup.updatedAt || ''}`,
             createdAt: genericPopup.updatedAt || null,
             title: genericPopup.title || 'Special Offer',
             summary: genericPopup.summary || 'A new offer is available for you.',
@@ -1513,7 +1513,7 @@ const getPublicPopupData = async (req, res) => {
 
         const customPopupCandidate = genericPopup ? {
             type: 'generic',
-            key: `generic:${genericPopup.id || 1}:${genericPopup.updatedAt || ''}`,
+            key: genericPopup.key || `generic:${genericPopup.id || 1}:${genericPopup.updatedAt || ''}`,
             createdAt: genericPopup.updatedAt || null,
             title: genericPopup.title || 'Special Offer',
             summary: genericPopup.summary || 'A special offer is available for you.',

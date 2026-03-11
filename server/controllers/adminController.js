@@ -63,6 +63,28 @@ const emitCompanyTaxUpdate = async (req, { includeCompany = true } = {}) => {
     io.emit('tax:config_update', { taxes, ts: new Date().toISOString() });
 };
 
+const emitLoyaltyPopupUpdate = async (req, payload = {}) => {
+    const io = req.app.get('io');
+    if (!io) return;
+    const [adminPopup, publicPopup] = await Promise.all([
+        LoyaltyPopupConfig.getAdminConfig().catch(() => null),
+        LoyaltyPopupConfig.getClientActivePopup().catch(() => null)
+    ]);
+    const adminPayload = {
+        popup: adminPopup,
+        ...payload,
+        ts: new Date().toISOString()
+    };
+    const publicPayload = {
+        action: payload.action || 'config_update',
+        active: Boolean(publicPopup),
+        key: publicPopup?.key || null,
+        ts: adminPayload.ts
+    };
+    io.to('admin').emit('loyalty:popup_update', adminPayload);
+    io.emit('loyalty:popup_public_update', publicPayload);
+};
+
 const resolveCategoryCouponContext = async (categoryIds = []) => {
     const ids = [...new Set((Array.isArray(categoryIds) ? categoryIds : [])
         .map((id) => Number(id))
@@ -2017,6 +2039,7 @@ const getLoyaltyPopupConfig = async (_req, res) => {
 const updateLoyaltyPopupConfig = async (req, res) => {
     try {
         const popup = await LoyaltyPopupConfig.updateAdminConfig(req.body || {});
+        await emitLoyaltyPopupUpdate(req, { action: 'config_update' });
         return res.json({ popup });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update popup config' });
@@ -2037,6 +2060,7 @@ const createLoyaltyPopupTemplate = async (req, res) => {
         const templateName = String(req.body?.templateName || '').trim();
         const payload = req.body?.payload || {};
         const template = await LoyaltyPopupTemplate.create({ templateName, payload });
+        await emitLoyaltyPopupUpdate(req, { action: 'template_create', templateId: template?.id || null });
         return res.status(201).json({ template });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to create popup template' });
@@ -2049,6 +2073,7 @@ const updateLoyaltyPopupTemplate = async (req, res) => {
         const templateName = String(req.body?.templateName || '').trim();
         const payload = req.body?.payload || {};
         const template = await LoyaltyPopupTemplate.update(templateId, { templateName, payload });
+        await emitLoyaltyPopupUpdate(req, { action: 'template_update', templateId });
         return res.json({ template });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update popup template' });
@@ -2060,6 +2085,7 @@ const deleteLoyaltyPopupTemplate = async (req, res) => {
         const templateId = Number(req.params?.id || 0);
         const ok = await LoyaltyPopupTemplate.remove(templateId);
         if (!ok) return res.status(404).json({ message: 'Popup template not found' });
+        await emitLoyaltyPopupUpdate(req, { action: 'template_delete', templateId });
         return res.json({ ok: true, id: templateId });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to delete popup template' });
@@ -2321,14 +2347,14 @@ const deleteCoupon = async (req, res) => {
                 : await AbandonedCart.deactivateDiscountByCode({ code: normalizedCode });
             if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
             emitCouponChanged(req, {
-                action: 'deleted',
+                action: 'deactivated',
                 code: normalizedCode,
                 scopeType: 'customer',
                 sourceType: 'abandoned',
                 userTargets: normalizedUserId ? [normalizedUserId] : [],
                 broadcast: !normalizedUserId
             });
-            return res.json({ ok: true, id: couponRef, code: normalizedCode });
+            return res.json({ ok: true, id: couponRef, code: normalizedCode, action: 'deactivated' });
         }
 
         const couponId = Number(couponRef);
@@ -2342,7 +2368,7 @@ const deleteCoupon = async (req, res) => {
             : await Coupon.deactivateCouponByCode(couponRef);
         if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
         emitCouponChanged(req, {
-            action: 'deleted',
+            action: 'deactivated',
             couponId: coupon.id || (isNumericId ? couponId : null),
             code: coupon.code || null,
             scopeType: coupon.scope_type || 'generic',
@@ -2350,7 +2376,7 @@ const deleteCoupon = async (req, res) => {
             userTargets: coupon.scope_type === 'customer' ? (coupon.customerTargets || []) : [],
             broadcast: coupon.scope_type !== 'customer'
         });
-        return res.json({ ok: true, id: coupon.id || (isNumericId ? couponId : couponRef) });
+        return res.json({ ok: true, id: coupon.id || (isNumericId ? couponId : couponRef), action: 'deactivated' });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to delete coupon' });
     }
@@ -2372,13 +2398,13 @@ const deleteUserCoupon = async (req, res) => {
             const affected = await AbandonedCart.deactivateDiscountByCodeForUser({ userId, code });
             if (!affected) return res.status(404).json({ message: 'Coupon not found or already inactive' });
             emitCouponChanged(req, {
-                action: 'deleted',
+                action: 'deactivated',
                 code: String(code || '').toUpperCase(),
                 scopeType: 'customer',
                 sourceType: 'abandoned',
                 userTargets: [userId]
             });
-            return res.json({ ok: true, id: couponIdRaw });
+            return res.json({ ok: true, id: couponIdRaw, action: 'deactivated' });
         }
 
         const couponId = Number(couponIdRaw);
@@ -2394,14 +2420,14 @@ const deleteUserCoupon = async (req, res) => {
         const affected = await Coupon.deactivateCoupon(couponId);
         if (!affected) return res.status(400).json({ message: 'Coupon is already inactive' });
         emitCouponChanged(req, {
-            action: 'deleted',
+            action: 'deactivated',
             couponId,
             code: coupon.code || null,
             scopeType: coupon.scope_type || 'generic',
             sourceType: coupon.source_type || 'admin',
             userTargets: [userId]
         });
-        return res.json({ ok: true, id: couponId });
+        return res.json({ ok: true, id: couponId, action: 'deactivated' });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to delete coupon' });
     }

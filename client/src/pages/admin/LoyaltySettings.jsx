@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Calendar, Crown, Gem, Megaphone, Pencil, Plus, Search, Shield, Sparkles, Star, Save, TicketPercent, Trash2, X, CircleOff } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
@@ -8,7 +8,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import { formatAdminDate } from '../../utils/dateFormat';
 
-const ORDER = ['regular', 'silver', 'gold', 'platinum'];
+const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
 const getTodayDateInput = () => {
     const now = new Date();
@@ -117,6 +117,7 @@ const SHIPPING_PRIORITY_OPTIONS = [
 
 const TIER_STYLE = {
     regular: { card: 'from-slate-100 via-slate-50 to-slate-100 text-slate-800', stat: 'bg-white/80 border-slate-200', icon: Shield },
+    bronze: { card: 'from-amber-100 via-orange-50 to-amber-100 text-amber-900', stat: 'bg-white/80 border-amber-200', icon: Sparkles },
     silver: { card: 'from-gray-100 via-slate-50 to-gray-100 text-slate-800', stat: 'bg-white/80 border-gray-200', icon: Star },
     gold: { card: 'from-yellow-100 via-amber-50 to-yellow-100 text-amber-950', stat: 'bg-white/75 border-yellow-300', icon: Crown },
     platinum: { card: 'from-sky-100 via-blue-50 to-sky-100 text-sky-900', stat: 'bg-white/75 border-sky-200', icon: Gem }
@@ -143,7 +144,7 @@ const getDefaultCouponForm = () => ({
     maxDiscountValue: 1000,
     minCartValue: 0,
     usageLimitPerUser: 1,
-    tierScope: 'silver',
+    tierScope: 'bronze',
     categoryIds: [],
     startsAt: getTodayDateInput(),
     expiresAt: ''
@@ -296,51 +297,60 @@ export default function LoyaltySettings({ onBack }) {
         }));
     };
 
+    const loadPopupAdminState = useCallback(async () => {
+        const [popupData, templateData, popupCouponsData] = await Promise.all([
+            adminService.getLoyaltyPopupConfig().catch(() => ({ popup: null })),
+            adminService.listLoyaltyPopupTemplates().catch(() => ({ templates: [] })),
+            adminService.getLoyaltyCoupons({ page: 1, limit: 500, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
+        ]);
+
+        const popup = popupData?.popup || null;
+        setPopupForm({
+            isActive: Boolean(popup?.isActive),
+            title: popup?.title || '',
+            summary: popup?.summary || '',
+            content: popup?.content || '',
+            encouragement: popup?.encouragement || '',
+            imageUrl: popup?.imageUrl || '',
+            audioUrl: popup?.audioUrl || '',
+            buttonLabel: popup?.buttonLabel || 'Shop Now',
+            buttonLink: popup?.buttonLink || '/shop',
+            couponCode: popup?.couponCode || '',
+            endsAt: toDateInput(popup?.endsAt)
+        });
+
+        const templates = Array.isArray(templateData?.templates) ? templateData.templates : [];
+        setPopupTemplates(templates);
+        if (!popupTemplateName) {
+            setPopupTemplateName(getDefaultTemplateName());
+        }
+
+        const popupCouponRows = Array.isArray(popupCouponsData?.coupons) ? popupCouponsData.coupons : [];
+        const popupEligible = popupCouponRows
+            .filter((row) => isCouponCurrentlyValid(row))
+            .filter((row) => !['tier', 'customer'].includes(String(row?.scope_type || '').toLowerCase()))
+            .map((row) => ({
+                code: String(row.code || '').toUpperCase(),
+                name: row.name || 'Coupon',
+                scopeType: String(row.scope_type || 'generic').toLowerCase()
+            }))
+            .filter((row) => row.code);
+        setPopupCouponOptions(popupEligible);
+        if (popup?.couponCode && !popupEligible.some((row) => row.code === String(popup.couponCode).toUpperCase())) {
+            setPopupForm((prev) => ({ ...prev, couponCode: '' }));
+        }
+    }, [popupTemplateName]);
+
     useEffect(() => {
         let cancelled = false;
         Promise.all([
             adminService.getLoyaltyConfig(),
-            adminService.getLoyaltyPopupConfig().catch(() => ({ popup: null })),
-            adminService.listLoyaltyPopupTemplates().catch(() => ({ templates: [] })),
             productService.getCategoryStats().catch(() => null),
-            productService.getCategories().catch(() => ({ categories: [] })),
-            adminService.getLoyaltyCoupons({ page: 1, limit: 500, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
-        ]).then(([data, popupData, templateData, categoryStats, cats, popupCouponsData]) => {
+            productService.getCategories().catch(() => ({ categories: [] }))
+        ]).then(async ([data, categoryStats, cats]) => {
             if (cancelled) return;
             applyConfigRows(Array.isArray(data?.config) ? data.config : []);
-            const popup = popupData?.popup || null;
-            setPopupForm({
-                isActive: Boolean(popup?.isActive),
-                title: popup?.title || '',
-                summary: popup?.summary || '',
-                content: popup?.content || '',
-                encouragement: popup?.encouragement || '',
-                imageUrl: popup?.imageUrl || '',
-                audioUrl: popup?.audioUrl || '',
-                buttonLabel: popup?.buttonLabel || 'Shop Now',
-                buttonLink: popup?.buttonLink || '/shop',
-                couponCode: popup?.couponCode || '',
-                endsAt: toDateInput(popup?.endsAt)
-            });
-            const templates = Array.isArray(templateData?.templates) ? templateData.templates : [];
-            setPopupTemplates(templates);
-            if (!popupTemplateName) {
-                setPopupTemplateName(getDefaultTemplateName());
-            }
-            const popupCouponRows = Array.isArray(popupCouponsData?.coupons) ? popupCouponsData.coupons : [];
-            const popupEligible = popupCouponRows
-                .filter((row) => isCouponCurrentlyValid(row))
-                .filter((row) => !['tier', 'customer'].includes(String(row?.scope_type || '').toLowerCase()))
-                .map((row) => ({
-                    code: String(row.code || '').toUpperCase(),
-                    name: row.name || 'Coupon',
-                    scopeType: String(row.scope_type || 'generic').toLowerCase()
-                }))
-                .filter((row) => row.code);
-            setPopupCouponOptions(popupEligible);
-            if (popup?.couponCode && !popupEligible.some((row) => row.code === String(popup.couponCode).toUpperCase())) {
-                setPopupForm((prev) => ({ ...prev, couponCode: '' }));
-            }
+            await loadPopupAdminState();
             const statRows = Array.isArray(categoryStats)
                 ? categoryStats
                 : (Array.isArray(categoryStats?.categories) ? categoryStats.categories : []);
@@ -355,7 +365,7 @@ export default function LoyaltySettings({ onBack }) {
             if (!cancelled) setLoading(false);
         });
         return () => { cancelled = true; };
-    }, []);
+    }, [loadPopupAdminState, toast]);
 
     useEffect(() => {
         let cancelled = false;
@@ -414,6 +424,9 @@ export default function LoyaltySettings({ onBack }) {
             adminService.getLoyaltyConfig()
                 .then((data) => applyConfigRows(Array.isArray(data?.config) ? data.config : []))
                 .catch(() => {});
+        },
+        'loyalty:popup_update': () => {
+            loadPopupAdminState().catch(() => {});
         }
     });
 
@@ -528,9 +541,9 @@ export default function LoyaltySettings({ onBack }) {
         setConfirmModal({
             isOpen: true,
             type: 'delete',
-            title: 'Delete Coupon',
-            message: `Delete coupon ${coupon.code || coupon.id}? This cannot be undone.`,
-            confirmText: 'Delete',
+            title: 'Deactivate Coupon',
+            message: `Deactivate coupon ${coupon.code || coupon.id}? It will be archived from active use.`,
+            confirmText: 'Deactivate',
             coupon,
             coupons: []
         });
@@ -541,9 +554,9 @@ export default function LoyaltySettings({ onBack }) {
         setConfirmModal({
             isOpen: true,
             type: 'delete',
-            title: 'Delete Coupons',
-            message: `Delete ${selectedCouponIds.length} selected coupon(s)? This cannot be undone.`,
-            confirmText: 'Delete All',
+            title: 'Deactivate Coupons',
+            message: `Deactivate ${selectedCouponIds.length} selected coupon(s)? They will be archived from active use.`,
+            confirmText: 'Deactivate All',
             coupon: null,
             coupons: [...selectedCouponIds]
         });
@@ -566,11 +579,11 @@ export default function LoyaltySettings({ onBack }) {
                 const successCount = results.filter((entry) => entry.status === 'fulfilled').length;
                 const failedCount = results.length - successCount;
                 if (successCount > 0) {
-                    toast.success(`Deleted ${successCount} coupon(s)`);
+                    toast.success(`Deactivated ${successCount} coupon(s)`);
                     setCouponRefreshKey((v) => v + 1);
                 }
                 if (failedCount > 0) {
-                    toast.error(`${failedCount} coupon(s) could not be deleted`);
+                    toast.error(`${failedCount} coupon(s) could not be deactivated`);
                 }
                 setSelectedCouponIds([]);
                 setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null, coupons: [] }));
@@ -589,12 +602,12 @@ export default function LoyaltySettings({ onBack }) {
         setCouponDeletingId(deletingKey);
         try {
             await adminService.deleteLoyaltyCoupon(couponId);
-            toast.success('Coupon deleted');
+            toast.success('Coupon deactivated');
             setCouponRefreshKey((v) => v + 1);
             setSelectedCouponIds((prev) => prev.filter((id) => String(id) !== String(couponId)));
             setConfirmModal((prev) => ({ ...prev, isOpen: false, coupon: null, coupons: [] }));
         } catch (error) {
-            toast.error(error?.message || 'Failed to delete coupon');
+            toast.error(error?.message || 'Failed to deactivate coupon');
         } finally {
             setCouponDeletingId(null);
             setIsConfirmProcessing(false);
@@ -888,7 +901,7 @@ export default function LoyaltySettings({ onBack }) {
                                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 text-red-700 text-sm font-semibold hover:bg-red-50 disabled:opacity-60"
                                 >
                                     <Trash2 size={14} />
-                                    {bulkCouponDeleting ? 'Deleting...' : `Delete Selected (${selectedCouponsCount})`}
+                                    {bulkCouponDeleting ? 'Deactivating...' : `Deactivate Selected (${selectedCouponsCount})`}
                                 </button>
                             )}
                             <div className="relative w-full max-w-xs">
@@ -965,7 +978,7 @@ export default function LoyaltySettings({ onBack }) {
                                                 }}
                                                 disabled={couponDeletingId === (cp.id || cp.code)}
                                                 className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
-                                                title="Delete Coupon"
+                                                title="Deactivate Coupon"
                                             >
                                                 <Trash2 size={14} />
                                             </button>
@@ -1029,7 +1042,7 @@ export default function LoyaltySettings({ onBack }) {
                                                 }}
                                                 disabled={couponDeletingId === (cp.id || cp.code)}
                                                 className="inline-flex items-center justify-center p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
-                                                title="Delete Coupon"
+                                                title="Deactivate Coupon"
                                             >
                                                 <Trash2 size={14} />
                                             </button>

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import { orderService } from '../services/orderService';
 import { burstConfetti, playCue } from '../utils/celebration';
 import couponImageFallback from '../assets/coupon.jpg';
@@ -47,6 +48,7 @@ const formatCouponOffer = (coupon = null) => {
 
 export default function CustomerCouponPopup() {
     const { user, loading } = useAuth();
+    const { socket } = useSocket();
     const [open, setOpen] = useState(false);
     const [popup, setPopup] = useState(null);
     const [dismissed, setDismissed] = useState(false);
@@ -62,36 +64,63 @@ export default function CustomerCouponPopup() {
         return `customer-popup-dismissed:${owner}:${popup.key}`;
     }, [popup?.key, user?.id]);
 
+    const loadPopupData = useCallback(async () => {
+        if (loading) return;
+        if (user && !isCustomer) return;
+        try {
+            const data = isCustomer
+                ? await orderService.getCustomerPopupData()
+                : await orderService.getPublicPopupData();
+            const nextPopup = data?.popup || null;
+            if (!nextPopup) {
+                setPopup(null);
+                setOpen(false);
+                setDismissed(false);
+                setShowGiftIntro(false);
+                return;
+            }
+            const owner = user?.id ? `user:${user.id}` : 'guest';
+            const key = `customer-popup-dismissed:${owner}:${nextPopup.key || ''}`;
+            if (nextPopup.key && localStorage.getItem(key) === '1') {
+                setPopup(nextPopup);
+                setDismissed(true);
+                setOpen(false);
+                setShowGiftIntro(false);
+                return;
+            }
+            setDismissed(false);
+            setScratchUnlocked(false);
+            setIsScratching(false);
+            setPopup(nextPopup);
+            setOpen(true);
+            setShowGiftIntro(true);
+        } catch {
+            // ignore popup fetch errors
+        }
+    }, [isCustomer, loading, user]);
+
     useEffect(() => {
         if (loading) return;
         if (user && !isCustomer) return;
         let active = true;
-        setDismissed(false);
         const timer = setTimeout(async () => {
-            try {
-                const data = isCustomer
-                    ? await orderService.getCustomerPopupData()
-                    : await orderService.getPublicPopupData();
-                const nextPopup = data?.popup || null;
-                if (!active || !nextPopup) return;
-                const owner = user?.id ? `user:${user.id}` : 'guest';
-                const key = `customer-popup-dismissed:${owner}:${nextPopup.key || ''}`;
-                if (nextPopup.key && localStorage.getItem(key) === '1') {
-                    setDismissed(true);
-                    return;
-                }
-                setPopup(nextPopup);
-                setOpen(true);
-                setShowGiftIntro(true);
-            } catch {
-                // ignore popup fetch errors
-            }
+            if (!active) return;
+            await loadPopupData();
         }, 5000);
         return () => {
             active = false;
             clearTimeout(timer);
         };
-    }, [isCustomer, loading, user]);
+    }, [isCustomer, loadPopupData, loading, user]);
+
+    useEffect(() => {
+        if (!socket) return;
+        const handlePopupUpdate = () => {
+            loadPopupData().catch(() => {});
+        };
+        socket.on('loyalty:popup_public_update', handlePopupUpdate);
+        return () => socket.off('loyalty:popup_public_update', handlePopupUpdate);
+    }, [loadPopupData, socket]);
 
     useEffect(() => {
         if (!open || !popup || showGiftIntro) return;
@@ -150,8 +179,6 @@ export default function CustomerCouponPopup() {
             ctx.globalAlpha = 1;
         };
         giftImg.src = giftIllustration;
-        setScratchUnlocked(false);
-        setIsScratching(false);
     }, [showGiftIntro]);
 
     useEffect(() => {

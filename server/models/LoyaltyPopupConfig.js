@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const db = require('../config/db');
 
 const normalizeDate = (value) => {
@@ -25,8 +26,28 @@ const toSqlDateTime = (value) => {
     return date.toISOString().slice(0, 19).replace('T', ' ');
 };
 
+const buildPopupKey = (row = {}) => {
+    const fingerprint = JSON.stringify({
+        isActive: toBool(row.is_active),
+        title: String(row.title || ''),
+        summary: String(row.summary || ''),
+        content: String(row.content || ''),
+        encouragement: String(row.encouragement || ''),
+        imageUrl: String(row.image_url || ''),
+        audioUrl: String(row.audio_url || ''),
+        buttonLabel: String(row.button_label || 'Shop Now'),
+        buttonLink: String(row.button_link || '/shop'),
+        couponCode: row.coupon_code || null,
+        endsAt: normalizeDate(row.ends_at),
+        updatedAt: normalizeDate(row.updated_at),
+        metadata: parseJson(row.metadata_json, {})
+    });
+    return crypto.createHash('sha1').update(fingerprint).digest('hex').slice(0, 12);
+};
+
 const normalizeRow = (row = {}) => ({
     id: Number(row.id || 1),
+    key: buildPopupKey(row),
     isActive: toBool(row.is_active),
     title: String(row.title || ''),
     summary: String(row.summary || ''),
