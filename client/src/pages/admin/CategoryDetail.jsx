@@ -27,6 +27,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const [showEditModal, setShowEditModal] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [draggedIndex, setDraggedIndex] = useState(null);
+    const [isReordering, setIsReordering] = useState(false);
     const toast = useToast();
     const isOffersCategory = String(category?.system_key || '').toLowerCase() === 'offers';
     const isNameImmutable = Boolean(category?.is_immutable);
@@ -37,7 +38,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
             const data = await productService.getCategoryDetails(categoryId);
             setCategory(data);
             setProducts(data.products || []);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load category details");
         } finally {
             setIsLoading(false);
@@ -135,11 +136,15 @@ export default function CategoryDetail({ categoryId, onBack }) {
         setDraggedIndex(null);
         // Save new order to backend
         try {
+            setIsReordering(true);
             const productIds = products.map(p => p.id);
             await productService.reorderCategory(categoryId, productIds);
             // toast.success("Order saved"); // Optional: Silent save is better UX
-        } catch (error) {
+        } catch {
             toast.error("Failed to save order");
+            await loadData();
+        } finally {
+            setIsReordering(false);
         }
     };
 
@@ -176,7 +181,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
             }
             // Close Modal
             setModalConfig({ ...modalConfig, isOpen: false });
-        } catch (error) {
+        } catch {
             toast.error("Failed to remove product");
         } finally {
             setIsActionLoading(false);
@@ -223,7 +228,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
             productService.clearCache();
             await loadData();
             closeAssignModal();
-        } catch (error) {
+        } catch {
             toast.error("Failed to add products");
         } finally {
             setIsActionLoading(false);
@@ -335,6 +340,11 @@ export default function CategoryDetail({ categoryId, onBack }) {
                 <p className="text-sm text-gray-500">
                     Use drag & drop to change the order of products. Changes are saved automatically.
                 </p>
+                {isReordering && (
+                    <p className="text-xs text-gray-400">
+                        Saving order...
+                    </p>
+                )}
                 {isOffersCategory && (
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         Offers membership is auto-managed from product and variant discount values. You can only reorder products here.

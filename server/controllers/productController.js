@@ -410,6 +410,10 @@ const reorderCategory = async (req, res) => {
 const manageCategoryProduct = async (req, res) => {
     try {
         const { productId, action } = req.body; // action: 'add' or 'remove'
+        const normalizedAction = String(action || '').trim().toLowerCase();
+        if (!['add', 'remove'].includes(normalizedAction)) {
+            return res.status(400).json({ message: 'Invalid action' });
+        }
         await Product.manageCategoryProduct(req.params.id, productId, action);
         // [FIX] Fetch Name
         const catName = await Product.getCategoryName(req.params.id);
@@ -418,7 +422,7 @@ const manageCategoryProduct = async (req, res) => {
             id: productId,
             categoryId: req.params.id,
             categoryName: catName,
-            action,
+            action: normalizedAction,
             product: serializePublicProduct(updatedProduct)
         }); // [NEW] Notify Sync
         if (updatedProduct) {

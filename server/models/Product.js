@@ -815,12 +815,40 @@ class Product {
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
-            
-            // Update display_order for each product in the list
-            for (let i = 0; i < orderedProductIds.length; i++) {
+            const meta = await Product.getCategoryMetaById(categoryId, { connection });
+            if (!meta) throw new Error('Category not found');
+
+            const ids = Array.isArray(orderedProductIds)
+                ? orderedProductIds.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+            if (!ids.length) {
+                throw new Error('Product order is required');
+            }
+
+            const uniqueIds = [...new Set(ids)];
+            if (uniqueIds.length !== ids.length) {
+                throw new Error('Duplicate product ids are not allowed');
+            }
+
+            const [currentRows] = await connection.execute(
+                'SELECT product_id FROM product_categories WHERE category_id = ? ORDER BY display_order ASC, product_id ASC',
+                [categoryId]
+            );
+            const currentIds = currentRows.map((row) => String(row.product_id || '').trim()).filter(Boolean);
+            if (currentIds.length !== ids.length) {
+                throw new Error('Reorder list must include every product in the category');
+            }
+
+            const currentSet = new Set(currentIds);
+            const includesUnknown = ids.some((id) => !currentSet.has(id));
+            if (includesUnknown) {
+                throw new Error('Reorder list contains products outside this category');
+            }
+
+            for (let i = 0; i < ids.length; i++) {
                 await connection.execute(
                     'UPDATE product_categories SET display_order = ? WHERE category_id = ? AND product_id = ?',
-                    [i, categoryId, orderedProductIds[i]]
+                    [i, categoryId, ids[i]]
                 );
             }
             
@@ -843,9 +871,19 @@ class Product {
             if (String(meta.system_key || '').toLowerCase() === 'offers') {
                 throw new Error('Offers category is auto-managed from product discounts');
             }
+            const normalizedAction = String(action || '').trim().toLowerCase();
+            if (!['add', 'remove'].includes(normalizedAction)) {
+                throw new Error('Invalid action');
+            }
+
+            const [productRows] = await connection.execute(
+                'SELECT id FROM products WHERE id = ? LIMIT 1',
+                [productId]
+            );
+            if (!productRows[0]) throw new Error('Product not found');
 
             // 1. Perform the Action on Link Table
-            if (action === 'add') {
+            if (normalizedAction === 'add') {
                 const [exists] = await connection.execute(
                     'SELECT 1 FROM product_categories WHERE category_id = ? AND product_id = ?', 
                     [categoryId, productId]
@@ -861,7 +899,7 @@ class Product {
                         [categoryId, productId, nextOrder]
                     );
                 }
-            } else if (action === 'remove') {
+            } else if (normalizedAction === 'remove') {
                 await connection.execute(
                     'DELETE FROM product_categories WHERE category_id = ? AND product_id = ?', 
                     [categoryId, productId]
@@ -970,6 +1008,9 @@ class Product {
                 'SELECT name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
                 [id]
             );
+            if (!catRows[0]) {
+                throw new Error('Category not found');
+            }
             const isImmutable = Number(catRows?.[0]?.is_immutable || 0) === 1 || Product.isImmutableSystemKey(catRows?.[0]?.system_key);
             if (isImmutable) {
                 throw new Error('This category cannot be deleted');
