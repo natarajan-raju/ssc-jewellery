@@ -226,6 +226,100 @@ test('verifyRazorpayPayment confirms a paid order on valid signature', async () 
     ]);
 });
 
+test('verifyRazorpayPayment still returns success if post-verify work fails', async () => {
+    const secret = 'secret';
+    const paymentId = 'pay_2';
+    const razorpayOrderId = 'order_2';
+    const signature = crypto.createHmac('sha256', secret).update(`${razorpayOrderId}|${paymentId}`).digest('hex');
+    const controller = loadOrderController({
+        razorpayConfig: async () => ({ keySecret: secret }),
+        razorpayClient: async () => ({
+            payments: {
+                fetch: async () => ({
+                    id: paymentId,
+                    order_id: razorpayOrderId,
+                    amount: 1000,
+                    currency: 'INR',
+                    status: 'captured'
+                })
+            }
+        }),
+        comms: {
+            sendOrderLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } }),
+            sendPaymentLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } })
+        },
+        loyalty: { reassessUserTier: async () => ({}) },
+        abandonedCart: { markRecoveredByOrder: async () => ({}) }
+    });
+
+    const req = {
+        user: { id: 'u1' },
+        body: {
+            razorpay_payment_id: paymentId,
+            razorpay_order_id: razorpayOrderId,
+            razorpay_signature: signature
+        },
+        app: {
+            get: (key) => (key === 'io'
+                ? {
+                    to() {
+                        return {
+                            emit() {
+                                throw new Error('socket emit failed');
+                            }
+                        };
+                    }
+                }
+                : null)
+        }
+    };
+    const res = createMockRes();
+    let markFailedCalled = false;
+
+    await withPatched(PaymentAttempt, {
+        getByRazorpayOrderId: async () => ({
+            id: 'attempt_2',
+            razorpay_order_id: razorpayOrderId,
+            amount_subunits: 1000,
+            currency: 'INR',
+            status: PAYMENT_STATUS.CREATED,
+            billing_address: { line1: 'Billing' },
+            shipping_address: { line1: 'Shipping' },
+            notes: {}
+        }),
+        beginVerificationLock: async () => true,
+        consumeInventoryForAttempt: async () => {},
+        markVerified: async () => true,
+        markFailed: async () => {
+            markFailedCalled = true;
+        }
+    }, async () => withPatched(Order, {
+        getCheckoutSummary: async () => ({ total: 10 }),
+        createFromCart: async () => ({
+            id: 'ord_2',
+            order_ref: 'REF-2',
+            user_id: 'u1',
+            status: 'confirmed',
+            payment_status: PAYMENT_STATUS.PAID,
+            payment_gateway: 'razorpay'
+        }),
+        getById: async () => ({
+            id: 'ord_2',
+            order_ref: 'REF-2',
+            user_id: 'u1',
+            status: 'confirmed',
+            payment_status: PAYMENT_STATUS.PAID,
+            payment_gateway: 'razorpay'
+        })
+    }, async () => {
+        await controller.verifyRazorpayPayment(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.order.id, 'ord_2');
+    assert.equal(markFailedCalled, false);
+});
+
 test('duplicate Razorpay webhook delivery is idempotent', async () => {
     const body = { event: 'payment.captured', payload: {} };
     const rawBody = JSON.stringify(body);
@@ -259,6 +353,99 @@ test('duplicate Razorpay webhook delivery is idempotent', async () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.duplicate, true);
     assert.equal(res.body.eventId, 'evt_1');
+});
+
+test('paid webhook for normal checkout can materialize an order from the payment attempt snapshot', async () => {
+    const body = {
+        event: 'payment.captured',
+        payload: {
+            payment: {
+                entity: {
+                    id: 'pay_checkout_1',
+                    order_id: 'order_checkout_1',
+                    amount: 1000,
+                    currency: 'INR'
+                }
+            }
+        }
+    };
+    const rawBody = JSON.stringify(body);
+    const secret = 'webhook-secret';
+    const signature = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    const controller = loadOrderController({
+        razorpayConfig: async () => ({ webhookSecret: secret }),
+        comms: {
+            sendOrderLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } }),
+            sendPaymentLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } })
+        },
+        loyalty: { reassessUserTier: async () => ({}) },
+        abandonedCart: { markRecoveredByOrder: async () => ({}) }
+    });
+
+    const req = {
+        body,
+        rawBody,
+        headers: {
+            'x-razorpay-signature': signature,
+            'x-razorpay-event-id': 'evt_checkout_paid'
+        },
+        app: {
+            get: () => ({
+                to() {
+                    return { emit() {} };
+                }
+            })
+        }
+    };
+    const res = createMockRes();
+    let createFromAttemptPayload = null;
+
+    await withPatched(WebhookEvent, {
+        register: async () => ({ duplicate: false }),
+        markProcessed: async () => {},
+        markFailed: async () => {}
+    }, async () => withPatched(PaymentAttempt, {
+        getByRazorpayOrderIdAny: async () => ({
+            id: 42,
+            user_id: 'u1',
+            razorpay_order_id: 'order_checkout_1',
+            amount_subunits: 1000,
+            currency: 'INR',
+            status: PAYMENT_STATUS.CREATED,
+            notes: { attemptSnapshot: { items: [{ productId: 'p1', quantity: 1, unitPrice: 10, lineTotal: 10, title: 'Chain' }] } }
+        }),
+        markPaidByRazorpayOrder: async () => {}
+    }, async () => withPatched(Order, {
+        updatePaymentByRazorpayOrderId: async () => 0,
+        getByRazorpayPaymentId: async () => null,
+        getByRazorpayOrderId: async () => null,
+        createManualOrderFromAttempt: async (payload) => {
+            createFromAttemptPayload = payload;
+            return {
+                id: 'ord_webhook_1',
+                order_ref: 'REF-WEBHOOK',
+                user_id: 'u1',
+                status: 'confirmed',
+                payment_status: PAYMENT_STATUS.PAID,
+                payment_gateway: 'razorpay'
+            };
+        },
+        getById: async () => ({
+            id: 'ord_webhook_1',
+            order_ref: 'REF-WEBHOOK',
+            user_id: 'u1',
+            status: 'confirmed',
+            payment_status: PAYMENT_STATUS.PAID,
+            payment_gateway: 'razorpay'
+        })
+    }, async () => {
+        await controller.handleRazorpayWebhook(req, res);
+    })));
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(createFromAttemptPayload.paymentGateway, 'razorpay');
+    assert.equal(createFromAttemptPayload.razorpayOrderId, 'order_checkout_1');
+    assert.equal(createFromAttemptPayload.razorpayPaymentId, 'pay_checkout_1');
 });
 
 test('retryRazorpayPayment resolves the retryable attempt for the selected order', async () => {
@@ -335,6 +522,29 @@ test('retryRazorpayPayment resolves the retryable attempt for the selected order
     assert.equal(res.statusCode, 201);
     assert.deepEqual(retryLookupPayload, { userId: 'u1', razorpayOrderId: 'order_for_42' });
     assert.equal(createdAttemptPayload.notes.retryOfAttemptId, 77);
+});
+
+test('admin attempt conversion rejects paid attempts', async () => {
+    const controller = loadOrderController();
+    const req = {
+        params: { id: '12' },
+        body: { paymentMode: 'manual', conversionReason: 'Gateway payment settled offline' },
+        user: { id: 'admin_1', role: 'admin' }
+    };
+    const res = createMockRes();
+
+    await withPatched(PaymentAttempt, {
+        getById: async () => ({
+            id: 12,
+            status: PAYMENT_STATUS.PAID,
+            local_order_id: null
+        })
+    }, async () => {
+        await controller.convertAdminPaymentAttemptToOrder(req, res);
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.match(res.body.message, /only open or failed attempts can be converted manually/i);
 });
 
 test('updateOrderStatus rejects invalid lifecycle reversal', async () => {

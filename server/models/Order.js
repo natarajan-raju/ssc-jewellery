@@ -1585,7 +1585,15 @@ class Order {
         attempt = null,
         paymentGateway = 'manual',
         paymentReference = '',
-        actorUserId = null
+        actorUserId = null,
+        auditReason = '',
+        paymentStatus = 'paid',
+        razorpayOrderId = null,
+        razorpayPaymentId = null,
+        razorpaySignature = null,
+        settlementId = null,
+        settlementSnapshot = null,
+        sourceChannel = 'admin_attempt_conversion'
     } = {}) {
         if (!attempt || !attempt.id) throw new Error('Payment attempt is required');
         if (attempt.local_order_id) throw new Error('Attempt already linked to an order');
@@ -1702,7 +1710,8 @@ class Order {
                 source: 'attempt_snapshot_conversion',
                 convertedBy: actorUserId || null,
                 convertedAt: new Date().toISOString(),
-                paymentReference: String(paymentReference || '').trim() || null
+                paymentReference: String(paymentReference || '').trim() || null,
+                manualConversionReason: String(auditReason || '').trim() || null
             };
             const couponMeta = coupon?.code ? {
                 source: coupon?.source || 'coupon',
@@ -1758,11 +1767,11 @@ class Order {
                     orderRef,
                     userId,
                     'confirmed',
-                    'paid',
+                    String(paymentStatus || 'paid').slice(0, 30),
                     String(paymentGateway || 'manual').slice(0, 30),
-                    null,
-                    null,
-                    null,
+                    String(razorpayOrderId || '').trim() || null,
+                    String(razorpayPaymentId || '').trim() || null,
+                    String(razorpaySignature || '').trim() || null,
                     coupon?.code || null,
                     coupon?.type || null,
                     couponDiscountTotal,
@@ -1771,7 +1780,7 @@ class Order {
                     loyaltyDiscountTotal,
                     loyaltyShippingDiscountTotal,
                     JSON.stringify(loyaltyMeta),
-                    'admin_attempt_conversion',
+                    String(sourceChannel || 'admin_attempt_conversion').slice(0, 30),
                     0,
                     null,
                     subtotal,
@@ -1784,8 +1793,8 @@ class Order {
                     JSON.stringify(normalizeAddress(attempt.billing_address) || null),
                     JSON.stringify(normalizeAddress(attempt.shipping_address) || null),
                     JSON.stringify(companySnapshot),
-                    null,
-                    null
+                    String(settlementId || '').trim() || null,
+                    settlementSnapshot ? JSON.stringify(settlementSnapshot) : null
                 ]
             );
 
@@ -1884,6 +1893,47 @@ class Order {
         if (!rows.length) return [];
         const orders = await Promise.all(rows.map((row) => Order.getById(row.id)));
         return orders.filter(Boolean);
+    }
+
+    static async getAdminPaymentHealthSummary() {
+        const [[unlinkedPaidRows]] = await db.execute(
+            `SELECT COUNT(*) as total
+             FROM payment_attempts
+             WHERE local_order_id IS NULL
+               AND LOWER(COALESCE(status, '')) = 'paid'`
+        );
+        const [[staleAttemptRows]] = await db.execute(
+            `SELECT COUNT(*) as total
+             FROM payment_attempts
+             WHERE local_order_id IS NULL
+               AND LOWER(COALESCE(status, '')) IN ('created', 'attempted')
+               AND created_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE)`
+        );
+        const [[failedSettlementRows]] = await db.execute(
+            `SELECT COUNT(*) as total
+             FROM orders
+             WHERE LOWER(COALESCE(payment_gateway, '')) = 'razorpay'
+               AND LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.status')), '')) = 'failed'`
+        );
+        const [[missingSettlementRows]] = await db.execute(
+            `SELECT COUNT(*) as total
+             FROM orders
+             WHERE LOWER(COALESCE(payment_gateway, '')) = 'razorpay'
+               AND LOWER(COALESCE(payment_status, '')) = 'paid'
+               AND created_at < DATE_SUB(NOW(), INTERVAL 2 DAY)
+               AND COALESCE(NULLIF(settlement_id, ''), '') = ''`
+        );
+
+        const summary = {
+            unlinkedPaidAttempts: Number(unlinkedPaidRows?.total || 0),
+            staleActiveAttempts: Number(staleAttemptRows?.total || 0),
+            failedSettlements: Number(failedSettlementRows?.total || 0),
+            missingSettlements: Number(missingSettlementRows?.total || 0)
+        };
+        return {
+            ...summary,
+            totalIssues: Object.values(summary).reduce((sum, value) => sum + Number(value || 0), 0)
+        };
     }
 
     static async updatePaymentByRazorpayOrderId({

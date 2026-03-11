@@ -11,6 +11,7 @@ import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
 import { getGstDisplayDetails } from '../../utils/gst';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
+import { useAuth } from '../../context/AuthContext';
 
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
@@ -202,7 +203,9 @@ export default function Orders({
     onInitialManualCustomerApplied = () => {}
 }) {
     const toast = useToast();
+    const { user } = useAuth();
     const [orders, setOrders] = useState([]);
+    const [paymentHealth, setPaymentHealth] = useState(null);
     const [metrics, setMetrics] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('all');
@@ -239,6 +242,7 @@ export default function Orders({
     const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
     const [attemptConversionMode, setAttemptConversionMode] = useState('cash');
     const [attemptConversionReference, setAttemptConversionReference] = useState('');
+    const [attemptConversionReason, setAttemptConversionReason] = useState('');
     const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
     const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
     const [deletingOrderId, setDeletingOrderId] = useState(null);
@@ -689,6 +693,15 @@ export default function Orders({
         }
     }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, sourceChannel, startDate, statusFilter, toast]);
 
+    const fetchPaymentHealth = useCallback(async () => {
+        try {
+            const data = await orderService.getAdminPaymentHealth();
+            setPaymentHealth(data?.summary || null);
+        } catch {
+            setPaymentHealth(null);
+        }
+    }, []);
+
     useEffect(() => {
         registerOrderMetricsQuery(metricsQuery);
         fetchOrderMetrics(metricsQuery).catch(() => {});
@@ -697,6 +710,10 @@ export default function Orders({
     useEffect(() => {
         fetchOrders();
     }, [fetchOrders]);
+
+    useEffect(() => {
+        fetchPaymentHealth();
+    }, [fetchPaymentHealth]);
 
     useEffect(() => {
         if (!selectedOrder) return;
@@ -1352,7 +1369,8 @@ export default function Orders({
         try {
             const payload = {
                 paymentMode: attemptConversionMode,
-                paymentReference: attemptConversionReference
+                paymentReference: attemptConversionReference,
+                conversionReason: attemptConversionReason
             };
             const data = await orderService.convertAdminPaymentAttemptToOrder(selectedOrder.attempt_id || selectedOrder.id, payload);
             const order = data?.order || null;
@@ -1362,8 +1380,10 @@ export default function Orders({
             setPendingStatus(order.status || 'confirmed');
             setDetailsLastSyncedAt(new Date().toISOString());
             setAttemptConversionReference('');
+            setAttemptConversionReason('');
             setPage(1);
             fetchOrders(1);
+            fetchPaymentHealth();
         } catch (error) {
             toast.error(error?.message || 'Failed to convert payment attempt');
         } finally {
@@ -1392,6 +1412,7 @@ export default function Orders({
                 setPendingStatus(attemptOrder.status || 'failed');
                 setAttemptConversionMode('cash');
                 setAttemptConversionReference('');
+                setAttemptConversionReason('');
                 setDetailsLastSyncedAt(new Date().toISOString());
                 return;
             }
@@ -1844,6 +1865,17 @@ export default function Orders({
                 <div>
                     <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
                     <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
+                    {paymentHealth && (
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                            <span className={`px-2.5 py-1 rounded-full border ${paymentHealth.totalIssues > 0 ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
+                                Payment Health: {paymentHealth.totalIssues > 0 ? `${paymentHealth.totalIssues} issue(s)` : 'Healthy'}
+                            </span>
+                            {paymentHealth.unlinkedPaidAttempts > 0 && <span className="px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-800">Unlinked paid attempts: {paymentHealth.unlinkedPaidAttempts}</span>}
+                            {paymentHealth.staleActiveAttempts > 0 && <span className="px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-800">Stale active attempts: {paymentHealth.staleActiveAttempts}</span>}
+                            {paymentHealth.failedSettlements > 0 && <span className="px-2.5 py-1 rounded-full border border-rose-200 bg-rose-50 text-rose-700">Failed settlements: {paymentHealth.failedSettlements}</span>}
+                            {paymentHealth.missingSettlements > 0 && <span className="px-2.5 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700">Missing settlements: {paymentHealth.missingSettlements}</span>}
+                        </div>
+                    )}
                 </div>
                 <div className="w-full">
                     <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center gap-2 w-full md:w-auto">
@@ -2375,7 +2407,7 @@ export default function Orders({
                                     <p className="text-sm font-semibold text-gray-800 truncate">{selectedOrder.customer_name || 'Guest'}</p>
                                     <p className="text-xs text-gray-500">{selectedOrder.customer_mobile || 'No mobile number'}</p>
                                 </div>
-                                {isAttemptEntry(selectedOrder) && (
+                                {isAttemptEntry(selectedOrder) && String(user?.role || '').toLowerCase() === 'admin' && (
                                     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-3">
                                         <p className="text-xs text-emerald-800 font-semibold">
                                             Convert this failed attempt into a successful manual order.
@@ -2404,10 +2436,20 @@ export default function Orders({
                                                 className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
                                             />
                                         </div>
+                                        <div>
+                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reason</label>
+                                            <textarea
+                                                value={attemptConversionReason}
+                                                onChange={(e) => setAttemptConversionReason(e.target.value)}
+                                                disabled={isConvertingAttempt}
+                                                placeholder="Document why this attempt is being converted manually"
+                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
+                                            />
+                                        </div>
                                         <button
                                             type="button"
                                             onClick={handleConvertAttemptToPaidOrder}
-                                            disabled={isConvertingAttempt}
+                                            disabled={isConvertingAttempt || String(attemptConversionReason || '').trim().length < 8}
                                             className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
                                         >
                                             {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}

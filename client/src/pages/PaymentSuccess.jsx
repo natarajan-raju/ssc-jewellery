@@ -19,6 +19,7 @@ export default function PaymentSuccess() {
     const isFailed = paymentStatus && paymentStatus !== 'paid';
     const [isLoading, setIsLoading] = useState(true);
     const [order, setOrder] = useState(null);
+    const [pollState, setPollState] = useState({ attempts: 0, exhausted: false });
     const clearedRecoveryCartRef = useRef(false);
     const celebratedRef = useRef(false);
 
@@ -31,17 +32,20 @@ export default function PaymentSuccess() {
                 if (ignore) return;
                 if (paymentRef) {
                     let resolved = null;
-                    for (let i = 0; i < 4; i += 1) {
+                    const maxAttempts = 10;
+                    for (let i = 0; i < maxAttempts; i += 1) {
+                        if (!ignore) setPollState({ attempts: i + 1, exhausted: false });
                         try {
                             const payload = await orderService.getMyOrderByPaymentRef(paymentRef);
                             resolved = payload?.order || null;
                             if (resolved) break;
                         } catch (error) {
                             const msg = String(error?.message || '').toLowerCase();
-                            if (!msg.includes('not found') || i === 3) throw error;
+                            if (!msg.includes('not found') || i === maxAttempts - 1) throw error;
                         }
-                        await wait(1500);
+                        await wait(1000 + (i * 500));
                     }
+                    if (!ignore) setPollState((prev) => ({ attempts: Math.max(prev.attempts, resolved ? prev.attempts : maxAttempts), exhausted: !resolved }));
                     setOrder(resolved || null);
                     return;
                 }
@@ -119,7 +123,19 @@ export default function PaymentSuccess() {
                         {isLoading ? (
                             <p className="text-sm text-gray-500">Loading order summary...</p>
                         ) : !order ? (
-                            <p className="text-sm text-gray-500">Order summary will appear shortly.</p>
+                            <div className="space-y-2">
+                                <p className="text-sm text-gray-500">
+                                    {paymentRef ? 'Payment confirmed. Finalizing your order summary...' : 'Order summary will appear shortly.'}
+                                </p>
+                                {paymentRef && pollState.attempts > 0 && (
+                                    <p className="text-xs text-gray-400">Status checks attempted: {pollState.attempts}</p>
+                                )}
+                                {paymentRef && pollState.exhausted && (
+                                    <p className="text-xs text-amber-700">
+                                        The payment is captured, but the order summary is taking longer than usual. Check `Orders` shortly.
+                                    </p>
+                                )}
+                            </div>
                         ) : (
                             <>
                                 <div className="space-y-2">

@@ -520,6 +520,10 @@ export const orderService = {
         };
         return data;
     },
+    getAdminPaymentHealth: async () => {
+        const res = await fetch(`${API_URL}/admin/payment/health`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
     getAdminOrder: async (id) => {
         const key = String(id);
         const cached = adminOrderDetailCache[key];

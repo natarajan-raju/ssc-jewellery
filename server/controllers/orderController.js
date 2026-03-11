@@ -564,6 +564,7 @@ const verifyRazorpayPayment = async (req, res) => {
     let lockedAttemptId = null;
     let lockedPaymentId = null;
     let lockedSignature = null;
+    let createdOrder = null;
     try {
         const userId = req.user.id;
         const {
@@ -716,6 +717,7 @@ const verifyRazorpayPayment = async (req, res) => {
             couponCode: appliedCouponCode,
             sourceChannel: appliedCouponCode ? 'abandoned_recovery' : 'checkout'
         });
+        createdOrder = order;
 
         await PaymentAttempt.consumeInventoryForAttempt({ attemptId: attempt.id });
         try {
@@ -738,6 +740,9 @@ const verifyRazorpayPayment = async (req, res) => {
             }
             return res.status(409).json({ message: 'Payment verification conflict. Please retry.' });
         }
+        lockedAttemptId = null;
+        lockedPaymentId = null;
+        lockedSignature = null;
 
         const io = req.app.get('io');
         if (io) {
@@ -782,6 +787,20 @@ const verifyRazorpayPayment = async (req, res) => {
 
         return res.json({ order, verified: true });
     } catch (error) {
+        if (createdOrder?.id) {
+            if (lockedAttemptId) {
+                try {
+                    await PaymentAttempt.markVerified({
+                        id: lockedAttemptId,
+                        paymentId: lockedPaymentId,
+                        signature: lockedSignature,
+                        localOrderId: createdOrder.id
+                    });
+                } catch {}
+            }
+            const persistedOrder = await Order.getById(createdOrder.id).catch(() => null);
+            return res.json({ order: persistedOrder || createdOrder, verified: true });
+        }
         if (lockedAttemptId) {
             try {
                 await PaymentAttempt.releaseInventoryForAttempt({
@@ -845,6 +864,37 @@ const retryRazorpayPayment = async (req, res) => {
     } catch (error) {
         return res.status(400).json({ message: error.message || 'Failed to retry payment' });
     }
+};
+
+const createOrderFromCheckoutPaymentAttempt = async (req, {
+    attempt = null,
+    razorpayOrderId = null,
+    razorpayPaymentId = null,
+    razorpaySignature = null,
+    settlementId = null,
+    settlementSnapshot = null
+} = {}) => {
+    if (!attempt?.id) return null;
+    if (attempt.local_order_id) {
+        const existingOrder = await Order.getById(attempt.local_order_id);
+        if (existingOrder) return existingOrder;
+    }
+
+    const order = await Order.createManualOrderFromAttempt({
+        attempt,
+        paymentGateway: 'razorpay',
+        paymentReference: razorpayPaymentId || '',
+        actorUserId: null,
+        paymentStatus: PAYMENT_STATUS.PAID,
+        razorpayOrderId: razorpayOrderId || attempt.razorpay_order_id || null,
+        razorpayPaymentId: razorpayPaymentId || null,
+        razorpaySignature: razorpaySignature || null,
+        settlementId: settlementId || null,
+        settlementSnapshot: settlementSnapshot || null,
+        sourceChannel: 'checkout_webhook_recovery'
+    });
+    if (order) emitCouponChangedForOrder(req, order);
+    return order;
 };
 
 const handleRazorpayWebhook = async (req, res) => {
@@ -1007,6 +1057,22 @@ const handleRazorpayWebhook = async (req, res) => {
                 });
                 return res.status(400).json({ message: 'Webhook amount mismatch' });
             }
+            if (
+                attempt
+                && String(paymentEntity?.currency || '').trim()
+                && String(paymentEntity.currency || '').toUpperCase() !== String(attempt.currency || 'INR').toUpperCase()
+            ) {
+                await PaymentAttempt.markFailedByRazorpayOrder({
+                    razorpayOrderId,
+                    paymentId: razorpayPaymentId,
+                    errorMessage: 'Webhook currency mismatch'
+                });
+                await WebhookEvent.markFailed({
+                    eventId: webhookEventId,
+                    note: 'Webhook currency mismatch'
+                });
+                return res.status(400).json({ message: 'Webhook currency mismatch' });
+            }
             await PaymentAttempt.markPaidByRazorpayOrder({
                 razorpayOrderId,
                 paymentId: razorpayPaymentId
@@ -1127,6 +1193,20 @@ const handleRazorpayWebhook = async (req, res) => {
                 : null;
             if (!linkedOrder && razorpayOrderId) {
                 linkedOrder = await Order.getByRazorpayOrderId(razorpayOrderId);
+            }
+            if (!linkedOrder) {
+                const attempt = razorpayOrderId
+                    ? await PaymentAttempt.getByRazorpayOrderIdAny(razorpayOrderId)
+                    : null;
+                linkedOrder = attempt
+                    ? await createOrderFromCheckoutPaymentAttempt(req, {
+                        attempt,
+                        razorpayOrderId,
+                        razorpayPaymentId,
+                        settlementId: settlementIdFromWebhook,
+                        settlementSnapshot: null
+                    })
+                    : null;
             }
             if (!linkedOrder) {
                 linkedOrder = await createOrderFromRecoveryPayment(req, {
@@ -1539,6 +1619,15 @@ const getAdminOrders = async (req, res) => {
         res.json({ orders: result.orders, pagination: { currentPage: page, totalPages: result.totalPages, totalOrders: result.total }, metrics });
     } catch (error) {
         res.status(500).json({ message: 'Failed to load orders' });
+    }
+};
+
+const getAdminPaymentHealth = async (req, res) => {
+    try {
+        const summary = await Order.getAdminPaymentHealthSummary();
+        return res.json({ summary });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load payment health summary' });
     }
 };
 
@@ -2010,19 +2099,35 @@ const deleteAdminPaymentAttempt = async (req, res) => {
 
 const convertAdminPaymentAttemptToOrder = async (req, res) => {
     try {
+        if (String(req.user?.role || '').toLowerCase() !== 'admin') {
+            return res.status(403).json({ message: 'Only admins can convert payment attempts manually' });
+        }
         const attemptId = Number(req.params.id);
         if (!Number.isFinite(attemptId) || attemptId <= 0) {
             return res.status(400).json({ message: 'Invalid attempt id' });
         }
         const paymentMode = String(req.body?.paymentMode || 'manual').trim().toLowerCase();
         const paymentReference = String(req.body?.paymentReference || '').trim();
+        const conversionReason = String(req.body?.conversionReason || '').trim();
         if (!MANUAL_PAYMENT_MODES.includes(paymentMode)) {
             return res.status(400).json({ message: 'Select a valid manual payment mode' });
+        }
+        if (conversionReason.length < 8) {
+            return res.status(400).json({ message: 'Enter a clear conversion reason (minimum 8 characters)' });
         }
 
         const attempt = await PaymentAttempt.getById(attemptId);
         if (!attempt) {
             return res.status(404).json({ message: 'Attempt not found' });
+        }
+        const safeAttemptStatuses = new Set([
+            PAYMENT_STATUS.CREATED,
+            PAYMENT_STATUS.ATTEMPTED,
+            PAYMENT_STATUS.FAILED,
+            PAYMENT_STATUS.EXPIRED
+        ]);
+        if (!safeAttemptStatuses.has(String(attempt.status || '').toLowerCase())) {
+            return res.status(400).json({ message: 'Only open or failed attempts can be converted manually' });
         }
         if (attempt.local_order_id) {
             const existingOrder = await Order.getById(attempt.local_order_id);
@@ -2036,6 +2141,7 @@ const convertAdminPaymentAttemptToOrder = async (req, res) => {
             attempt,
             paymentGateway: paymentMode,
             paymentReference,
+            auditReason: conversionReason,
             actorUserId: req.user?.id || null
         });
         if (!order) {
@@ -2658,6 +2764,7 @@ module.exports = {
     verifyRazorpayPayment,
     handleRazorpayWebhook,
     getAdminOrders,
+    getAdminPaymentHealth,
     getAdminOrderById,
     getMyOrders,
     getMyOrderByPaymentRef,
