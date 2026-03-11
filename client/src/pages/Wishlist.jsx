@@ -71,11 +71,16 @@ export default function Wishlist() {
                 const variant = entry.variantId
                     ? variants.find((v) => String(v.id) === String(entry.variantId))
                     : null;
+                const hasMissingVariant = Boolean(entry.variantId && !variant);
                 const mediaList = Array.isArray(product.media) ? product.media : [];
                 const baseImage = mediaList[0]?.url || mediaList[0] || null;
                 const imageUrl = variant?.image_url || baseImage;
-                const price = Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || 0);
-                const mrp = Number(variant?.price || product.mrp || 0);
+                const price = hasMissingVariant
+                    ? Number(product.discount_price || product.mrp || 0)
+                    : Number(variant?.discount_price || variant?.price || product.discount_price || product.mrp || 0);
+                const mrp = hasMissingVariant
+                    ? Number(product.mrp || 0)
+                    : Number(variant?.price || product.mrp || 0);
                 return {
                     key: `${entry.productId}__${entry.variantId || 'base'}`,
                     productId: entry.productId,
@@ -87,6 +92,7 @@ export default function Wishlist() {
                     imageUrl,
                     price,
                     mrp,
+                    hasMissingVariant,
                     status: String(product.status || 'active').toLowerCase()
                 };
             })
@@ -177,7 +183,9 @@ export default function Wishlist() {
                                         {entry.title}
                                     </Link>
                                     <p className="text-xs text-gray-500">
-                                        {entry.variantTitle ? `Variant: ${entry.variantTitle}` : 'Default product'}
+                                        {entry.hasMissingVariant
+                                            ? 'Saved variant is no longer available. Review product options.'
+                                            : (entry.variantTitle ? `Variant: ${entry.variantTitle}` : 'Default product')}
                                     </p>
                                     <div className="flex items-center gap-2">
                                         <span className="text-base font-bold text-primary">₹{entry.price.toLocaleString('en-IN')}</span>
@@ -187,7 +195,9 @@ export default function Wishlist() {
                                     </div>
                                     <div className="flex items-center justify-between pt-2">
                                         <span className={`text-xs font-semibold ${entry.status === 'active' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                            {entry.status === 'active' ? 'Active' : 'Unavailable'}
+                                            {entry.status === 'active'
+                                                ? (entry.hasMissingVariant ? 'Variant changed' : 'Active')
+                                                : 'Unavailable'}
                                         </span>
                                         <div className="flex items-center gap-2">
                                             <button
@@ -195,6 +205,10 @@ export default function Wishlist() {
                                                 disabled={entry.status !== 'active'}
                                                 onClick={() => {
                                                     const variants = Array.isArray(entry.product?.variants) ? entry.product.variants : [];
+                                                    if (entry.hasMissingVariant && variants.length > 0) {
+                                                        openQuickAdd(entry.product);
+                                                        return;
+                                                    }
                                                     if (entry.variant) {
                                                         addItem({ product: entry.product, variant: entry.variant, quantity: 1 });
                                                         return;
@@ -207,7 +221,7 @@ export default function Wishlist() {
                                                 }}
                                                 className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
-                                                <ShoppingCart size={12} /> Add to Cart
+                                                <ShoppingCart size={12} /> {entry.hasMissingVariant ? 'Choose Options' : 'Add to Cart'}
                                             </button>
                                             <button
                                                 type="button"

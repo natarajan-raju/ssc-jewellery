@@ -15,7 +15,10 @@ const emitWishlistUpdate = (req, userId, items = []) => {
 
 const getWishlist = async (req, res) => {
     try {
-        const items = await Wishlist.getByUser(req.user.id);
+        const { items, prunedCount } = await Wishlist.getByUser(req.user.id, { withMeta: true });
+        if (prunedCount > 0) {
+            emitWishlistUpdate(req, req.user.id, items);
+        }
         res.json({ items, productIds: toUniqueProductIds(items) });
     } catch (error) {
         console.error('Wishlist fetch error:', error);
@@ -34,6 +37,10 @@ const addWishlistItem = async (req, res) => {
         res.json({ items, productIds: toUniqueProductIds(items) });
     } catch (error) {
         console.error('Wishlist add error:', error);
+        const message = String(error?.message || '');
+        if (/product not found|productid required|unavailable|variant is unavailable/i.test(message)) {
+            return res.status(400).json({ message: message || 'Invalid wishlist item' });
+        }
         res.status(500).json({ message: 'Failed to add wishlist item' });
     }
 };

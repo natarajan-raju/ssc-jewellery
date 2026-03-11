@@ -117,6 +117,31 @@ export const WishlistProvider = ({ children }) => {
         ));
     }, [wishlistItems, toPayload]);
 
+    const resolveWishlistRemovalTarget = useCallback((productId, variantId = '', removeAllVariants = false) => {
+        const targetProductId = String(productId || '').trim();
+        const targetVariantId = String(variantId || '').trim();
+        const hasExactMatch = wishlistItems.some((entry) => (
+            entry.productId === targetProductId && entry.variantId === targetVariantId
+        ));
+        const hasBaseMatch = wishlistItems.some((entry) => (
+            entry.productId === targetProductId && !entry.variantId
+        ));
+
+        if (removeAllVariants) {
+            return { exists: hasExactMatch || hasBaseMatch, variantId: '', removeAllVariants: true };
+        }
+        if (!targetVariantId) {
+            return { exists: hasExactMatch, variantId: targetVariantId, removeAllVariants: false };
+        }
+        if (hasExactMatch) {
+            return { exists: true, variantId: targetVariantId, removeAllVariants: false };
+        }
+        if (hasBaseMatch) {
+            return { exists: true, variantId: '', removeAllVariants: true };
+        }
+        return { exists: false, variantId: targetVariantId, removeAllVariants: false };
+    }, [wishlistItems]);
+
     const addToWishlist = useCallback(async (productOrObject, variantArg = '') => {
         if (!user?.id) {
             toast.info('Please login to save products in wishlist');
@@ -147,9 +172,14 @@ export const WishlistProvider = ({ children }) => {
         const { silent = false, removeAllVariants = false } = options || {};
         const { productId, variantId, productTitle, variantTitle } = toPayload(productOrObject, variantArg);
         if (!productId) return false;
-        if (!isWishlisted(productId, variantId)) return false;
+        const resolvedTarget = resolveWishlistRemovalTarget(productId, variantId, removeAllVariants);
+        if (!resolvedTarget.exists) return false;
         try {
-            const data = await wishlistService.removeItem(productId, variantId, removeAllVariants);
+            const data = await wishlistService.removeItem(
+                productId,
+                resolvedTarget.variantId,
+                resolvedTarget.removeAllVariants
+            );
             const nextItems = normalizeWishlistItems(data);
             setWishlistItems(nextItems);
             if (!silent) {
@@ -161,7 +191,7 @@ export const WishlistProvider = ({ children }) => {
             toast.error(error?.message || 'Failed to update wishlist');
             return false;
         }
-    }, [toast, user?.id, isWishlisted, normalizeWishlistItems, toPayload]);
+    }, [toast, user?.id, normalizeWishlistItems, toPayload, resolveWishlistRemovalTarget]);
 
     const toggleWishlist = useCallback(async (productOrObject, variantArg = '') => {
         const { productId, variantId } = toPayload(productOrObject, variantArg);
