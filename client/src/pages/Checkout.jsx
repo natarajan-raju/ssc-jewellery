@@ -121,7 +121,7 @@ const EXTRA_DISCOUNT_BY_TIER = {
 };
 
 export default function Checkout() {
-    const { user, loading, updateUser } = useAuth();
+    const { user, updateUser } = useAuth();
     const { items, subtotal, itemCount, clearCart } = useCart();
     const { zones } = useShipping();
     const { socket } = useSocket();
@@ -189,15 +189,6 @@ export default function Checkout() {
             setAvailableCoupons([]);
         }
     }, [user, itemCount, subtotal, appliedCoupon?.code, toast]);
-
-    useEffect(() => {
-        if (!loading && !user) {
-            navigate(`/login?redirect=${encodeURIComponent('/checkout')}`, { replace: true });
-        }
-        if (!loading && user && user.role === 'admin') {
-            navigate('/admin/dashboard', { replace: true });
-        }
-    }, [loading, user, navigate]);
 
     useEffect(() => {
         if (!user) return;

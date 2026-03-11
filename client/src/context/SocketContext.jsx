@@ -290,14 +290,28 @@ export const SocketProvider = ({ children }) => {
             adminService.clearCache();
         };
 
+        const handleUserUpdate = (updatedUser = {}) => {
+            handleAdminCrud();
+            if (typeof window === 'undefined' || !updatedUser?.id || !user?.id) return;
+            if (String(updatedUser.id) !== String(user.id)) return;
+            window.dispatchEvent(new CustomEvent('auth:user-updated', { detail: updatedUser }));
+        };
+
+        const handleUserDelete = (payload = {}) => {
+            handleAdminCrud();
+            if (typeof window === 'undefined' || !payload?.id || !user?.id) return;
+            if (String(payload.id) !== String(user.id)) return;
+            window.dispatchEvent(new CustomEvent('auth:user-deleted', { detail: payload }));
+        };
+
         socket.on('product:create', handleProductCreate);
         socket.on('product:update', handleProductUpdate);
         socket.on('product:delete', handleProductDelete);
         socket.on('product:category_change', handleProductCategoryChange);
         socket.on('refresh:categories', handleCategoryRefresh);
         socket.on('user:create', handleAdminCrud);
-        socket.on('user:update', handleAdminCrud);
-        socket.on('user:delete', handleAdminCrud);
+        socket.on('user:update', handleUserUpdate);
+        socket.on('user:delete', handleUserDelete);
         socket.on('company:info_update', handleAdminCrud);
         socket.on('tax:config_update', handleAdminCrud);
         socket.on('coupon:changed', handleAdminCrud);
@@ -318,8 +332,8 @@ export const SocketProvider = ({ children }) => {
             socket.off('product:category_change', handleProductCategoryChange);
             socket.off('refresh:categories', handleCategoryRefresh);
             socket.off('user:create', handleAdminCrud);
-            socket.off('user:update', handleAdminCrud);
-            socket.off('user:delete', handleAdminCrud);
+            socket.off('user:update', handleUserUpdate);
+            socket.off('user:delete', handleUserDelete);
             socket.off('company:info_update', handleAdminCrud);
             socket.off('tax:config_update', handleAdminCrud);
             socket.off('coupon:changed', handleAdminCrud);
@@ -333,7 +347,7 @@ export const SocketProvider = ({ children }) => {
             socket.off('cms:carousel_cards_update', handleAdminCrud);
             socket.off('cms:autopilot_update', handleAdminCrud);
         };
-    }, [socket]);
+    }, [socket, user]);
 
     return (
         <SocketContext.Provider value={{ socket }}>

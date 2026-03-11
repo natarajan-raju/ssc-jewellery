@@ -42,7 +42,7 @@ export default function AdminLogin() {
             } else {
                 toast.error(res.message);
             }
-        } catch (error) {
+        } catch {
             toast.error("Login Failed");
         }
     };

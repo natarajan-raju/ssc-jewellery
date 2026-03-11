@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Heart, Minus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
@@ -24,7 +24,6 @@ export default function CartPage() {
     const { user } = useAuth();
     const { zones } = useShipping();
     const { addToWishlist, wishlist } = useWishlist();
-    const navigate = useNavigate();
     const [showFreeShippingFx, setShowFreeShippingFx] = useState(false);
     const [struckShippingFee, setStruckShippingFee] = useState(null);
     const confettiLayerRef = useRef(null);
@@ -33,12 +32,6 @@ export default function CartPage() {
     const prevShippingFeeRef = useRef(0);
     const freeFxTimerRef = useRef(null);
     const { recommendations } = useCartRecommendations({ items, wishlistProductIds: wishlist, limit: 6 });
-
-    useEffect(() => {
-        if (user && user.role === 'admin') {
-            navigate('/admin/dashboard', { replace: true });
-        }
-    }, [user, navigate]);
 
     const moveToWishlist = async (item) => {
         const moved = await addToWishlist({

@@ -367,7 +367,7 @@ const getUserLoyaltyStatus = async (userId) => {
 };
 
 const sendTierUpgradeMail = async ({ user, previousTier, newTier, status }) => {
-    if (!user?.email) return;
+    if (!user?.email && !user?.mobile) return;
     const label = getLoyaltyProfileByTier(newTier).label;
     const newBenefits = (status?.profile?.benefits || getLoyaltyProfileByTier(newTier)?.benefits || [])
         .slice(0, 5)
@@ -409,26 +409,36 @@ const sendTierUpgradeMail = async ({ user, previousTier, newTier, status }) => {
             'We look forward to serving you with even better value ahead.'
         ]
     });
-    await sendEmailCommunication({
-        to: user.email,
-        subject: template.subject,
-        text: template.text,
-        html: template.html
-    });
-    if (user?.mobile) {
-        const previousLabel = getLoyaltyProfileByTier(previousTier)?.label || String(previousTier || 'Basic');
-        const benefit = String(newBenefits?.[0] || 'Exclusive member benefits').trim();
-        await sendWhatsapp({
-            type: 'loyalty_upgrade',
-            template: 'loyalty_upgrade',
-            mobile: user.mobile,
-            user: { name: user.name || 'Customer' },
-            data: {
-                previousTier: previousLabel,
-                newTier: label,
-                benefit
-            }
-        }).catch(() => {});
+    const previousLabel = getLoyaltyProfileByTier(previousTier)?.label || String(previousTier || 'Basic');
+    const benefit = String(newBenefits?.[0] || 'Exclusive member benefits').trim();
+    const [emailResult, whatsappResult] = await Promise.allSettled([
+        user?.email
+            ? sendEmailCommunication({
+                to: user.email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+        user?.mobile
+            ? sendWhatsapp({
+                type: 'loyalty_upgrade',
+                template: 'loyalty_upgrade',
+                mobile: user.mobile,
+                user: { name: user.name || 'Customer' },
+                data: {
+                    previousTier: previousLabel,
+                    newTier: label,
+                    benefit
+                }
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
+    ]);
+    if (emailResult.status === 'rejected') {
+        throw emailResult.reason;
+    }
+    if (whatsappResult.status === 'rejected') {
+        console.error('Loyalty upgrade WhatsApp delivery failed:', whatsappResult.reason?.message || whatsappResult.reason);
     }
 };
 
@@ -499,26 +509,34 @@ const sendMonthlyStatusSummaryMail = async ({ user, status }) => {
             'You can expect transparent updates whenever your tier changes.'
         ]
     });
-    if (user?.email) {
-        await sendEmailCommunication({
-            to: user.email,
-            subject: template.subject,
-            text: template.text,
-            html: template.html
-        });
+    const [emailResult, whatsappResult] = await Promise.allSettled([
+        user?.email
+            ? sendEmailCommunication({
+                to: user.email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+        user?.mobile && status?.progress?.nextTier
+            ? sendWhatsapp({
+                type: 'loyalty_progress',
+                template: 'loyalty_progress',
+                mobile: user.mobile,
+                user: { name: user.name || 'Customer' },
+                data: {
+                    currentTier: status?.profile?.label || status?.tier || 'Basic',
+                    progressPct: Number(status?.progress?.progressPct || 0),
+                    nextTier: getLoyaltyProfileByTier(status?.progress?.nextTier)?.label || status?.progress?.nextTier || 'Next'
+                }
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile_or_next_tier' })
+    ]);
+    if (emailResult.status === 'rejected') {
+        throw emailResult.reason;
     }
-    if (user?.mobile && status?.progress?.nextTier) {
-        await sendWhatsapp({
-            type: 'loyalty_progress',
-            template: 'loyalty_progress',
-            mobile: user.mobile,
-            user: { name: user.name || 'Customer' },
-            data: {
-                currentTier: status?.profile?.label || status?.tier || 'Basic',
-                progressPct: Number(status?.progress?.progressPct || 0),
-                nextTier: getLoyaltyProfileByTier(status?.progress?.nextTier)?.label || status?.progress?.nextTier || 'Next'
-            }
-        }).catch(() => {});
+    if (whatsappResult.status === 'rejected') {
+        console.error('Monthly loyalty WhatsApp delivery failed:', whatsappResult.reason?.message || whatsappResult.reason);
     }
 };
 
@@ -556,26 +574,34 @@ const sendFomoMailIfEligible = async ({ user, status }) => {
             'Our administration team remains available for clarification.'
         ]
     });
-    if (user?.email) {
-        await sendEmailCommunication({
-            to: user.email,
-            subject: template.subject,
-            text: template.text,
-            html: template.html
-        });
+    const [emailResult, whatsappResult] = await Promise.allSettled([
+        user?.email
+            ? sendEmailCommunication({
+                to: user.email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+        user?.mobile
+            ? sendWhatsapp({
+                type: 'loyalty_progress',
+                template: 'loyalty_progress',
+                mobile: user.mobile,
+                user: { name: user.name || 'Customer' },
+                data: {
+                    currentTier: status?.profile?.label || status?.tier || 'Basic',
+                    progressPct: Number(status?.progress?.progressPct || 0),
+                    nextTier: nextLabel
+                }
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
+    ]);
+    if (emailResult.status === 'rejected') {
+        throw emailResult.reason;
     }
-    if (user?.mobile) {
-        await sendWhatsapp({
-            type: 'loyalty_progress',
-            template: 'loyalty_progress',
-            mobile: user.mobile,
-            user: { name: user.name || 'Customer' },
-            data: {
-                currentTier: status?.profile?.label || status?.tier || 'Basic',
-                progressPct: Number(status?.progress?.progressPct || 0),
-                nextTier: nextLabel
-            }
-        }).catch(() => {});
+    if (whatsappResult.status === 'rejected') {
+        console.error('Loyalty progress WhatsApp delivery failed:', whatsappResult.reason?.message || whatsappResult.reason);
     }
 };
 

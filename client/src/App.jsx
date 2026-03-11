@@ -43,12 +43,17 @@ import Faq from './pages/Faq';
 // Admin Protection
 const AdminRoute = ({ children }) => {
   const { user } = useAuth();
-  return (user && (user.role === 'admin' || user.role === 'staff')) ? children : <Navigate to="/admin/login" />;
+  return (user && (user.role === 'admin' || user.role === 'staff')) ? children : <Navigate to="/admin/login" replace />;
 };
 
-const ClientRoute = ({ children }) => {
+const RedirectAdminToDashboard = ({ children }) => {
   const { user } = useAuth();
-  return user ? children : <Navigate to="/login?redirect=%2Ftrack-order" replace />;
+  return user?.role === 'admin' ? <Navigate to="/admin/dashboard" replace /> : children;
+};
+
+const ClientRoute = ({ children, redirectTo = '/track-order' }) => {
+  const { user } = useAuth();
+  return user ? children : <Navigate to={`/login?redirect=${encodeURIComponent(redirectTo)}`} replace />;
 };
 
 // [UPDATED] Public Layout
@@ -98,26 +103,26 @@ function App() {
                   <Routes>
               
               {/* Public Routes */}
-              <Route element={<PublicLayout />}>
+              <Route element={<RedirectAdminToDashboard><PublicLayout /></RedirectAdminToDashboard>}>
                 <Route path="/" element={<Home />} />
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/faq" element={<Faq />} />
                 <Route path="/contact" element={<Contact />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/wishlist" element={<Wishlist />} />
-                <Route path="/orders" element={<Orders />} />
+                <Route path="/profile" element={<ClientRoute redirectTo="/profile"><Profile /></ClientRoute>} />
+                <Route path="/wishlist" element={<ClientRoute redirectTo="/wishlist"><Wishlist /></ClientRoute>} />
+                <Route path="/orders" element={<ClientRoute redirectTo="/orders"><Orders /></ClientRoute>} />
                 <Route
                   path="/track-order"
                   element={
-                    <ClientRoute>
+                    <ClientRoute redirectTo="/track-order">
                       <TrackOrder />
                     </ClientRoute>
                   }
                 />
                 <Route path="/cart" element={<CartPage />} />
-                <Route path="/checkout" element={<Checkout />} />
+                <Route path="/checkout" element={<ClientRoute redirectTo="/checkout"><Checkout /></ClientRoute>} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />
                 <Route path="/payment/failed" element={<PaymentFailed />} />
                 <Route path="/terms" element={<PolicyPage />} />
@@ -130,9 +135,9 @@ function App() {
               </Route>
 
               {/* Auth Pages (No Navbar) */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/login" element={<RedirectAdminToDashboard><Login /></RedirectAdminToDashboard>} />
+              <Route path="/register" element={<RedirectAdminToDashboard><Register /></RedirectAdminToDashboard>} />
+              <Route path="/forgot-password" element={<RedirectAdminToDashboard><ForgotPassword /></RedirectAdminToDashboard>} />
 
               {/* Admin Routes */}
               <Route path="/admin/login" element={<AdminLogin />} />

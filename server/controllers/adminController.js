@@ -1155,24 +1155,26 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
 
         const channels = [];
         if (emailRecipients.length) {
-            await sendEmailCommunication({
+            const emailResult = await sendEmailCommunication({
                 to: emailRecipients,
                 subject: `[Dashboard Alert] ${candidate.message}`,
                 text: `${candidate.message}\n\nPlease check Admin Dashboard for details.`,
                 html: `<p><strong>${candidate.message}</strong></p><p>Please check Admin Dashboard for details.</p>`
             }).catch(() => {});
-            channels.push('email');
+            if (emailResult?.ok) channels.push('email');
         }
         if (whatsappRecipients.length) {
+            let whatsappSent = false;
             for (const mobile of whatsappRecipients) {
-                await sendWhatsapp({
+                const whatsappResult = await sendWhatsapp({
                     type: 'dashboard_alert',
                     template: 'dashboard_alert',
                     mobile,
                     message: `SSC Dashboard Alert: ${candidate.message}`
                 }).catch(() => {});
+                whatsappSent = whatsappSent || Boolean(whatsappResult?.ok);
             }
-            channels.push('whatsapp');
+            if (whatsappSent) channels.push('whatsapp');
         }
 
         await db.execute(
@@ -1189,7 +1191,9 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
                     snapshot: payload || {}
                 }),
                 JSON.stringify(channels),
-                channels.length ? 'sent' : 'skipped'
+                channels.length
+                    ? 'sent'
+                    : ((emailRecipients.length || whatsappRecipients.length) ? 'failed' : 'skipped')
             ]
         );
         sentLogs.push({ ...candidate, channels });

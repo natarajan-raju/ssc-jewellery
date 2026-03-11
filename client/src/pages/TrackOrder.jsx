@@ -39,18 +39,12 @@ const getPrimaryLabel = (order = null) => {
 };
 
 export default function TrackOrder() {
-    const { user, loading } = useAuth();
+    const { user } = useAuth();
     const navigate = useNavigate();
     const [query, setQuery] = useState('');
     const [orders, setOrders] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-
-    useEffect(() => {
-        if (!loading && !user) {
-            navigate(`/login?redirect=${encodeURIComponent('/track-order')}`, { replace: true });
-        }
-    }, [loading, navigate, user]);
 
     useEffect(() => {
         if (!user) return;
@@ -165,9 +159,15 @@ export default function TrackOrder() {
                                 </div>
 
                                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                                    <StatusTile icon={Clock3} title="Current Status" value={String(order?.status || 'confirmed')} />
-                                    <StatusTile icon={Truck} title="Last Update" value={formatDate(order?.updated_at || latestEvent?.created_at)} />
-                                    <StatusTile icon={PackageCheck} title="Payment" value={String(order?.payment_status || 'pending')} />
+                                    <StatusTile title="Current Status" value={String(order?.status || 'confirmed')}>
+                                        <Clock3 size={14} />
+                                    </StatusTile>
+                                    <StatusTile title="Last Update" value={formatDate(order?.updated_at || latestEvent?.created_at)}>
+                                        <Truck size={14} />
+                                    </StatusTile>
+                                    <StatusTile title="Payment" value={String(order?.payment_status || 'pending')}>
+                                        <PackageCheck size={14} />
+                                    </StatusTile>
                                 </div>
 
                                 {latestEvent?.description && (
@@ -197,11 +197,11 @@ export default function TrackOrder() {
     );
 }
 
-function StatusTile({ icon: Icon, title, value }) {
+function StatusTile({ title, value, children = null }) {
     return (
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold">
-                <Icon size={14} />
+                {children}
                 <span>{title}</span>
             </div>
             <p className="text-sm text-gray-800 font-medium mt-2">{value || '—'}</p>

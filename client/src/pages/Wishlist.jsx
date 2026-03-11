@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Heart, ShoppingCart, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
@@ -9,11 +9,10 @@ import { useSocket } from '../context/SocketContext';
 import wishlistIllustration from '../assets/wishlist.svg';
 
 export default function Wishlist() {
-    const { user, loading } = useAuth();
+    const { user } = useAuth();
     const { wishlistItems, loading: wishlistLoading, removeFromWishlist } = useWishlist();
     const { addItem, openQuickAdd } = useCart();
     const { socket } = useSocket();
-    const navigate = useNavigate();
     const [productLookup, setProductLookup] = useState({});
     const [isLoading, setIsLoading] = useState(false);
     const productLookupRef = useRef({});
@@ -21,15 +20,6 @@ export default function Wishlist() {
     useEffect(() => {
         productLookupRef.current = productLookup;
     }, [productLookup]);
-
-    useEffect(() => {
-        if (!loading && !user) {
-            navigate('/login?redirect=%2Fwishlist', { replace: true });
-        }
-        if (!loading && user && user.role === 'admin') {
-            navigate('/admin/dashboard', { replace: true });
-        }
-    }, [loading, navigate, user]);
 
     useEffect(() => {
         let cancelled = false;

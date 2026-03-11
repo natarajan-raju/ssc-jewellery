@@ -125,7 +125,7 @@ export default function Login() {
         } else {
           toast.success("OTP sent");
         }
-    } catch (error) {
+    } catch {
         toast.error("Failed to send OTP");
     } finally {
         setIsLoading(false);
@@ -136,7 +136,7 @@ export default function Login() {
     try {
         const res = await authService.login(payload);
         processLoginSuccess(res);
-    } catch (error) {
+    } catch {
         if (method === 'otp') setOtpStatus('invalid');
         toast.error("Connection Error");
         setIsLoading(false);

@@ -11,7 +11,7 @@ const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
 const User = require('../models/User');
 const CompanyProfile = require('../models/CompanyProfile');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
-const { sendOrderLifecycleCommunication } = require('../services/communications/communicationService');
+const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
 const { verifyInvoiceShareToken } = require('../services/invoiceShareService');
 const { reassessUserTier } = require('../services/loyaltyService');
@@ -760,6 +760,16 @@ const verifyRazorpayPayment = async (req, res) => {
             stage: 'confirmed',
             includeInvoice: true
         });
+        void triggerPaymentLifecycleCommunication({
+            order,
+            stage: PAYMENT_STATUS.PAID,
+            payment: {
+                paymentStatus: PAYMENT_STATUS.PAID,
+                paymentMethod: 'razorpay',
+                paymentReference: razorpayPaymentId,
+                razorpayOrderId: attempt.razorpay_order_id
+            }
+        });
 
         return res.json({ order, verified: true });
     } catch (error) {
@@ -989,6 +999,18 @@ const handleRazorpayWebhook = async (req, res) => {
                 paymentId: razorpayPaymentId,
                 errorMessage: failureReason
             });
+            void triggerPaymentLifecycleCommunication({
+                userId: attempt?.user_id || null,
+                stage: PAYMENT_STATUS.FAILED,
+                orderRef: razorpayOrderId,
+                payment: {
+                    paymentStatus: PAYMENT_STATUS.FAILED,
+                    paymentMethod: 'razorpay',
+                    paymentReference: razorpayPaymentId,
+                    razorpayOrderId,
+                    failureReason
+                }
+            });
         } else if (paymentStatus === PAYMENT_STATUS.REFUNDED && razorpayOrderId) {
             await PaymentAttempt.markPaidByRazorpayOrder({
                 razorpayOrderId,
@@ -1035,6 +1057,22 @@ const handleRazorpayWebhook = async (req, res) => {
                 currentPaymentStatus: paymentStatus,
                 includeInvoice: true
             });
+            if (String(previousLinkedPaymentStatus || '').toLowerCase() !== String(paymentStatus || '').toLowerCase()) {
+                void triggerPaymentLifecycleCommunication({
+                    order,
+                    stage: paymentStatus,
+                    payment: {
+                        event,
+                        paymentStatus,
+                        paymentMethod: order?.payment_gateway || 'razorpay',
+                        paymentReference: razorpayPaymentId,
+                        razorpayOrderId,
+                        refundReference: refundEntity?.id || null,
+                        refundAmount: refundEntity?.amount != null ? Number(refundEntity.amount) / 100 : null,
+                        refundStatus: refundEntity?.status || null
+                    }
+                });
+            }
             emitOrderAndPaymentUpdate(req, {
                 order,
                 payment: {
@@ -1089,6 +1127,17 @@ const handleRazorpayWebhook = async (req, res) => {
                         stage: 'confirmed',
                         includeInvoice: true
                     });
+                    void triggerPaymentLifecycleCommunication({
+                        order: linkedOrder,
+                        stage: PAYMENT_STATUS.PAID,
+                        payment: {
+                            event,
+                            paymentStatus: PAYMENT_STATUS.PAID,
+                            paymentMethod: linkedOrder?.payment_gateway || 'razorpay',
+                            paymentReference: razorpayPaymentId,
+                            razorpayOrderId
+                        }
+                    });
                 }
             } else {
                 maybeTriggerConfirmedEmailOnPaymentTransition({
@@ -1097,6 +1146,19 @@ const handleRazorpayWebhook = async (req, res) => {
                     currentPaymentStatus: paymentStatus,
                     includeInvoice: true
                 });
+                if (String(linkedOrder?.payment_status || '').toLowerCase() !== String(paymentStatus || '').toLowerCase()) {
+                    void triggerPaymentLifecycleCommunication({
+                        order: linkedOrder,
+                        stage: paymentStatus,
+                        payment: {
+                            event,
+                            paymentStatus,
+                            paymentMethod: linkedOrder?.payment_gateway || 'razorpay',
+                            paymentReference: razorpayPaymentId,
+                            razorpayOrderId
+                        }
+                    });
+                }
             }
 
             if (linkedOrder) {
@@ -1775,6 +1837,21 @@ const updateOrderStatus = async (req, res) => {
             stage: nextStatus === 'pending' ? 'pending_delay' : nextStatus,
             includeInvoice: false
         });
+        if (String(existingOrder?.payment_status || '').toLowerCase() !== String(order?.payment_status || '').toLowerCase()) {
+            void triggerPaymentLifecycleCommunication({
+                order,
+                stage: order?.payment_status || resolvedPaymentStatus,
+                payment: {
+                    paymentStatus: order?.payment_status || resolvedPaymentStatus,
+                    paymentMethod: order?.payment_gateway || existingOrder?.payment_gateway || 'razorpay',
+                    paymentReference: order?.razorpay_payment_id || existingOrder?.razorpay_payment_id || null,
+                    razorpayOrderId: order?.razorpay_order_id || existingOrder?.razorpay_order_id || null,
+                    refundReference: order?.refund_reference || resolvedRefundReference || resolvedManualRef || null,
+                    refundAmount: order?.refund_amount ?? resolvedRefundAmount ?? null,
+                    refundStatus: order?.refund_status || resolvedRefundStatus || null
+                }
+            });
+        }
         res.json({ order, refund });
     } catch (error) {
         res.status(400).json({ message: error.message || 'Failed to update order' });
@@ -2160,6 +2237,19 @@ const fetchAdminPaymentStatus = async (req, res) => {
                 currentPaymentStatus: paymentStatus,
                 includeInvoice: true
             });
+            if (String(previousLinkedPaymentStatus || '').toLowerCase() !== String(paymentStatus || '').toLowerCase()) {
+                void triggerPaymentLifecycleCommunication({
+                    order: updatedOrder,
+                    stage: paymentStatus,
+                    payment: {
+                        event: 'admin.fetch_status',
+                        paymentStatus,
+                        paymentMethod: paymentDetails?.method || updatedOrder?.payment_gateway || 'razorpay',
+                        paymentReference: razorpayPaymentId || null,
+                        razorpayOrderId: razorpayOrderId || null
+                    }
+                });
+            }
             if (paymentStatus === PAYMENT_STATUS.PAID) {
                 try {
                     await markRecoveredByOrder({ order: updatedOrder, reason: 'payment_paid_admin_sync' });
@@ -2325,6 +2415,45 @@ const triggerOrderLifecycleEmail = async ({
         }
     } catch (error) {
         console.error(`Order lifecycle email failed for order ${order?.id || 'unknown'}:`, error?.message || error);
+    }
+};
+
+const triggerPaymentLifecycleCommunication = async ({
+    order = null,
+    payment = {},
+    stage = '',
+    userId = null,
+    orderRef = null
+} = {}) => {
+    const orderUserId = userId || order?.user_id || order?.userId || null;
+    if (!orderUserId) return;
+    try {
+        const hydratedOrder = order?.id ? await Order.getById(order.id) : null;
+        const orderForCommunication = hydratedOrder || order || {};
+        const customer = await User.findById(orderUserId);
+        if (!customer?.email && !customer?.mobile) {
+            console.warn(`Payment lifecycle communication skipped for user ${orderUserId}: missing customer channels`);
+            return;
+        }
+        const safeStage = String(stage || payment?.paymentStatus || orderForCommunication?.payment_status || 'updated').trim().toLowerCase();
+        const result = await sendPaymentLifecycleCommunication({
+            stage: safeStage,
+            customer,
+            order: {
+                ...orderForCommunication,
+                user_id: orderForCommunication?.user_id || orderUserId,
+                order_ref: orderForCommunication?.order_ref || orderForCommunication?.orderRef || orderRef || payment?.razorpayOrderId || 'N/A'
+            },
+            payment
+        });
+        if (result?.email?.ok !== true && result?.whatsapp?.ok !== true) {
+            console.error(
+                `Payment lifecycle communication failed for user ${orderUserId}:`,
+                result?.email?.reason || result?.whatsapp?.reason || 'unknown_reason'
+            );
+        }
+    } catch (error) {
+        console.error(`Payment lifecycle communication failed for user ${orderUserId}:`, error?.message || error);
     }
 };
 

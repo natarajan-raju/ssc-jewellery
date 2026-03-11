@@ -93,6 +93,64 @@ export const AuthProvider = ({ children }) => {
         };
     }, []);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+
+        const syncCurrentUser = async () => {
+            const token = localStorage.getItem('token');
+            if (!token || token === 'undefined' || token === 'null') return;
+            try {
+                const [profileResult, loyaltyResult] = await Promise.allSettled([
+                    authService.getProfile(),
+                    authService.getLoyaltyStatus()
+                ]);
+
+                const profileUser = profileResult.status === 'fulfilled'
+                    ? profileResult.value?.user || null
+                    : null;
+                const loyaltyStatus = loyaltyResult.status === 'fulfilled'
+                    ? loyaltyResult.value?.status || null
+                    : null;
+
+                if (!profileUser) {
+                    await performLogout();
+                    return;
+                }
+
+                const mergedUser = {
+                    ...profileUser,
+                    ...(loyaltyStatus?.tier ? { loyaltyTier: String(loyaltyStatus.tier).toLowerCase() } : {}),
+                    ...(loyaltyStatus?.profile ? { loyaltyProfile: loyaltyStatus.profile } : {})
+                };
+                localStorage.setItem('user', JSON.stringify(mergedUser));
+                setUser(mergedUser);
+            } catch (error) {
+                console.error('Current user sync failed:', error);
+            }
+        };
+
+        const handleUserUpdated = (event) => {
+            const updatedUser = event?.detail || {};
+            if (!updatedUser?.id || !user?.id) return;
+            if (String(updatedUser.id) !== String(user.id)) return;
+            void syncCurrentUser();
+        };
+
+        const handleUserDeleted = async (event) => {
+            const deletedUserId = event?.detail?.id;
+            if (!deletedUserId || !user?.id) return;
+            if (String(deletedUserId) !== String(user.id)) return;
+            await performLogout();
+        };
+
+        window.addEventListener('auth:user-updated', handleUserUpdated);
+        window.addEventListener('auth:user-deleted', handleUserDeleted);
+        return () => {
+            window.removeEventListener('auth:user-updated', handleUserUpdated);
+            window.removeEventListener('auth:user-deleted', handleUserDeleted);
+        };
+    }, [user]);
+
     // 2. Centralized Login Function
     const login = (token, userData) => {
         if (!token) return; // [NEW] Stop if token is missing

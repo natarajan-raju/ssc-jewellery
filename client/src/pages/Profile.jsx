@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
     Camera,
     CheckCircle,
@@ -97,8 +97,7 @@ const getOrderSavings = (order = {}) => {
 };
 
 export default function Profile() {
-    const { user, loading, updateUser } = useAuth();
-    const navigate = useNavigate();
+    const { user, updateUser } = useAuth();
     const toast = useToast();
     const [activeTab, setActiveTab] = useState('profile');
     const [isEditing, setIsEditing] = useState(false);
@@ -120,15 +119,6 @@ export default function Profile() {
         limit: 10,
         duration: 'all'
     });
-
-    useEffect(() => {
-        if (!loading && !user) {
-            navigate(`/login?redirect=${encodeURIComponent('/profile')}`, { replace: true });
-        }
-        if (!loading && user && user.role === 'admin') {
-            navigate('/admin/dashboard', { replace: true });
-        }
-    }, [loading, user, navigate]);
 
     useEffect(() => {
         if (!user) return;

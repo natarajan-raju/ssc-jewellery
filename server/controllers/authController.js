@@ -200,27 +200,34 @@ const dispatchWelcomeCommunication = (user = {}) => {
     const mobile = String(user?.mobile || '').trim();
     const payloadUser = { name: user?.name || 'Customer', email, mobile };
     setImmediate(async () => {
-        try {
-            if (email && isEmail(email)) {
-                const template = buildWelcomeEmailTemplate({ user: payloadUser });
-                await sendEmailCommunication({
+        const template = email && isEmail(email)
+            ? buildWelcomeEmailTemplate({ user: payloadUser })
+            : null;
+        const [emailResult, whatsappResult] = await Promise.allSettled([
+            template
+                ? sendEmailCommunication({
                     to: email,
                     subject: template.subject,
                     text: template.text,
                     html: template.html
-                });
-            }
-            if (mobile) {
-                await sendWhatsapp({
+                })
+                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+            mobile
+                ? sendWhatsapp({
                     type: 'welcome',
                     template: 'welcome',
                     mobile,
                     name: payloadUser.name,
                     params: [payloadUser.name]
-                });
-            }
-        } catch (error) {
-            console.error('Welcome communication failed:', error?.message || error);
+                })
+                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
+        ]);
+
+        if (emailResult.status === 'rejected') {
+            console.error('Welcome email delivery failed:', emailResult.reason?.message || emailResult.reason);
+        }
+        if (whatsappResult.status === 'rejected') {
+            console.error('Welcome WhatsApp delivery failed:', whatsappResult.reason?.message || whatsappResult.reason);
         }
     });
 };

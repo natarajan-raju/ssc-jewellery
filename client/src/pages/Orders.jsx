@@ -211,7 +211,7 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
 };
 
 export default function Orders() {
-    const { user, loading } = useAuth();
+    const { user } = useAuth();
     const toast = useToast();
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -229,12 +229,6 @@ export default function Orders() {
         () => buildVisiblePages(page, pagination.totalPages, 5),
         [page, pagination.totalPages]
     );
-
-    useEffect(() => {
-        if (!loading && !user) {
-            navigate(`/login?redirect=${encodeURIComponent('/orders')}`, { replace: true });
-        }
-    }, [loading, user, navigate]);
 
     useEffect(() => {
         if (!error) return;
