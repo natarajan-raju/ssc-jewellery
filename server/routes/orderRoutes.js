@@ -8,6 +8,7 @@ router.post('/razorpay/order', protect, createRazorpayOrder);
 router.post('/summary', protect, getCheckoutSummary);
 router.post('/coupon/validate', protect, validateRecoveryCoupon);
 router.get('/coupons/available', protect, getAvailableCoupons);
+router.post('/coupons/available', protect, getAvailableCoupons);
 router.get('/coupons/popup', protect, getCustomerPopupData);
 router.get('/coupons/popup/public', getPublicPopupData);
 router.post('/razorpay/retry', protect, retryRazorpayPayment);

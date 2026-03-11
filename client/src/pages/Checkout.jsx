@@ -17,9 +17,11 @@ import successDing from '../assets/success_ding.mp3';
 import waitIllustration from '../assets/wait.svg';
 import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
+import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
+import { normalizePaymentFailureReason } from '../utils/paymentFailure';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -161,6 +163,10 @@ export default function Checkout() {
         const raw = new URLSearchParams(location.search).get('coupon');
         return String(raw || '').trim().toUpperCase();
     }, [location.search]);
+    const liveCouponShippingAddress = useMemo(
+        () => (hasCompleteAddress(form.address) ? form.address : null),
+        [form.address]
+    );
 
     const refreshAvailableCoupons = useCallback(async () => {
         const cartSubtotal = Number(subtotal || 0);
@@ -169,13 +175,15 @@ export default function Checkout() {
             return;
         }
         try {
-            const res = await orderService.getAvailableCoupons();
+            const res = await orderService.getAvailableCoupons({
+                shippingAddress: liveCouponShippingAddress
+            });
             const nextCoupons = Array.isArray(res?.coupons) ? res.coupons : [];
             setAvailableCoupons(nextCoupons);
             if (appliedCoupon?.code && !nextCoupons.some((entry) => String(entry.code || '').toUpperCase() === String(appliedCoupon.code || '').toUpperCase())) {
                 setAppliedCoupon(null);
                 setCoupon('');
-                toast.info('Applied coupon is no longer available.');
+                toast.info('Applied coupon was removed because it is no longer valid for the current address or cart.');
                 return;
             }
             if (appliedCoupon?.code) {
@@ -183,13 +191,13 @@ export default function Checkout() {
                 if (matched && !getCouponEligibility(matched).isEligible) {
                     setAppliedCoupon(null);
                     setCoupon('');
-                    toast.info('Applied coupon is no longer eligible for the current cart value.');
+                    toast.info('Applied coupon was removed because shipping or cart details changed.');
                 }
             }
         } catch {
             setAvailableCoupons([]);
         }
-    }, [user, itemCount, subtotal, appliedCoupon?.code, toast]);
+    }, [user, itemCount, subtotal, appliedCoupon?.code, toast, liveCouponShippingAddress]);
 
     useEffect(() => {
         if (!user) return;
@@ -224,7 +232,7 @@ export default function Checkout() {
         setIsApplyingCoupon(true);
         orderService.validateRecoveryCoupon({
             code: couponFromQuery,
-            shippingAddress: user?.address || null
+            shippingAddress: liveCouponShippingAddress
         }).then((data) => {
             setCoupon(couponFromQuery);
             setAppliedCoupon({
@@ -239,7 +247,7 @@ export default function Checkout() {
         }).finally(() => {
             setIsApplyingCoupon(false);
         });
-    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount]);
+    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount, liveCouponShippingAddress]);
 
     const applyLoyaltyStatus = useCallback((status) => {
         setLoyaltyStatus(status || null);
@@ -324,7 +332,7 @@ export default function Checkout() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [user, itemCount, form.address, appliedCoupon?.code, applyLoyaltyStatus, pricingSyncTick]);
+    }, [user, items, subtotal, itemCount, form.address, appliedCoupon?.code, applyLoyaltyStatus, pricingSyncTick]);
 
     useEffect(() => {
         refreshAvailableCoupons();
@@ -348,6 +356,25 @@ export default function Checkout() {
             setPricingSyncTick((prev) => prev + 1);
         },
         'tax:config_update': () => {
+            setPricingSyncTick((prev) => prev + 1);
+        },
+        'shipping:update': () => {
+            setPricingSyncTick((prev) => prev + 1);
+            refreshAvailableCoupons();
+        },
+        'product:create': () => {
+            setPricingSyncTick((prev) => prev + 1);
+        },
+        'product:update': () => {
+            setPricingSyncTick((prev) => prev + 1);
+        },
+        'product:delete': () => {
+            setPricingSyncTick((prev) => prev + 1);
+        },
+        'product:category_change': () => {
+            setPricingSyncTick((prev) => prev + 1);
+        },
+        'refresh:categories': () => {
             setPricingSyncTick((prev) => prev + 1);
         }
     });
@@ -421,7 +448,7 @@ export default function Checkout() {
         setIsApplyingCoupon(true);
         orderService.validateRecoveryCoupon({
             code,
-            shippingAddress: form.address
+            shippingAddress: hasCompleteAddress(form.address) ? form.address : null
         }).then((data) => {
             setCoupon(code);
             setAppliedCoupon({
@@ -459,7 +486,7 @@ export default function Checkout() {
         setIsApplyingCoupon(true);
         orderService.validateRecoveryCoupon({
             code: normalizedCode,
-            shippingAddress: form.address
+            shippingAddress: hasCompleteAddress(form.address) ? form.address : null
         }).then((data) => {
             setAppliedCoupon({
                 code: normalizedCode,
@@ -789,8 +816,8 @@ export default function Checkout() {
             void paidOrder;
         } catch (error) {
             setIsPaymentAwaitingConfirmation(false);
-            const message = error?.message || 'Failed to complete payment';
-            toast.error(message === 'Payment cancelled' ? 'Payment cancelled. You can retry the payment.' : message);
+            const message = normalizePaymentFailureReason(error?.message || 'Failed to complete payment');
+            toast.error(message);
             const params = new URLSearchParams();
             params.set('reason', message);
             if (activeAttemptId) params.set('attemptId', String(activeAttemptId));
@@ -846,25 +873,7 @@ export default function Checkout() {
                         </div>
 
                         <div className="mt-8">
-                                <div className="flex items-center gap-3 text-sm text-gray-500">
-                                    <Link to="/cart" className="font-semibold text-primary inline-flex items-center gap-1.5"><ShoppingBag size={14} /> Shopping Cart</Link>
-                                <ChevronRight size={14} />
-                                <span className="font-semibold text-primary inline-flex items-center gap-1.5"><UserRound size={14} /> Contact Information</span>
-                                <ChevronRight size={14} />
-                                <span className="inline-flex items-center gap-1.5"><CreditCard size={14} /> Payment Method</span>
-                                <ChevronRight size={14} />
-                                <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={14} /> Confirmation</span>
-                            </div>
-                            <div className="mt-4 relative">
-                                <div className="h-1 rounded-full bg-gray-100" />
-                                <div className="absolute top-0 left-0 h-1 rounded-full bg-primary w-1/2" />
-                                <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
-                                    <span className="text-primary font-semibold inline-flex items-center gap-1"><ShoppingBag size={12} /> Cart</span>
-                                    <span className="text-primary font-semibold inline-flex items-center gap-1"><UserRound size={12} /> Checkout</span>
-                                    <span className="inline-flex items-center gap-1"><CreditCard size={12} /> Payment</span>
-                                    <span className="inline-flex items-center gap-1"><CheckCircle2 size={12} /> Done</span>
-                                </div>
-                            </div>
+                            <CheckoutFlowHeader state="checkout" />
                         </div>
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6 items-stretch">

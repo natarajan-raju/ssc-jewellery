@@ -11,6 +11,7 @@ const abandonedCartRecoveryService = require('../services/abandonedCartRecoveryS
 const CompanyProfile = require('../models/CompanyProfile');
 const TaxConfig = require('../models/TaxConfig');
 const Order = require('../models/Order');
+const Coupon = require('../models/Coupon');
 
 test('cart maps variant items with low-stock metadata and out-of-stock state', async () => {
     const originalExecute = db.execute;
@@ -236,6 +237,133 @@ test('checkout blocks low-stock or inactive checkout items correctly', async () 
     assert.equal(availability.hasUnavailableCheckoutItems([{ status: 'active', isOutOfStock: false }]), false);
     assert.equal(availability.hasUnavailableCheckoutItems([{ status: 'inactive', isOutOfStock: false }]), true);
     assert.equal(availability.hasUnavailableCheckoutItems([{ status: 'active', isOutOfStock: true }]), true);
+});
+
+test('shipping coupons are marked ineligible when shipping fee is zero', async () => {
+    const originalExecute = db.execute;
+    db.execute = async (sql) => {
+        if (sql.includes('FROM coupons c')) {
+            return [[{
+                id: 1,
+                code: 'SHIPFREE',
+                name: 'Free Shipping',
+                source_type: 'admin',
+                scope_type: 'generic',
+                discount_type: 'shipping_full',
+                discount_value: 100,
+                max_discount_subunits: null,
+                min_cart_subunits: 0,
+                usage_limit_total: null,
+                usage_limit_per_user: 1,
+                used_count: 0,
+                used_by_user: 0,
+                is_user_target: 0,
+                created_at: new Date().toISOString(),
+                expires_at: null
+            }]];
+        }
+        if (sql.includes('FROM abandoned_cart_discounts')) {
+            return [[]];
+        }
+        return [[]];
+    };
+
+    try {
+        const locked = await Coupon.getAvailableCouponsForUser({
+            userId: 'u1',
+            cartTotalSubunits: 50000,
+            shippingFeeSubunits: 0,
+            cartProductIds: ['prod_1']
+        });
+        assert.equal(locked[0].isEligible, false);
+
+        const eligible = await Coupon.getAvailableCouponsForUser({
+            userId: 'u1',
+            cartTotalSubunits: 50000,
+            shippingFeeSubunits: 12500,
+            cartProductIds: ['prod_1']
+        });
+        assert.equal(eligible[0].isEligible, true);
+    } finally {
+        db.execute = originalExecute;
+    }
+});
+
+test('shipping_full coupon ignores zero max discount cap in stored data', async () => {
+    const originalExecute = db.execute;
+    db.execute = async (sql) => {
+        if (sql.includes('FROM coupons c')) {
+            return [[{
+                id: 15,
+                code: 'SSC-4ZRQ-2R6X',
+                name: 'Free Shipping',
+                source_type: 'admin',
+                scope_type: 'generic',
+                discount_type: 'shipping_full',
+                discount_value: 0,
+                max_discount_subunits: 0,
+                min_cart_subunits: 0,
+                usage_limit_total: null,
+                usage_limit_per_user: 1,
+                is_active: 1,
+                starts_at: new Date(Date.now() - 60_000).toISOString(),
+                expires_at: new Date(Date.now() + 60_000).toISOString()
+            }]];
+        }
+        if (sql.includes('FROM coupon_redemptions WHERE coupon_id = ?')) {
+            return [[{ count: 0 }]];
+        }
+        if (sql.includes('FROM abandoned_cart_discounts')) {
+            return [[]];
+        }
+        return [[]];
+    };
+
+    try {
+        const resolved = await Coupon.resolveRedeemableCoupon({
+            code: 'SSC-4ZRQ-2R6X',
+            userId: 'u1',
+            cartTotalSubunits: 50000,
+            shippingFeeSubunits: 12500,
+            cartProductIds: ['prod_1']
+        });
+        assert.equal(resolved.code, 'SSC-4ZRQ-2R6X');
+        assert.equal(resolved.discountSubunits, 12500);
+    } finally {
+        db.execute = originalExecute;
+    }
+});
+
+test('coupon validation allows saved-address fallback for shipping coupons', async () => {
+    const req = {
+        user: { id: 'u1' },
+        body: {
+            code: 'SHIPFREE',
+            shippingAddress: null
+        }
+    };
+    const res = createMockRes();
+    const { validateRecoveryCoupon } = require('../controllers/orderController');
+
+    await withPatched(Order, {
+        getCheckoutSummary: async (userId, options = {}) => {
+            assert.equal(userId, 'u1');
+            assert.equal(options.couponCode, 'SHIPFREE');
+            assert.equal(options.allowSavedAddressFallback, true);
+            return {
+                couponDiscountTotal: 125,
+                total: 1400,
+                coupon: { code: 'SHIPFREE', type: 'shipping_full' }
+            };
+        }
+    }, async () => {
+        await validateRecoveryCoupon(req, res);
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.code, 'SHIPFREE');
+    assert.equal(res.body.discountTotal, 125);
 });
 
 test('checkout summary rejects insufficient stock before payment initiation', async () => {

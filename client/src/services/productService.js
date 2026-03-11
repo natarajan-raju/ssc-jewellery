@@ -37,6 +37,23 @@ const parseProductsCacheKey = (key = '') => {
 };
 
 const normalizeText = (value) => String(value || '').trim().toLowerCase();
+const getCurrentClientRole = () => {
+    const userObj = safeLocalStorageJson('user', {});
+    const userInfo = safeLocalStorageJson('userInfo', {});
+    return normalizeText(userObj?.role || userInfo?.role || '');
+};
+const canViewAdminCategoryData = () => ['admin', 'staff'].includes(getCurrentClientRole());
+const filterPublicCategoryStats = (data = []) => (
+    (Array.isArray(data) ? data : []).filter((category) =>
+        category &&
+        typeof category.name === 'string' &&
+        category.name.trim().length > 0 &&
+        Number(category.product_count || 0) > 0
+    )
+);
+const filterPublicCategoryNames = (data = []) => (
+    (Array.isArray(data) ? data : []).filter((name) => typeof name === 'string' && name.trim().length > 0)
+);
 
 const matchesCategory = (product, category) => {
     const normalizedCategory = normalizeText(category);
@@ -321,7 +338,7 @@ export const productService = {
         const cached = productCache['all_categories'];
         if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
             console.log("Returning categories from cache");
-            return cached.data;
+            return canViewAdminCategoryData() ? cached.data : filterPublicCategoryNames(cached.data);
         }
 
         // 2. Fetch if missing
@@ -330,7 +347,7 @@ export const productService = {
 
         // 3. Store in Cache
         productCache['all_categories'] = { data, timestamp: Date.now() };
-        return data;
+        return canViewAdminCategoryData() ? data : filterPublicCategoryNames(data);
     },
 
     // --- CREATE PRODUCT (Multipart Form Data) ---
@@ -387,7 +404,7 @@ export const productService = {
                 const parsed = JSON.parse(raw);
                 if (parsed?.data && (Date.now() - parsed.timestamp < CACHE_DURATION)) {
                     productCache['category_stats'] = parsed;
-                    return parsed.data;
+                    return canViewAdminCategoryData() ? parsed.data : filterPublicCategoryStats(parsed.data);
                 }
             }
         } catch {
@@ -399,7 +416,7 @@ export const productService = {
         const payload = { data, timestamp: Date.now() };
         productCache['category_stats'] = payload;
         try { localStorage.setItem(CATEGORY_STATS_CACHE_KEY, JSON.stringify(payload)); } catch { /* ignore storage errors */ }
-        return data;
+        return canViewAdminCategoryData() ? data : filterPublicCategoryStats(data);
     },
     patchCategoryStatsCache: (updater) => {
         try {

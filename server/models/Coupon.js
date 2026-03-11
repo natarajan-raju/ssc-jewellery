@@ -136,6 +136,12 @@ class Coupon {
         if (existing.length) throw new Error('Coupon code already exists');
 
         const normalizedMaxDiscount = payload.maxDiscount ?? payload.maxDiscountValue ?? payload.max_discount_value;
+        const maxDiscountSubunits = (() => {
+            if (normalizedMaxDiscount == null || normalizedMaxDiscount === '') return null;
+            const amount = Number(normalizedMaxDiscount);
+            if (!Number.isFinite(amount) || amount <= 0) return null;
+            return toSubunits(amount);
+        })();
         const [result] = await connection.execute(
             `INSERT INTO coupons
                 (code, name, description, source_type, scope_type, discount_type, discount_value, max_discount_subunits, min_cart_subunits, tier_scope, category_scope_json, starts_at, expires_at, usage_limit_total, usage_limit_per_user, metadata_json, is_active, created_by)
@@ -148,7 +154,7 @@ class Coupon {
                 scopeType,
                 discountType,
                 discountValue,
-                normalizedMaxDiscount != null ? toSubunits(normalizedMaxDiscount) : null,
+                maxDiscountSubunits,
                 payload.minCartValue != null ? toSubunits(payload.minCartValue) : 0,
                 payload.tierScope ? String(payload.tierScope).toLowerCase() : null,
                 categoryIds.length ? JSON.stringify(categoryIds) : null,
@@ -471,7 +477,7 @@ class Coupon {
             } else {
                 discountSubunits = Math.round(Number(cartTotalSubunits || 0) * (Number(coupon.discount_value || 0) / 100));
             }
-            if (coupon.max_discount_subunits != null) {
+            if (coupon.max_discount_subunits != null && Number(coupon.max_discount_subunits || 0) > 0) {
                 discountSubunits = Math.min(discountSubunits, Number(coupon.max_discount_subunits || 0));
             }
             const maxEligibleBase = ['shipping_full', 'shipping_partial'].includes(discountType)
@@ -534,7 +540,8 @@ class Coupon {
         userId,
         loyaltyTier = 'regular',
         cartTotalSubunits = 0,
-        cartProductIds = []
+        cartProductIds = [],
+        shippingFeeSubunits = 0
     } = {}) {
         if (!userId) return [];
         const [rows] = await db.execute(
@@ -579,9 +586,15 @@ class Coupon {
             const fixedDiscountSubunits = String(row.discount_type || '').toLowerCase() === 'fixed'
                 ? toSubunits(row.discount_value || 0)
                 : 0;
+            const shippingDiscountType = String(row.discount_type || '').toLowerCase();
             const requiredCartSubunits = Math.max(minCartSubunits, fixedDiscountSubunits);
             const currentCartSubunits = Number(cartTotalSubunits || 0);
-            const isEligible = currentCartSubunits >= requiredCartSubunits;
+            const hasShippingCharge = Number(shippingFeeSubunits || 0) > 0;
+            const isEligible = currentCartSubunits >= requiredCartSubunits
+                && (
+                    !['shipping_full', 'shipping_partial'].includes(shippingDiscountType)
+                    || hasShippingCharge
+                );
             out.push({
                 id: row.id,
                 code: row.code,
@@ -594,6 +607,7 @@ class Coupon {
                 minCartValue: fromSubunits(row.min_cart_subunits || 0),
                 requiredCartValue: fromSubunits(requiredCartSubunits),
                 currentCartValue: fromSubunits(currentCartSubunits),
+                shippingFee: fromSubunits(shippingFeeSubunits || 0),
                 isEligible,
                 expiresAt: row.expires_at || null
             });

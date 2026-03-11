@@ -4,12 +4,13 @@ import { orderService } from '../services/orderService';
 import { useToast } from '../context/ToastContext';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import paymentIllustration from '../assets/payment.svg';
+import { normalizePaymentFailureReason } from '../utils/paymentFailure';
 
 export default function PaymentFailed() {
     const toast = useToast();
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const reason = searchParams.get('reason') || 'Payment failed. Please try again.';
+    const reason = normalizePaymentFailureReason(searchParams.get('reason'));
     const attemptId = searchParams.get('attemptId') || '';
     const [isRetrying, setIsRetrying] = useState(false);
 

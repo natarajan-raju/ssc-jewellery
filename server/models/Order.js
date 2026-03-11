@@ -50,6 +50,16 @@ const normalizeAddress = (address) => {
     return address;
 };
 
+const hasCompleteAddress = (address = null) => {
+    const source = normalizeAddress(address);
+    return Boolean(
+        String(source?.line1 || '').trim()
+        && String(source?.city || '').trim()
+        && String(source?.state || '').trim()
+        && String(source?.zip || '').trim()
+    );
+};
+
 const parseJsonSafe = (value) => {
     if (!value) return null;
     if (typeof value === 'object') return value;
@@ -120,6 +130,17 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
     if (eligible.length === 0) return 0;
     eligible.sort((a, b) => Number(a.rate) - Number(b.rate));
     return Number(eligible[0].rate || 0);
+};
+
+const resolveEffectiveShippingAddress = async (connection, userId, shippingAddress = null) => {
+    const directAddress = hasCompleteAddress(shippingAddress)
+        ? normalizeAddress(shippingAddress)
+        : null;
+    if (directAddress) return directAddress;
+    if (!userId) return null;
+    const [userRows] = await connection.execute('SELECT address FROM users WHERE id = ? LIMIT 1', [userId]);
+    const savedShippingAddress = normalizeAddress(userRows?.[0]?.address);
+    return hasCompleteAddress(savedShippingAddress) ? savedShippingAddress : null;
 };
 
 const parseVariantOptionsSafe = (value) => {
@@ -532,13 +553,13 @@ const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'last_90_days' 
 };
 
 class Order {
-    static async getAvailableCoupons(userId) {
+    static async getAvailableCoupons(userId, { shippingAddress = null } = {}) {
         const connection = await db.getConnection();
         try {
             const [cartRows] = await connection.execute(
                 `SELECT ci.quantity, ci.product_id,
-                        p.status as product_status, p.mrp, p.discount_price as product_discount_price,
-                        pv.price as variant_price, pv.discount_price as variant_discount_price
+                        p.status as product_status, p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
+                        pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
                  LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
@@ -547,6 +568,7 @@ class Order {
             );
             if (!cartRows.length) return [];
             let subtotal = 0;
+            let totalWeightKg = 0;
             const productIds = [];
             for (const row of cartRows) {
                 const quantity = Number(row.quantity || 0);
@@ -556,8 +578,13 @@ class Order {
                     row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
                 );
                 subtotal += unitPrice * quantity;
+                totalWeightKg += Number(row.variant_weight_kg || row.product_weight_kg || 0) * quantity;
                 if (row.product_id) productIds.push(row.product_id);
             }
+            const shippingAddressForCoupons = await resolveEffectiveShippingAddress(connection, userId, shippingAddress);
+            const shippingFee = hasCompleteAddress(shippingAddressForCoupons)
+                ? await computeShippingFee(connection, shippingAddressForCoupons, subtotal, totalWeightKg)
+                : 0;
             const loyaltyStatus = await getUserLoyaltyStatus(userId);
             const eligibleLoyaltyTier = loyaltyStatus?.eligibility?.isEligible
                 ? (loyaltyStatus?.tier || 'regular')
@@ -566,6 +593,7 @@ class Order {
                 userId,
                 loyaltyTier: eligibleLoyaltyTier,
                 cartTotalSubunits: toSubunits(subtotal),
+                shippingFeeSubunits: toSubunits(shippingFee),
                 cartProductIds: [...new Set(productIds)]
             });
         } finally {
@@ -609,7 +637,7 @@ class Order {
         }
     }
 
-    static async getCheckoutSummary(userId, { shippingAddress, couponCode = null } = {}) {
+    static async getCheckoutSummary(userId, { shippingAddress, couponCode = null, allowSavedAddressFallback = false } = {}) {
         const connection = await db.getConnection();
         try {
             const [cartRows] = await connection.execute(
@@ -676,7 +704,10 @@ class Order {
                 throw new Error('Cart is empty');
             }
 
-            const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
+            const effectiveShippingAddress = allowSavedAddressFallback
+                ? await resolveEffectiveShippingAddress(connection, userId, shippingAddress)
+                : shippingAddress;
+            const shippingFee = await computeShippingFee(connection, effectiveShippingAddress, subtotal, totalWeightKg);
             let couponDiscountTotal = 0;
             let coupon = null;
             const cartProductIds = [...new Set(cartRows.map((row) => row.product_id).filter(Boolean))];

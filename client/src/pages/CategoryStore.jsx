@@ -84,7 +84,7 @@ export default function CategoryStore() {
                     url: shareUrl
                 });
                 return;
-            } catch (err) {
+            } catch {
                 // Fall back to panel
             }
         }
@@ -141,7 +141,12 @@ export default function CategoryStore() {
     // --- 1. Fetch Jumbotron & Explore Data ---
     const fetchCategoryMetadata = useCallback(async (force = false) => {
         try {
-            const allCategories = await productService.getCategoryStats(force);
+            const allCategories = (await productService.getCategoryStats(force)).filter((entry) =>
+                entry &&
+                typeof entry.name === 'string' &&
+                entry.name.trim().length > 0 &&
+                Number(entry.product_count || 0) > 0
+            );
             const cleanName = normalizedCategoryName;
             const currentCat = allCategories.find(c => c.name.toLowerCase() === cleanName);
             
@@ -214,7 +219,7 @@ export default function CategoryStore() {
         } finally {
             loadingRef.current = false;
         }
-    }, [category, currentServerSort, sortBy]);
+    }, [category, currentServerSort, normalizedCategoryName, sortBy]);
 
     const scheduleManualRefresh = useCallback(() => {
         if (!isManualSort) return;

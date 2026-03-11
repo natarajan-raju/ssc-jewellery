@@ -1205,7 +1205,8 @@ const validateRecoveryCoupon = async (req, res) => {
         const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
         const summary = await Order.getCheckoutSummary(userId, {
             shippingAddress: safeShippingAddress,
-            couponCode: code
+            couponCode: code,
+            allowSavedAddressFallback: true
         });
         return res.json({
             ok: true,
@@ -1222,7 +1223,9 @@ const validateRecoveryCoupon = async (req, res) => {
 const getAvailableCoupons = async (req, res) => {
     try {
         const userId = req.user.id;
-        const coupons = await Order.getAvailableCoupons(userId);
+        const { shippingAddress = null } = req.body || {};
+        const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
+        const coupons = await Order.getAvailableCoupons(userId, { shippingAddress: safeShippingAddress });
         return res.json({ coupons });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to fetch available coupons' });

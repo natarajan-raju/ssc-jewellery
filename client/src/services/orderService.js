@@ -430,10 +430,11 @@ export const orderService = {
         });
         return handleResponse(res);
     },
-    getAvailableCoupons: async () => {
+    getAvailableCoupons: async ({ shippingAddress = null } = {}) => {
         const res = await fetch(`${API_URL}/coupons/available`, {
-            method: 'GET',
-            headers: getAuthHeader()
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ shippingAddress })
         });
         return handleResponse(res);
     },

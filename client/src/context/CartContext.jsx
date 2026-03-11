@@ -223,8 +223,25 @@ export const CartProvider = ({ children }) => {
 
     const updateQuantity = async ({ productId, variantId = '', quantity }) => {
         if (user) {
-            const data = await cartService.updateItem({ productId, variantId, quantity });
-            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            const previousItems = items;
+            const current = items.find((item) => item.productId === productId && item.variantId === variantId);
+            if (!current) return;
+            const nextQuantity = clampCartQuantity(current, quantity);
+            setItems((prev) => {
+                if (nextQuantity <= 0) return prev.filter((item) => !(item.productId === productId && item.variantId === variantId));
+                return prev.map((item) => (
+                    item.productId === productId && item.variantId === variantId
+                        ? { ...item, quantity: nextQuantity }
+                        : item
+                ));
+            });
+            try {
+                const data = await cartService.updateItem({ productId, variantId, quantity: nextQuantity });
+                setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            } catch (error) {
+                setItems(previousItems);
+                throw error;
+            }
         } else {
             setItems(prev => {
                 const current = prev.find((p) => p.productId === productId && p.variantId === variantId);
@@ -242,8 +259,15 @@ export const CartProvider = ({ children }) => {
 
     const removeItem = async ({ productId, variantId = '' }) => {
         if (user) {
-            const data = await cartService.removeItem({ productId, variantId });
-            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            const previousItems = items;
+            setItems((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
+            try {
+                const data = await cartService.removeItem({ productId, variantId });
+                setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            } catch (error) {
+                setItems(previousItems);
+                throw error;
+            }
         } else {
             setItems(prev => prev.filter(p => !(p.productId === productId && p.variantId === variantId)));
         }
@@ -251,8 +275,15 @@ export const CartProvider = ({ children }) => {
 
     const clearCart = async () => {
         if (user) {
-            const data = await cartService.clearCart();
-            setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            const previousItems = items;
+            setItems([]);
+            try {
+                const data = await cartService.clearCart();
+                setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+            } catch (error) {
+                setItems(previousItems);
+                throw error;
+            }
         } else {
             setItems([]);
         }
