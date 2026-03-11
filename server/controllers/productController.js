@@ -504,5 +504,10 @@ const deleteCategory = async (req, res) => {
 
 module.exports = { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories,
     getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct,
-    manageCategoryProductsBulk, createCategory, deleteCategory
+    manageCategoryProductsBulk, createCategory, deleteCategory,
+    __test: {
+        serializePublicProduct,
+        canViewAdminProductData,
+        emitProductEvent
+    }
  };

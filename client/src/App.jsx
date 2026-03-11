@@ -39,16 +39,17 @@ import TrackOrder from './pages/TrackOrder';
 import PolicyPage from './pages/PolicyPage';
 import About from './pages/About';
 import Faq from './pages/Faq';
+import { canAccessAdminDashboard, shouldRedirectAdminToDashboard } from './utils/authRoutePolicy';
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
   const { user } = useAuth();
-  return (user && (user.role === 'admin' || user.role === 'staff')) ? children : <Navigate to="/admin/login" replace />;
+  return canAccessAdminDashboard(user) ? children : <Navigate to="/admin/login" replace />;
 };
 
 const RedirectAdminToDashboard = ({ children }) => {
   const { user } = useAuth();
-  return user?.role === 'admin' ? <Navigate to="/admin/dashboard" replace /> : children;
+  return shouldRedirectAdminToDashboard(user) ? <Navigate to="/admin/dashboard" replace /> : children;
 };
 
 const ClientRoute = ({ children, redirectTo = '/track-order' }) => {

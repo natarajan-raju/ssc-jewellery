@@ -9,7 +9,7 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "build": "cd client && npm install --include=dev && npm run build",
     "start": "node server/index.js",
-    "test": "node --test server/tests/*.test.js"
+    "test": "NODE_ENV=test node --test server/tests/*.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

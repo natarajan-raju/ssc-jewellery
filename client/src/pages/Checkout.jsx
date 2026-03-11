@@ -19,6 +19,7 @@ import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 import { getGstDisplayDetails } from '../utils/gst';
+import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -620,9 +621,7 @@ export default function Checkout() {
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
     const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
-    const hasUnavailableItems = useMemo(() => (
-        lineItems.some((item) => String(item?.status || '').toLowerCase() !== 'active' || Boolean(item?.isOutOfStock))
-    ), [lineItems]);
+    const hasUnavailableItems = useMemo(() => hasUnavailableCheckoutItems(lineItems), [lineItems]);
     const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment) && !hasUnavailableItems;
     const fieldErrors = useMemo(() => {
         const errors = {};

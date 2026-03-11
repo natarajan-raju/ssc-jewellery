@@ -3,6 +3,7 @@ const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
 const jwt = require('jsonwebtoken');
+const { getSocketRoomsForUser } = require('./utils/socketAudience');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
@@ -102,10 +103,7 @@ io.on('connection', (socket) => {
             const normalizedRole = String(user.role || '').toLowerCase();
             const joinedRooms = [...socket.rooms].filter((room) => room !== socket.id);
             joinedRooms.forEach((room) => socket.leave(room));
-            socket.join(`user:${userId}`);
-            if (normalizedRole === 'admin' || normalizedRole === 'staff') {
-                socket.join('admin');
-            }
+            getSocketRoomsForUser({ userId, role: normalizedRole }).forEach((room) => socket.join(room));
             socket.data.userId = userId;
             socket.data.role = normalizedRole;
             socket.emit('auth:ok', { userId, role: normalizedRole });

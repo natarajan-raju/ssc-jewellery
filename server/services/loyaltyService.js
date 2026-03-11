@@ -987,5 +987,10 @@ module.exports = {
     reassessUserTier,
     runMonthlyLoyaltyReassessment,
     issueBirthdayCouponForUser,
-    issueBirthdayCouponsForEligibleUsersToday
+    issueBirthdayCouponsForEligibleUsersToday,
+    __test: {
+        sendTierUpgradeMail,
+        sendMonthlyStatusSummaryMail,
+        sendFomoMailIfEligible
+    }
 };

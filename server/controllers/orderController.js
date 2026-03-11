@@ -15,6 +15,7 @@ const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = r
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
 const { verifyInvoiceShareToken } = require('../services/invoiceShareService');
 const { reassessUserTier } = require('../services/loyaltyService');
+const { emitToOrderAudiences } = require('../utils/socketAudience');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -49,14 +50,6 @@ const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
     const stamp = Date.now().toString(36);
     return `ssc_${uid}_${stamp}`.slice(0, 40);
-};
-
-const emitToOrderAudiences = (io, order = null, eventName = '', payload = {}) => {
-    if (!io || !order || !eventName) return;
-    io.to('admin').emit(eventName, payload);
-    if (order?.user_id) {
-        io.to(`user:${order.user_id}`).emit(eventName, payload);
-    }
 };
 
 const emitOrderAndPaymentUpdate = (req, { order, payment = null, silent = false } = {}) => {

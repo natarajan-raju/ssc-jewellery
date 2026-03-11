@@ -1377,9 +1377,13 @@ const initDBWithRetry = async (maxAttempts = 5) => {
     return false;
 };
 
+const shouldSkipInit = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'test'
+    || String(process.env.SKIP_DB_INIT || '').trim().toLowerCase() === 'true';
+
 // Run check on startup and expose readiness promise for graceful boot.
-const ready = initDBWithRetry();
+const ready = shouldSkipInit ? Promise.resolve(true) : initDBWithRetry();
 pool.ready = ready;
 pool.initDB = initDB;
+pool.shouldSkipInit = shouldSkipInit;
 
 module.exports = pool;

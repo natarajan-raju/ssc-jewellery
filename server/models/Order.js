@@ -2789,3 +2789,6 @@ class Order {
 }
 
 module.exports = Order;
+module.exports.__test = {
+    computeTaxForItems
+};
