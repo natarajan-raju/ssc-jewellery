@@ -4,6 +4,7 @@ import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
 import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 // import { io } from 'socket.io-client';
 
 const PAGE_LIMIT = 20;
@@ -431,7 +432,7 @@ export default function CategoryStore() {
             setSearchResults([]);
             return;
         }
-        if (q.length < 2 || !hasMore) {
+        if (!shouldRunDiscoverySearch(q, hasMore)) {
             if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
             if (searchAbortRef.current) searchAbortRef.current.abort();
             setIsSearchLoading(false);
@@ -474,7 +475,7 @@ export default function CategoryStore() {
         return () => {
             if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
         };
-    }, [searchTerm, category, sortBy, inStockOnly, priceRange.min, priceRange.max, hasMore]);
+    }, [searchTerm, category, sortBy, inStockOnly, priceRange.min, priceRange.max]);
     // --- 4. Carousel Auto-Slide Logic ---
     useEffect(() => {
         if (otherCategories.length === 0 || isHovered) return;
@@ -518,10 +519,7 @@ export default function CategoryStore() {
 
         // 1. Filter: Availability
         if (inStockOnly) {
-            result = result.filter(p => {
-                const isTracked = String(p.track_quantity) === '1' || String(p.track_quantity) === 'true' || p.track_quantity === true;
-                return !isTracked || (p.quantity && p.quantity > 0);
-            });
+            result = result.filter((p) => isDiscoveryItemInStock(p));
         }
         if (searchTerm.trim()) {
             const q = searchTerm.trim().toLowerCase();

@@ -5,6 +5,7 @@ import ProductCard from '../components/ProductCard';
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter, Send, Copy, ArrowUp, Home, LayoutGrid } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { useCms } from '../hooks/useCms';
+import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 
 const PAGE_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 150;
@@ -105,7 +106,7 @@ export default function Shop() {
             setBottomCarouselCards(Array.isArray(data) ? data : []);
             setActiveBottomCarouselIndex(0);
             bottomCarouselAutoIndexRef.current = 0;
-        } catch (err) {
+        } catch {
             setBottomCarouselCards([]);
         } finally {
             setIsLoadingBottomCarousel(false);
@@ -140,7 +141,7 @@ export default function Shop() {
                     url: shareUrl
                 });
                 return;
-            } catch (err) {
+            } catch {
                 // fall back to panel
             }
         }
@@ -321,7 +322,7 @@ export default function Shop() {
             setSearchResults([]);
             return;
         }
-        if (q.length < 2 || !hasMore) {
+        if (!shouldRunDiscoverySearch(q, hasMore)) {
             if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
             if (searchAbortRef.current) searchAbortRef.current.abort();
             setIsSearchLoading(false);
@@ -364,7 +365,7 @@ export default function Shop() {
         return () => {
             if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
         };
-    }, [searchTerm, selectedCategory, sortBy, inStockOnly, priceRange.min, priceRange.max, hasMore]);
+    }, [searchTerm, selectedCategory, sortBy, inStockOnly, priceRange.min, priceRange.max]);
 
     const shouldItemBeVisible = useCallback((item) => {
         if (!item || item.status !== 'active') return false;
@@ -549,10 +550,7 @@ export default function Shop() {
         let result = [...products];
 
         if (inStockOnly) {
-            result = result.filter(p => {
-                const isTracked = String(p.track_quantity) === '1' || String(p.track_quantity) === 'true' || p.track_quantity === true;
-                return !isTracked || (p.quantity && p.quantity > 0);
-            });
+            result = result.filter((p) => isDiscoveryItemInStock(p));
         }
         if (searchTerm.trim()) {
             const q = searchTerm.trim().toLowerCase();
