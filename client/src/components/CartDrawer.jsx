@@ -10,6 +10,7 @@ import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { useWishlist } from '../context/WishlistContext';
 import { vibrateTap } from '../utils/haptics';
 import RazorpayAffordability from './RazorpayAffordability';
+import { computeShippingPreview } from '../utils/shippingPreview';
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
@@ -33,32 +34,12 @@ export default function CartDrawer() {
         return sum + weight * Number(item.quantity || 0);
     }, 0), [items]);
 
-    const shippingPreview = useMemo(() => {
-        if (!zones || zones.length === 0) return null;
-        const state = (user?.address?.state || '').trim().toLowerCase();
-        if (!state) return null;
-        const zone = zones.find(z => Array.isArray(z.states) && z.states.some(s => String(s).trim().toLowerCase() === state));
-        if (!zone || !Array.isArray(zone.options)) return null;
-        const eligible = zone.options.filter(opt => {
-            const min = opt.min == null ? null : Number(opt.min);
-            const max = opt.max == null ? null : Number(opt.max);
-            if (opt.conditionType === 'weight') {
-                if (min != null && totalWeightKg < min) return false;
-                if (max != null && totalWeightKg > max) return false;
-                return true;
-            }
-            if (opt.conditionType === 'price' || !opt.conditionType) {
-                if (min != null && subtotal < min) return false;
-                if (max != null && subtotal > max) return false;
-                return true;
-            }
-            return true;
-        });
-        const fee = eligible.length ? Number([...eligible].sort((a, b) => Number(a.rate || 0) - Number(b.rate || 0))[0].rate || 0) : 0;
-        const freeOptions = zone.options.filter(opt => (opt.conditionType === 'price' || !opt.conditionType) && Number(opt.rate || 0) === 0 && opt.min != null);
-        const freeThreshold = freeOptions.length ? Math.min(...freeOptions.map(opt => Number(opt.min))) : null;
-        return { fee, freeThreshold };
-    }, [zones, user?.address?.state, subtotal, totalWeightKg]);
+    const shippingPreview = useMemo(() => computeShippingPreview({
+        zones,
+        state: user?.address?.state,
+        subtotal,
+        totalWeightKg
+    }), [zones, user?.address?.state, subtotal, totalWeightKg]);
 
     const freeProgress = useMemo(() => {
         if (!shippingPreview?.freeThreshold) return null;
@@ -68,6 +49,7 @@ export default function CartDrawer() {
     }, [shippingPreview?.freeThreshold, subtotal]);
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
+    const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
     const cartTotal = useMemo(
         () => Number(subtotal || 0) + Number(shippingPreview?.fee || 0),
         [subtotal, shippingPreview?.fee]
@@ -339,6 +321,8 @@ export default function CartDrawer() {
                         <span>Shipping</span>
                         {shippingPreview == null ? (
                             <span className="font-bold text-gray-800">Calculated at checkout</span>
+                        ) : isShippingUnavailable ? (
+                            <span className="font-bold text-amber-700">Unavailable</span>
                         ) : hasFreeShipping ? (
                             <span className="inline-flex items-center gap-2 font-bold">
                                 {struckShippingFee != null && struckShippingFee > 0 && (
@@ -354,7 +338,7 @@ export default function CartDrawer() {
                             <span className="font-bold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
                         )}
                     </div>
-                    {freeProgress && (
+                    {freeProgress && !isShippingUnavailable && (
                         <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100 mb-4' : 'max-h-0 opacity-0 mb-0'}`}>
                             <div className="flex items-center justify-between text-xs text-gray-500">
                                 <span>Free shipping progress</span>
@@ -389,6 +373,11 @@ export default function CartDrawer() {
                         Proceed to Checkout
                     </Link>
                     <RazorpayAffordability amountRupees={cartTotal} className="mt-3" showWidget={canRenderDrawerWidget} />
+                    {isShippingUnavailable && (
+                        <p className="text-[10px] text-amber-700 text-center mt-2">
+                            Shipping is not configured for your saved state yet.
+                        </p>
+                    )}
                     <p className="text-[10px] text-gray-400 text-center mt-2">
                         Checkout requires login. We will prompt you later.
                     </p>

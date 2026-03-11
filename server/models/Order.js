@@ -128,6 +128,9 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
     });
 
     if (eligible.length === 0) return 0;
+    // When both weight-based and price-based rules are eligible for the same cart,
+    // shipping currently resolves to the lowest eligible rate. Zone validation blocks
+    // overlaps within a rule type, so this is the only remaining precedence path.
     eligible.sort((a, b) => Number(a.rate) - Number(b.rate));
     return Number(eligible[0].rate || 0);
 };

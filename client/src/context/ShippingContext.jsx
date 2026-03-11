@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { shippingService } from '../services/shippingService';
 import { useSocket } from './SocketContext';
@@ -5,6 +6,17 @@ import { useSocket } from './SocketContext';
 const ShippingContext = createContext(null);
 const CACHE_TTL = 5 * 60 * 1000;
 const STORAGE_KEY = 'shipping_zones_cache_v1';
+const sanitizeZones = (zones = []) => (Array.isArray(zones) ? zones : []).map((zone) => ({
+    states: Array.isArray(zone?.states) ? zone.states : [],
+    options: Array.isArray(zone?.options)
+        ? zone.options.map((option) => ({
+            rate: Number(option?.rate || 0),
+            conditionType: option?.conditionType || 'price',
+            min: option?.min ?? null,
+            max: option?.max ?? null
+        }))
+        : []
+}));
 
 export const ShippingProvider = ({ children }) => {
     const { socket } = useSocket();
@@ -17,13 +29,15 @@ export const ShippingProvider = ({ children }) => {
         setLoading(true);
         try {
             const data = await shippingService.getZones();
-            const next = data.zones || [];
+            const next = sanitizeZones(data.zones || []);
             setZones(next);
             const ts = Date.now();
             setLastFetchedAt(ts);
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify({ zones: next, ts }));
-            } catch {}
+            } catch {
+                // ignore storage write failures
+            }
         } finally {
             setLoading(false);
         }
@@ -33,10 +47,12 @@ export const ShippingProvider = ({ children }) => {
         try {
             const cached = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
             if (cached && Array.isArray(cached.zones)) {
-                setZones(cached.zones);
+                setZones(sanitizeZones(cached.zones));
                 setLastFetchedAt(cached.ts || 0);
             }
-        } catch {}
+        } catch {
+            // ignore invalid cache payloads
+        }
         refreshZones(false);
     }, [refreshZones]);
 
@@ -44,12 +60,15 @@ export const ShippingProvider = ({ children }) => {
         if (!socket) return;
         const handleUpdate = ({ zones: updatedZones }) => {
             if (!Array.isArray(updatedZones)) return;
-            setZones(updatedZones);
+            const next = sanitizeZones(updatedZones);
+            setZones(next);
             const ts = Date.now();
             setLastFetchedAt(ts);
             try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify({ zones: updatedZones, ts }));
-            } catch {}
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ zones: next, ts }));
+            } catch {
+                // ignore storage write failures
+            }
         };
         socket.on('shipping:update', handleUpdate);
         return () => socket.off('shipping:update', handleUpdate);

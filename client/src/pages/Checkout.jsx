@@ -22,6 +22,7 @@ import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpe
 import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
 import { normalizePaymentFailureReason } from '../utils/paymentFailure';
+import { computeShippingPreview } from '../utils/shippingPreview';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -69,11 +70,6 @@ const isValidEmailInput = (value = '') => {
 const isValidMobileInput = (value = '') => /^\d{10,14}$/.test(String(value || '').replace(/\D/g, ''));
 
 const isValidZipInput = (value = '') => /^[0-9A-Za-z\-\s]{3,12}$/.test(String(value || '').trim());
-
-const normalizeStateKey = (value) => String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
 
 const formatLongDate = (value) => {
     if (!value) return 'No expiry';
@@ -527,35 +523,28 @@ export default function Checkout() {
         return sum + (Number(item.weightKg || 0) * Number(item.quantity || 0));
     }, 0), [lineItems]);
 
-    const fallbackShippingFee = useMemo(() => {
-        if (!zones || zones.length === 0) return 0;
-        const state = normalizeStateKey(form.address?.state);
-        if (!state) return 0;
-        const zone = zones.find(z => Array.isArray(z.states) && z.states.some(s => normalizeStateKey(s) === state));
-        if (!zone || !Array.isArray(zone.options)) return 0;
-        const eligible = zone.options.filter(opt => {
-            const min = opt.min == null ? null : Number(opt.min);
-            const max = opt.max == null ? null : Number(opt.max);
-            if (opt.conditionType === 'weight') {
-                if (min != null && totalWeightKg < min) return false;
-                if (max != null && totalWeightKg > max) return false;
-                return true;
-            }
-            if (opt.conditionType === 'price' || !opt.conditionType) {
-                if (min != null && subtotal < min) return false;
-                if (max != null && subtotal > max) return false;
-                return true;
-            }
-            return true;
-        });
-        if (!eligible.length) return 0;
-        eligible.sort((a, b) => Number(a.rate || 0) - Number(b.rate || 0));
-        return Number(eligible[0].rate || 0);
-    }, [zones, form.address?.state, subtotal, totalWeightKg]);
+    const fallbackShippingFee = useMemo(() => Number(computeShippingPreview({
+        zones,
+        state: form.address?.state,
+        subtotal,
+        totalWeightKg
+    })?.fee || 0), [zones, form.address?.state, subtotal, totalWeightKg]);
 
     const shippingFee = useMemo(
         () => Number(checkoutSummary?.shippingFee ?? fallbackShippingFee ?? 0),
         [checkoutSummary?.shippingFee, fallbackShippingFee]
+    );
+    const fallbackShippingPreview = useMemo(() => computeShippingPreview({
+        zones,
+        state: form.address?.state,
+        subtotal,
+        totalWeightKg
+    }), [zones, form.address?.state, subtotal, totalWeightKg]);
+    const isShippingUnavailable = Boolean(
+        hasCompleteAddress(form.address)
+        && fallbackShippingPreview
+        && fallbackShippingPreview.isUnavailable
+        && Number(shippingFee || 0) === 0
     );
     const couponDiscount = useMemo(
         () => Number(checkoutSummary?.couponDiscountTotal ?? appliedCoupon?.discountTotal ?? 0),
@@ -1274,8 +1263,17 @@ export default function Checkout() {
                                     </div>
                                     <div className="flex items-center justify-between text-gray-500">
                                         <span>Shipping</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
+                                        {isShippingUnavailable ? (
+                                            <span className="font-semibold text-amber-700">Unavailable for this state</span>
+                                        ) : (
+                                            <span className="font-semibold text-gray-800">₹{Number(shippingFee || 0).toLocaleString()}</span>
+                                        )}
                                     </div>
+                                    {isShippingUnavailable && (
+                                        <p className="text-[11px] text-amber-700">
+                                            We do not currently have a matching shipping rule for this state. Update the address or shipping configuration before placing the order.
+                                        </p>
+                                    )}
                                     <div className="flex items-start justify-between text-gray-500">
                                         <span>Base Price (Before Discounts)</span>
                                         <span className="font-semibold text-gray-800">₹{Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0)).toLocaleString()}</span>

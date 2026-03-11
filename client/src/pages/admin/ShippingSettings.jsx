@@ -31,6 +31,50 @@ const emptyOption = () => ({
     max: ''
 });
 
+const toNullableNumber = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const validateZoneDraft = (zone = null) => {
+    if (!zone?.name?.trim()) return 'Zone name is required.';
+    if (!Array.isArray(zone.states) || zone.states.length === 0) return 'Select at least one state for this zone.';
+    if (!Array.isArray(zone.options) || zone.options.length === 0) return 'Add at least one shipping option.';
+
+    const grouped = new Map();
+    for (const option of zone.options) {
+        if (!String(option?.name || '').trim()) return 'Each shipping option needs a name.';
+        const rate = Number(option?.rate);
+        if (!Number.isFinite(rate) || rate < 0) return 'Shipping rate must be a non-negative number.';
+        const min = toNullableNumber(option?.min);
+        const max = toNullableNumber(option?.max);
+        if ((option?.min ?? '') !== '' && min === null) return 'Minimum value must be a valid number.';
+        if ((option?.max ?? '') !== '' && max === null) return 'Maximum value must be a valid number.';
+        if (min !== null && min < 0) return 'Minimum value cannot be negative.';
+        if (max !== null && max < 0) return 'Maximum value cannot be negative.';
+        if (min !== null && max !== null && min > max) return 'Minimum value cannot be greater than maximum.';
+
+        const key = option?.conditionType || 'price';
+        const start = min === null ? Number.NEGATIVE_INFINITY : min;
+        const end = max === null ? Number.POSITIVE_INFINITY : max;
+        const entries = grouped.get(key) || [];
+        entries.push({ start, end });
+        grouped.set(key, entries);
+    }
+
+    for (const [conditionType, entries] of grouped.entries()) {
+        const sorted = [...entries].sort((a, b) => a.start - b.start);
+        for (let i = 1; i < sorted.length; i += 1) {
+            if (sorted[i].start <= sorted[i - 1].end) {
+                return `Overlapping ${conditionType} ranges are not allowed in the same zone.`;
+            }
+        }
+    }
+
+    return '';
+};
+
 export default function ShippingSettings() {
     const [zones, setZones] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -40,6 +84,7 @@ export default function ShippingSettings() {
     const [optionModalOpen, setOptionModalOpen] = useState(false);
     const [editingOptionId, setEditingOptionId] = useState(null);
     const [optionDraft, setOptionDraft] = useState(emptyOption());
+    const [formError, setFormError] = useState('');
 
     const loadZones = async () => {
         setIsLoading(true);
@@ -60,12 +105,14 @@ export default function ShippingSettings() {
         setDraftZone(zone);
         setView('edit');
         setShowStatePicker(false);
+        setFormError('');
     };
 
     const handleEditZone = (zone) => {
         setDraftZone(JSON.parse(JSON.stringify(zone)));
         setView('edit');
         setShowStatePicker(false);
+        setFormError('');
     };
 
     const handleDeleteZone = async (zoneId) => {
@@ -74,7 +121,11 @@ export default function ShippingSettings() {
     };
 
     const handleSaveZone = async () => {
-        if (!draftZone?.name?.trim()) return;
+        const validationError = validateZoneDraft(draftZone);
+        if (validationError) {
+            setFormError(validationError);
+            return;
+        }
         const existing = zones.find(z => z.id === draftZone.id);
         if (existing) {
             await shippingService.updateZone(draftZone.id, draftZone);
@@ -85,12 +136,14 @@ export default function ShippingSettings() {
         loadZones();
         setView('list');
         setDraftZone(null);
+        setFormError('');
     };
 
     const handleCancelEdit = () => {
         setView('list');
         setDraftZone(null);
         setShowStatePicker(false);
+        setFormError('');
     };
 
     const toggleState = (stateName) => {
@@ -348,6 +401,9 @@ export default function ShippingSettings() {
                                 <p className="text-sm text-gray-500 mt-1">
                                     Add available shipping options for this zone.
                                 </p>
+                                <p className="text-xs text-gray-400 mt-2">
+                                    If both price and weight rules can match the same cart, the lowest eligible shipping rate is applied.
+                                </p>
                             </div>
                             <button
                                 onClick={() => openOptionModal()}
@@ -358,6 +414,11 @@ export default function ShippingSettings() {
                         </div>
 
                         <div className="p-6">
+                            {formError && (
+                                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                                    {formError}
+                                </div>
+                            )}
                             {draftZone.options.length === 0 && (
                                 <div className="text-center text-gray-400 py-10">
                                     No shipping options yet. Add one to get started.

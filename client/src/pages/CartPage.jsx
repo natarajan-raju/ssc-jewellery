@@ -10,6 +10,7 @@ import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { vibrateTap } from '../utils/haptics';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import { formatTierLabel } from '../utils/tierFormat';
+import { computeShippingPreview } from '../utils/shippingPreview';
 
 const EXTRA_DISCOUNT_BY_TIER = {
     regular: 0,
@@ -50,32 +51,12 @@ export default function CartPage() {
         return sum + weight * Number(item.quantity || 0);
     }, 0), [items]);
 
-    const shippingPreview = useMemo(() => {
-        if (!zones || zones.length === 0) return null;
-        const state = (user?.address?.state || '').trim().toLowerCase();
-        if (!state) return null;
-        const zone = zones.find(z => Array.isArray(z.states) && z.states.some(s => String(s).trim().toLowerCase() === state));
-        if (!zone || !Array.isArray(zone.options)) return null;
-        const eligible = zone.options.filter(opt => {
-            const min = opt.min == null ? null : Number(opt.min);
-            const max = opt.max == null ? null : Number(opt.max);
-            if (opt.conditionType === 'weight') {
-                if (min != null && totalWeightKg < min) return false;
-                if (max != null && totalWeightKg > max) return false;
-                return true;
-            }
-            if (opt.conditionType === 'price' || !opt.conditionType) {
-                if (min != null && subtotal < min) return false;
-                if (max != null && subtotal > max) return false;
-                return true;
-            }
-            return true;
-        });
-        const fee = eligible.length ? Number([...eligible].sort((a, b) => Number(a.rate || 0) - Number(b.rate || 0))[0].rate || 0) : 0;
-        const freeOptions = zone.options.filter(opt => (opt.conditionType === 'price' || !opt.conditionType) && Number(opt.rate || 0) === 0 && opt.min != null);
-        const freeThreshold = freeOptions.length ? Math.min(...freeOptions.map(opt => Number(opt.min))) : null;
-        return { fee, freeThreshold };
-    }, [zones, user?.address?.state, subtotal, totalWeightKg]);
+    const shippingPreview = useMemo(() => computeShippingPreview({
+        zones,
+        state: user?.address?.state,
+        subtotal,
+        totalWeightKg
+    }), [zones, user?.address?.state, subtotal, totalWeightKg]);
 
     const cartTotalBeforeMemberPerks = useMemo(() => {
         if (!shippingPreview) return subtotal;
@@ -113,6 +94,7 @@ export default function CartPage() {
     }, [shippingPreview, subtotal]);
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
+    const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
 
     useEffect(() => {
         const layer = confettiLayerRef.current;
@@ -369,6 +351,8 @@ export default function CartPage() {
                                     <span>Shipping</span>
                                     {shippingPreview == null ? (
                                         <span className="font-semibold text-gray-800">Calculated during checkout</span>
+                                    ) : isShippingUnavailable ? (
+                                        <span className="font-semibold text-amber-700">Unavailable for this state</span>
                                     ) : hasFreeShipping ? (
                                         <span className="inline-flex items-center gap-2 font-semibold">
                                             {struckShippingFee != null && struckShippingFee > 0 && (
@@ -396,7 +380,7 @@ export default function CartPage() {
                                         <span className="font-semibold">- ₹{estimatedMemberShippingBenefit.toLocaleString('en-IN')}</span>
                                     </div>
                                 )}
-                                {freeProgress && (
+                                {freeProgress && !isShippingUnavailable && (
                                     <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
                                             <span>Free shipping progress</span>
@@ -421,9 +405,14 @@ export default function CartPage() {
                                 )}
                                 <div className="border-t border-gray-100 pt-3 flex items-center justify-between text-base font-semibold text-gray-800">
                                     <span>Total</span>
-                                    <span>₹{cartTotal.toLocaleString()}</span>
+                                    <span>{isShippingUnavailable ? 'Update address at checkout' : `₹${cartTotal.toLocaleString()}`}</span>
                                 </div>
                             </div>
+                            {isShippingUnavailable && (
+                                <p className="mt-3 text-xs text-amber-700">
+                                    Shipping is not currently configured for your saved state. You can update the delivery address during checkout.
+                                </p>
+                            )}
                             <RazorpayAffordability amountRupees={cartTotal} className="mt-4" />
                             <Link
                                 to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
