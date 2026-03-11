@@ -5,10 +5,36 @@ const jwt = require('jsonwebtoken');
 const CompanyProfile = require('../models/CompanyProfile');
 const { sendEmailCommunication } = require('../services/communications/communicationService');
 
+const CONTACT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const CONTACT_RATE_LIMIT_MAX = 5;
+const contactRequestBuckets = new Map();
+
 const notifyClients = (req, event, payload = {}) => {
     const io = req.app.get('io');
     if (!io) return;
     io.emit(event, payload);
+};
+
+const getPublicCmsAudience = (req) => {
+    const io = req.app.get('io');
+    if (!io) return null;
+    if (typeof io.except === 'function') {
+        return io.except('admin');
+    }
+    return io;
+};
+
+const getAdminCmsAudience = (req) => {
+    const io = req.app.get('io');
+    if (!io) return null;
+    return io.to('admin');
+};
+
+const notifyCmsClients = (req, event, payload = {}) => {
+    const adminAudience = getAdminCmsAudience(req);
+    const publicAudience = getPublicCmsAudience(req);
+    if (adminAudience) adminAudience.emit(event, payload);
+    if (publicAudience) publicAudience.emit(event, payload);
 };
 
 const getOptionalAuthContext = (req) => {
@@ -52,6 +78,97 @@ const parseMaybeJson = (value, fallback = null) => {
         return JSON.parse(value);
     } catch {
         return fallback;
+    }
+};
+
+const CLIENT_PUBLIC_DIR = path.join(__dirname, '../../client/public');
+
+const resolveLocalCmsAssetPath = (assetUrl = '') => {
+    const raw = String(assetUrl || '').trim();
+    if (!raw.startsWith('/uploads/')) return null;
+    const absolutePath = path.join(CLIENT_PUBLIC_DIR, raw.replace(/^\/+/, ''));
+    if (!absolutePath.startsWith(CLIENT_PUBLIC_DIR)) return null;
+    return absolutePath;
+};
+
+const removeCmsAssetIfUploaded = async (assetUrl = '') => {
+    const absolutePath = resolveLocalCmsAssetPath(assetUrl);
+    if (!absolutePath) return;
+    try {
+        await fs.promises.unlink(absolutePath);
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+};
+
+const buildContactRateLimitKey = (req, email = '') => {
+    const ip = String(req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').trim();
+    return `${ip}|${String(email || '').trim().toLowerCase()}`;
+};
+
+const isContactRequestRateLimited = (req, email = '') => {
+    const key = buildContactRateLimitKey(req, email);
+    const now = Date.now();
+    const current = contactRequestBuckets.get(key) || [];
+    const recent = current.filter((ts) => now - ts < CONTACT_RATE_LIMIT_WINDOW_MS);
+    if (recent.length >= CONTACT_RATE_LIMIT_MAX) {
+        contactRequestBuckets.set(key, recent);
+        return true;
+    }
+    recent.push(now);
+    contactRequestBuckets.set(key, recent);
+    return false;
+};
+
+const parseId = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+const ensureRowExists = async ({ table, id, idColumn = 'id' } = {}) => {
+    const entityId = parseId(id);
+    if (!entityId) throw new Error('Invalid id');
+    const [rows] = await db.execute(`SELECT ${idColumn} FROM ${table} WHERE ${idColumn} = ? LIMIT 1`, [entityId]);
+    if (!rows.length) throw new Error('Not found');
+    return entityId;
+};
+
+const ensureCategoryExists = async (categoryId) => {
+    const parsedCategoryId = parseId(categoryId);
+    if (!parsedCategoryId) throw new Error('Invalid category');
+    const [rows] = await db.execute('SELECT id, name FROM categories WHERE id = ? LIMIT 1', [parsedCategoryId]);
+    if (!rows.length) throw new Error('Category not found');
+    return rows[0];
+};
+
+const ensureProductExists = async (productId) => {
+    const normalized = String(productId || '').trim();
+    if (!normalized) throw new Error('Product not found');
+    const [rows] = await db.execute('SELECT id FROM products WHERE id = ? LIMIT 1', [normalized]);
+    if (!rows.length) throw new Error('Product not found');
+    return rows[0];
+};
+
+const validateCarouselCardPayload = async (payload = {}) => {
+    if (!payload.title) throw new Error('Carousel card title is required');
+    if (!payload.button_label) throw new Error('Carousel button label is required');
+    if (payload.source_type === 'manual' && !payload.image_url) {
+        throw new Error('Manual carousel cards require an image');
+    }
+    if (payload.source_type === 'product') {
+        await ensureProductExists(payload.source_id);
+    }
+    if (payload.source_type === 'category') {
+        await ensureCategoryExists(payload.source_id);
+    }
+    if (payload.link_target_type === 'product') {
+        await ensureProductExists(payload.link_target_id);
+    }
+    if (payload.link_target_type === 'category') {
+        await ensureCategoryExists(payload.link_target_id);
+    }
+    if (payload.link_target_type === 'custom' && !String(payload.button_link || '').trim()) {
+        throw new Error('Custom carousel links require a URL');
     }
 };
 
@@ -390,6 +507,9 @@ const submitContactForm = async (req, res) => {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
             return res.status(400).json({ message: 'Please provide a valid email address' });
         }
+        if (isContactRequestRateLimited(req, email)) {
+            return res.status(429).json({ message: 'Too many contact requests. Please try again later.' });
+        }
 
         const profile = await CompanyProfile.get();
         const to = String(profile.supportEmail || '').trim();
@@ -450,7 +570,7 @@ const createSlide = async (req, res) => {
             [imageUrl, title || '', subtitle || '', link || '', nextOrder]
         );
 
-        notifyClients(req, 'cms:hero_update', { action: 'create', id: result.insertId });
+        notifyCmsClients(req, 'cms:hero_update', { action: 'create', id: result.insertId });
         res.status(201).json({ message: 'Slide added', id: result.insertId, imageUrl });
     } catch (error) {
         res.status(500).json({ message: 'Failed to create slide' });
@@ -462,6 +582,7 @@ const updateBanner = async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 1 LIMIT 1');
         const current = rows[0] || { image_url: '', link: '' };
+        const previousImageUrl = String(current.image_url || '').trim();
         const removeImage = String(req.body?.removeImage || '').toLowerCase() === 'true';
         const imageUrl = removeImage
             ? null
@@ -472,7 +593,10 @@ const updateBanner = async (req, res) => {
             'UPDATE home_banner SET image_url = ?, link = ? WHERE id = 1',
             [imageUrl, link]
         );
-        notifyClients(req, 'cms:banner_update', { image_url: imageUrl, link });
+        if (previousImageUrl && previousImageUrl !== imageUrl) {
+            await removeCmsAssetIfUploaded(previousImageUrl);
+        }
+        notifyCmsClients(req, 'cms:banner_update', { image_url: imageUrl, link });
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -483,6 +607,7 @@ const updateSecondaryBanner = async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 2 LIMIT 1');
         const current = rows[0] || { image_url: '', link: '' };
+        const previousImageUrl = String(current.image_url || '').trim();
         const removeImage = String(req.body?.removeImage || '').toLowerCase() === 'true';
         const imageUrl = removeImage
             ? null
@@ -493,7 +618,10 @@ const updateSecondaryBanner = async (req, res) => {
             'UPDATE home_banner SET image_url = ?, link = ? WHERE id = 2',
             [imageUrl, link]
         );
-        notifyClients(req, 'cms:banner_secondary_update', { image_url: imageUrl, link });
+        if (previousImageUrl && previousImageUrl !== imageUrl) {
+            await removeCmsAssetIfUploaded(previousImageUrl);
+        }
+        notifyCmsClients(req, 'cms:banner_secondary_update', { image_url: imageUrl, link });
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -504,6 +632,7 @@ const updateTertiaryBanner = async (req, res) => {
     try {
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 3 LIMIT 1');
         const current = rows[0] || { image_url: '', link: '' };
+        const previousImageUrl = String(current.image_url || '').trim();
         const removeImage = String(req.body?.removeImage || '').toLowerCase() === 'true';
         const imageUrl = removeImage
             ? null
@@ -516,7 +645,10 @@ const updateTertiaryBanner = async (req, res) => {
              ON DUPLICATE KEY UPDATE image_url = VALUES(image_url), link = VALUES(link)`,
             [imageUrl, link]
         );
-        notifyClients(req, 'cms:banner_tertiary_update', { image_url: imageUrl, link });
+        if (previousImageUrl && previousImageUrl !== imageUrl) {
+            await removeCmsAssetIfUploaded(previousImageUrl);
+        }
+        notifyCmsClients(req, 'cms:banner_tertiary_update', { image_url: imageUrl, link });
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -526,6 +658,9 @@ const updateTertiaryBanner = async (req, res) => {
 const updateFeaturedCategory = async (req, res) => {
     try {
         const { categoryId, title, subtitle } = req.body;
+        if (categoryId != null && categoryId !== '') {
+            await ensureCategoryExists(categoryId);
+        }
         await db.execute(
             'UPDATE home_featured_category SET category_id = ?, title = ?, subtitle = ? WHERE id = 1',
             [categoryId || null, title || '', subtitle || '']
@@ -538,16 +673,18 @@ const updateFeaturedCategory = async (req, res) => {
              LIMIT 1`
         );
         const payload = rows[0] || { category_id: categoryId || null, title: title || '', subtitle: subtitle || '' };
-        notifyClients(req, 'cms:featured_category_update', payload);
+        notifyCmsClients(req, 'cms:featured_category_update', payload);
         res.json({ message: 'Featured category updated', ...payload });
     } catch (error) {
-        res.status(500).json({ message: 'Failed to update featured category' });
+        const statusCode = /category/i.test(String(error?.message || '')) ? 400 : 500;
+        res.status(statusCode).json({ message: error?.message || 'Failed to update featured category' });
     }
 };
 
 const createCarouselCard = async (req, res) => {
     try {
         const payload = normalizeCarouselCardPayload(req.body || {});
+        await validateCarouselCardPayload(payload);
         let orderValue = payload.display_order;
         if (!payload.hasDisplayOrder) {
             const [maxRows] = await db.execute('SELECT MAX(display_order) AS maxOrder FROM cms_carousel_cards');
@@ -571,10 +708,10 @@ const createCarouselCard = async (req, res) => {
                 orderValue
             ]
         );
-        notifyClients(req, 'cms:carousel_cards_update', { action: 'create', id: result.insertId });
+        notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'create', id: result.insertId });
         res.status(201).json({ message: 'Carousel card created', id: result.insertId });
     } catch (error) {
-        res.status(500).json({ message: 'Failed to create carousel card' });
+        res.status(400).json({ message: error?.message || 'Failed to create carousel card' });
     }
 };
 
@@ -590,6 +727,7 @@ const updateCarouselCard = async (req, res) => {
             return res.status(404).json({ message: 'Carousel card not found' });
         }
         const payload = normalizeCarouselCardPayload(req.body || {});
+        await validateCarouselCardPayload(payload);
         const orderValue = payload.hasDisplayOrder ? payload.display_order : Number(existing.display_order || 0);
         await db.execute(
             `UPDATE cms_carousel_cards
@@ -610,10 +748,11 @@ const updateCarouselCard = async (req, res) => {
                 cardId
             ]
         );
-        notifyClients(req, 'cms:carousel_cards_update', { action: 'update', id: cardId });
+        notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'update', id: cardId });
         res.json({ message: 'Carousel card updated', id: cardId });
     } catch (error) {
-        res.status(500).json({ message: 'Failed to update carousel card' });
+        const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 400;
+        res.status(statusCode).json({ message: error?.message || 'Failed to update carousel card' });
     }
 };
 
@@ -623,8 +762,12 @@ const deleteCarouselCard = async (req, res) => {
         if (!Number.isFinite(cardId)) {
             return res.status(400).json({ message: 'Invalid card id' });
         }
+        const [existingRows] = await db.execute('SELECT id FROM cms_carousel_cards WHERE id = ? LIMIT 1', [cardId]);
+        if (!existingRows.length) {
+            return res.status(404).json({ message: 'Carousel card not found' });
+        }
         await db.execute('DELETE FROM cms_carousel_cards WHERE id = ?', [cardId]);
-        notifyClients(req, 'cms:carousel_cards_update', { action: 'delete', id: cardId });
+        notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'delete', id: cardId });
         res.json({ message: 'Carousel card deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Failed to delete carousel card' });
@@ -644,7 +787,7 @@ const createHeroText = async (req, res) => {
             'INSERT INTO hero_texts (text, display_order, status) VALUES (?, ?, ?)',
             [String(text).trim(), nextOrder, 'active']
         );
-        notifyClients(req, 'cms:texts_update', { action: 'create', id: result.insertId });
+        notifyCmsClients(req, 'cms:texts_update', { action: 'create', id: result.insertId });
         res.status(201).json({ message: 'Text added', id: result.insertId });
     } catch (error) {
         res.status(500).json({ message: 'Failed to create hero text' });
@@ -655,25 +798,29 @@ const createHeroText = async (req, res) => {
 const updateHeroText = async (req, res) => {
     try {
         const { text, status } = req.body;
+        await ensureRowExists({ table: 'hero_texts', id: req.params.id });
         await db.execute(
             'UPDATE hero_texts SET text = ?, status = ? WHERE id = ?',
             [text || '', status || 'active', req.params.id]
         );
-        notifyClients(req, 'cms:texts_update', { action: 'update', id: req.params.id });
+        notifyCmsClients(req, 'cms:texts_update', { action: 'update', id: req.params.id });
         res.json({ message: 'Text updated' });
     } catch (error) {
-        res.status(500).json({ message: 'Failed to update hero text' });
+        const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
+        res.status(statusCode).json({ message: error?.message || 'Failed to update hero text' });
     }
 };
 
 // HERO TEXTS: DELETE
 const deleteHeroText = async (req, res) => {
     try {
+        await ensureRowExists({ table: 'hero_texts', id: req.params.id });
         await db.execute('DELETE FROM hero_texts WHERE id = ?', [req.params.id]);
-        notifyClients(req, 'cms:texts_update', { action: 'delete', id: req.params.id });
+        notifyCmsClients(req, 'cms:texts_update', { action: 'delete', id: req.params.id });
         res.json({ message: 'Text deleted' });
     } catch (error) {
-        res.status(500).json({ message: 'Failed to delete hero text' });
+        const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
+        res.status(statusCode).json({ message: error?.message || 'Failed to delete hero text' });
     }
 };
 
@@ -682,6 +829,9 @@ const reorderHeroTexts = async (req, res) => {
     const connection = await db.getConnection();
     try {
         const { textIds } = req.body;
+        if (!Array.isArray(textIds) || !textIds.length) {
+            return res.status(400).json({ message: 'Text order is required' });
+        }
         await connection.beginTransaction();
         for (let i = 0; i < textIds.length; i++) {
             await connection.execute(
@@ -690,7 +840,7 @@ const reorderHeroTexts = async (req, res) => {
             );
         }
         await connection.commit();
-        notifyClients(req, 'cms:texts_update', { action: 'reorder', textIds });
+        notifyCmsClients(req, 'cms:texts_update', { action: 'reorder', textIds });
         res.json({ message: 'Order updated' });
     } catch (error) {
         await connection.rollback();
@@ -703,11 +853,18 @@ const reorderHeroTexts = async (req, res) => {
 // 3. DELETE SLIDE
 const deleteSlide = async (req, res) => {
     try {
+        const slideId = await ensureRowExists({ table: 'hero_slides', id: req.params.id });
+        const [rows] = await db.execute('SELECT image_url FROM hero_slides WHERE id = ? LIMIT 1', [slideId]);
+        const previousImageUrl = String(rows?.[0]?.image_url || '').trim();
         await db.execute('DELETE FROM hero_slides WHERE id = ?', [req.params.id]);
-        notifyClients(req, 'cms:hero_update', { action: 'delete', id: req.params.id });
+        if (previousImageUrl) {
+            await removeCmsAssetIfUploaded(previousImageUrl);
+        }
+        notifyCmsClients(req, 'cms:hero_update', { action: 'delete', id: req.params.id });
         res.json({ message: 'Slide deleted' });
     } catch (error) {
-        res.status(500).json({ message: 'Failed to delete slide' });
+        const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
+        res.status(statusCode).json({ message: error?.message || 'Failed to delete slide' });
     }
 };
 
@@ -716,6 +873,9 @@ const reorderSlides = async (req, res) => {
     const connection = await db.getConnection();
     try {
         const { slideIds } = req.body; // Array of IDs in new order
+        if (!Array.isArray(slideIds) || !slideIds.length) {
+            return res.status(400).json({ message: 'Slide order is required' });
+        }
         await connection.beginTransaction();
 
         for (let i = 0; i < slideIds.length; i++) {
@@ -726,7 +886,7 @@ const reorderSlides = async (req, res) => {
         }
 
         await connection.commit();
-        notifyClients(req, 'cms:hero_update', { action: 'reorder', slideIds });
+        notifyCmsClients(req, 'cms:hero_update', { action: 'reorder', slideIds });
         res.json({ message: 'Order updated' });
     } catch (error) {
         await connection.rollback();
@@ -740,14 +900,16 @@ const reorderSlides = async (req, res) => {
 const updateSlide = async (req, res) => {
     try {
         const { title, subtitle, link, status } = req.body;
+        await ensureRowExists({ table: 'hero_slides', id: req.params.id });
         await db.execute(
             'UPDATE hero_slides SET title = ?, subtitle = ?, link = ?, status = ? WHERE id = ?',
             [title, subtitle, link, status, req.params.id]
         );
-        notifyClients(req, 'cms:hero_update', { action: 'update', id: req.params.id });
+        notifyCmsClients(req, 'cms:hero_update', { action: 'update', id: req.params.id });
         res.json({ message: 'Slide updated' });
     } catch (error) {
-        res.status(500).json({ message: 'Update failed' });
+        const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
+        res.status(statusCode).json({ message: error?.message || 'Update failed' });
     }
 };
 

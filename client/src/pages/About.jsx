@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { Link } from 'react-router-dom';
 import { Gem, Sparkles } from 'lucide-react';
 
@@ -31,6 +32,14 @@ const resolveCompanyAddress = (company = {}) => {
 export default function About() {
     const [company, setCompany] = useState(DEFAULT_COMPANY);
 
+    const applyCompanyInfo = (payload = {}) => {
+        setCompany((prev) => ({
+            ...prev,
+            ...payload,
+            address: resolveCompanyAddress(payload) || prev.address
+        }));
+    };
+
     useEffect(() => {
         let cancelled = false;
         const loadCompanyInfo = async () => {
@@ -39,11 +48,7 @@ export default function About() {
                 const data = await res.json();
                 if (!res.ok || cancelled) return;
                 const payload = data?.company && typeof data.company === 'object' ? data.company : {};
-                setCompany((prev) => ({
-                    ...prev,
-                    ...payload,
-                    address: resolveCompanyAddress(payload)
-                }));
+                applyCompanyInfo(payload);
             } catch {
                 // Keep defaults.
             }
@@ -53,6 +58,13 @@ export default function About() {
             cancelled = true;
         };
     }, []);
+
+    useAdminCrudSync({
+        'company:info_update': ({ company: nextCompany } = {}) => {
+            if (!nextCompany || typeof nextCompany !== 'object') return;
+            applyCompanyInfo(nextCompany);
+        }
+    });
 
     return (
         <div className="min-h-screen bg-secondary py-10">

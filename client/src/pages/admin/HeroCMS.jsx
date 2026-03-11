@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 // import { cmsService } from '../../services/cmsService';
 import { useCms } from '../../hooks/useCms';
 import { UploadCloud, Trash2, GripVertical, Save, Plus, Loader2, Image as ImageIcon, ChevronDown, Sparkles, AlertTriangle, CheckCircle2, PanelBottom, Pencil, Search } from 'lucide-react';
@@ -12,7 +12,7 @@ function AccordionSection({
     id,
     title,
     subtitle = '',
-    icon: Icon = ImageIcon,
+    icon,
     openCmsSection,
     setOpenCmsSection,
     isAutopilotEnabled = false,
@@ -21,6 +21,7 @@ function AccordionSection({
 }) {
     const isOpen = openCmsSection === id;
     const hasContent = sectionHasContent(id);
+    const IconComponent = icon || ImageIcon;
     const toggleSection = () => {
         const currentY = window.scrollY;
         setOpenCmsSection((prev) => (prev === id ? '' : id));
@@ -53,7 +54,7 @@ function AccordionSection({
                     ) : (
                         <AlertTriangle size={20} className="text-amber-500" />
                     )}
-                    <Icon size={32} className="text-slate-200" />
+                    <IconComponent size={32} className="text-slate-200" />
                     <ChevronDown size={18} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                 </div>
             </button>
@@ -102,7 +103,6 @@ export default function HeroCMS() {
     const [isAutopilotSaving, setIsAutopilotSaving] = useState(false);
     const [featuredCategories, setFeaturedCategories] = useState([]);
     const [isFeaturedLoading, setIsFeaturedLoading] = useState(false);
-    const [featuredConfig, setFeaturedConfig] = useState(null);
     const [featuredCategoryId, setFeaturedCategoryId] = useState('');
     const [featuredTitle, setFeaturedTitle] = useState('');
     const [featuredSubtitle, setFeaturedSubtitle] = useState('');
@@ -161,7 +161,7 @@ const [modalConfig, setModalConfig] = useState({
         loadCarouselCards();
         loadCarouselSources();
         loadAutopilotConfig();
-    }, []);
+    }, [loadAutopilotConfig, loadBanner, loadCarouselCards, loadCarouselSources, loadFeaturedCategories, loadFeaturedConfig, loadHeroTexts, loadSecondaryBanner, loadSlides, loadTertiaryBanner]);
 
     useEffect(() => {
         return () => {
@@ -170,27 +170,27 @@ const [modalConfig, setModalConfig] = useState({
         };
     }, []);
 
-    const loadSlides = async () => {
+    const loadSlides = useCallback(async () => {
         try {
             const data = await getSlides(true); // true = admin mode
             setSlides(data);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load slides");
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [getSlides, toast]);
 
-    const loadHeroTexts = async () => {
+    const loadHeroTexts = useCallback(async () => {
         try {
             const data = await getHeroTexts(true);
             setHeroTexts(Array.isArray(data) ? data : []);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load hero texts");
         }
-    };
+    }, [getHeroTexts, toast]);
 
-    const loadBanner = async () => {
+    const loadBanner = useCallback(async () => {
         try {
             const data = await getBanner(true);
             setBannerData(data);
@@ -198,12 +198,12 @@ const [modalConfig, setModalConfig] = useState({
                 setBannerLink(data?.link || '');
             }
             setBannerPreview(data?.image_url || null);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load banner");
         }
-    };
+    }, [getBanner, toast]);
 
-    const loadSecondaryBanner = async () => {
+    const loadSecondaryBanner = useCallback(async () => {
         try {
             const data = await getSecondaryBanner(true);
             setSecondaryBannerData(data);
@@ -211,12 +211,12 @@ const [modalConfig, setModalConfig] = useState({
                 setSecondaryBannerLink(data?.link || '');
             }
             setSecondaryBannerPreview(data?.image_url || null);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load secondary banner");
         }
-    };
+    }, [getSecondaryBanner, toast]);
 
-    const loadTertiaryBanner = async () => {
+    const loadTertiaryBanner = useCallback(async () => {
         try {
             const data = await getTertiaryBanner(true);
             setTertiaryBannerData(data);
@@ -224,66 +224,65 @@ const [modalConfig, setModalConfig] = useState({
                 setTertiaryBannerLink(data?.link || '');
             }
             setTertiaryBannerPreview(data?.image_url || null);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load home banner 3");
         }
-    };
+    }, [getTertiaryBanner, toast]);
 
-    const loadAutopilotConfig = async () => {
+    const loadAutopilotConfig = useCallback(async () => {
         try {
             const data = await getAutopilotConfig();
             setIsAutopilotEnabled(Boolean(data?.is_enabled));
-        } catch (error) {
+        } catch {
             toast.error("Failed to load autopilot settings");
         }
-    };
+    }, [getAutopilotConfig, toast]);
 
-    const loadFeaturedConfig = async () => {
+    const loadFeaturedConfig = useCallback(async () => {
         try {
             const data = await getFeaturedCategory(true);
-            setFeaturedConfig(data);
             if (!featuredDraftDirtyRef.current) {
                 setFeaturedCategoryId(data?.category_id ? String(data.category_id) : '');
                 setFeaturedTitle(data?.title || '');
                 setFeaturedSubtitle(data?.subtitle || '');
             }
-        } catch (error) {
+        } catch {
             toast.error("Failed to load featured category");
         }
-    };
+    }, [getFeaturedCategory, toast]);
 
-    const loadFeaturedCategories = async () => {
+    const loadFeaturedCategories = useCallback(async () => {
         setIsFeaturedLoading(true);
         try {
             const data = await productService.getCategoryStats(true);
             setFeaturedCategories(Array.isArray(data) ? data : []);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load categories");
         } finally {
             setIsFeaturedLoading(false);
         }
-    };
+    }, [toast]);
 
-    const loadCarouselCards = async () => {
+    const loadCarouselCards = useCallback(async () => {
         setIsCarouselLoading(true);
         try {
             const data = await getCarouselCards(true);
             setCarouselCards(Array.isArray(data) ? data : []);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load carousel cards");
         } finally {
             setIsCarouselLoading(false);
         }
-    };
+    }, [getCarouselCards, toast]);
 
-    const loadCarouselSources = async () => {
+    const loadCarouselSources = useCallback(async () => {
         try {
             const categoryRes = await productService.getCategoryStats(true);
             setCarouselCategories(Array.isArray(categoryRes) ? categoryRes : []);
-        } catch (error) {
+        } catch {
             toast.error("Failed to load product/category sources");
         }
-    };
+    }, [toast]);
 
     const putProductsInLookup = (list = []) => {
         const safe = Array.isArray(list) ? list : [];
@@ -317,7 +316,7 @@ const [modalConfig, setModalConfig] = useState({
             const products = Array.isArray(data?.products) ? data.products : [];
             putProductsInLookup(products);
             setResults(products);
-        } catch (error) {
+        } catch {
             setResults([]);
         } finally {
             setLoading(false);
@@ -431,7 +430,7 @@ const [modalConfig, setModalConfig] = useState({
             setSelectedFile(null);
             setPreviewUrl(null);
             loadSlides();
-        } catch (error) {
+        } catch {
             toast.error("Upload failed");
         } finally {
             setIsUploading(false);
@@ -452,7 +451,7 @@ const [modalConfig, setModalConfig] = useState({
             setBannerFile(null);
             bannerLinkDirtyRef.current = false;
             await loadBanner();
-        } catch (error) {
+        } catch {
             toast.error("Banner update failed");
         } finally {
             setIsBannerUpdating(false);
@@ -473,7 +472,7 @@ const [modalConfig, setModalConfig] = useState({
             setSecondaryBannerFile(null);
             secondaryBannerLinkDirtyRef.current = false;
             await loadSecondaryBanner();
-        } catch (error) {
+        } catch {
             toast.error("Secondary banner update failed");
         } finally {
             setIsSecondaryBannerUpdating(false);
@@ -494,7 +493,7 @@ const [modalConfig, setModalConfig] = useState({
             setTertiaryBannerFile(null);
             tertiaryBannerLinkDirtyRef.current = false;
             await loadTertiaryBanner();
-        } catch (error) {
+        } catch {
             toast.error("Home banner 3 update failed");
         } finally {
             setIsTertiaryBannerUpdating(false);
@@ -512,7 +511,7 @@ const [modalConfig, setModalConfig] = useState({
             toast.success('Banner image removed');
             bannerLinkDirtyRef.current = false;
             await loadBanner();
-        } catch (error) {
+        } catch {
             toast.error('Failed to remove banner image');
         } finally {
             setIsBannerUpdating(false);
@@ -531,7 +530,7 @@ const [modalConfig, setModalConfig] = useState({
             toast.success('Secondary banner image removed');
             secondaryBannerLinkDirtyRef.current = false;
             await loadSecondaryBanner();
-        } catch (error) {
+        } catch {
             toast.error('Failed to remove secondary banner image');
         } finally {
             setIsSecondaryBannerUpdating(false);
@@ -550,7 +549,7 @@ const [modalConfig, setModalConfig] = useState({
             toast.success('Home banner 3 image removed');
             tertiaryBannerLinkDirtyRef.current = false;
             await loadTertiaryBanner();
-        } catch (error) {
+        } catch {
             toast.error('Failed to remove home banner 3 image');
         } finally {
             setIsTertiaryBannerUpdating(false);
@@ -563,7 +562,7 @@ const [modalConfig, setModalConfig] = useState({
             await updateAutopilotConfig({ is_enabled: isAutopilotEnabled });
             toast.success('Autopilot settings updated');
             await loadAutopilotConfig();
-        } catch (error) {
+        } catch {
             toast.error('Failed to update autopilot settings');
         } finally {
             setIsAutopilotSaving(false);
@@ -588,7 +587,7 @@ const [modalConfig, setModalConfig] = useState({
             setHeroTextInput('');
             await loadHeroTexts();
             toast.success("Text added");
-        } catch (error) {
+        } catch {
             toast.error("Failed to add text");
         } finally {
             setIsHeroTextLoading(false);
@@ -601,7 +600,7 @@ const [modalConfig, setModalConfig] = useState({
             await updateHeroText(id, { text });
             await loadHeroTexts();
             toast.success("Text updated");
-        } catch (error) {
+        } catch {
             toast.error("Failed to update text");
         } finally {
             setIsHeroTextLoading(false);
@@ -614,7 +613,7 @@ const [modalConfig, setModalConfig] = useState({
             await deleteHeroText(id);
             await loadHeroTexts();
             toast.success("Text deleted");
-        } catch (error) {
+        } catch {
             toast.error("Failed to delete text");
         } finally {
             setIsHeroTextLoading(false);
@@ -637,7 +636,7 @@ const [modalConfig, setModalConfig] = useState({
         try {
             const ids = heroTexts.map(t => t.id);
             await reorderHeroTexts(ids);
-        } catch (error) {
+        } catch {
             toast.error("Failed to save order");
         }
     };
@@ -658,7 +657,7 @@ const [modalConfig, setModalConfig] = useState({
             toast.success("Featured category updated");
             featuredDraftDirtyRef.current = false;
             await loadFeaturedConfig();
-        } catch (error) {
+        } catch {
             toast.error("Featured category update failed");
         } finally {
             setIsFeaturedLoading(false);
@@ -701,7 +700,7 @@ const [modalConfig, setModalConfig] = useState({
                 setSlides(prev => prev.filter(s => s.id !== modalConfig.targetId));
                 toast.success("Slide deleted");
             }
-        } catch (error) {
+        } catch {
             toast.error("Delete failed");
         } finally {
             setModalConfig({
@@ -733,7 +732,7 @@ const [modalConfig, setModalConfig] = useState({
             const ids = slides.map(s => s.id);
             await reorderSlides(ids);
             // toast.success("Order saved"); // Silent save
-        } catch (error) {
+        } catch {
             toast.error("Failed to save order");
         }
     };
@@ -811,7 +810,7 @@ const [modalConfig, setModalConfig] = useState({
             }
             resetCarouselForm();
             await loadCarouselCards();
-        } catch (error) {
+        } catch {
             toast.error("Failed to save carousel card");
         } finally {
             setIsCarouselSaving(false);
@@ -866,8 +865,8 @@ const [modalConfig, setModalConfig] = useState({
             if (!url) throw new Error('Upload failed');
             setCarouselForm((prev) => ({ ...prev, imageUrl: url }));
             toast.success('Own image uploaded');
-        } catch (error) {
-            toast.error(error?.message || 'Failed to upload image');
+        } catch {
+            toast.error('Failed to upload image');
         } finally {
             setIsCarouselImageUploading(false);
         }
