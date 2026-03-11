@@ -784,6 +784,10 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                             userId: workingJourney.user_id,
                             attemptNo,
                             discountCode,
+                            discountPercent: discount.percent,
+                            linkExpiry: paymentExpiry ? paymentExpiry.toISOString() : null,
+                            cartValueSubunits: latestSummary.totalSubunits,
+                            currency: workingJourney.currency || 'INR',
                             paymentLink: paymentLink?.shortUrl || null,
                             checkoutLink: checkoutUrl
                         });

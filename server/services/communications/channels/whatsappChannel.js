@@ -12,6 +12,10 @@ const ENABLED = ['1', 'true', 'yes', 'on'].includes(String(process.env.WHATSAPP_
 const WORKFLOW_TEMPLATES = {
     default: String(process.env.WHATSAPP_TEMPLATE_DEFAULT || '').trim(),
     generic: String(process.env.WHATSAPP_TEMPLATE_GENERIC || '').trim(),
+    welcome: String(process.env.WHATSAPP_TEMPLATE_WELCOME || '').trim(),
+    loyalty_upgrade: String(process.env.WHATSAPP_TEMPLATE_LOYALTY_UPGRADE || '').trim(),
+    loyalty_progress: String(process.env.WHATSAPP_TEMPLATE_LOYALTY_PROGRESS || '').trim(),
+    birthday: String(process.env.WHATSAPP_TEMPLATE_BIRTHDAY || '').trim(),
     login_otp: String(process.env.WHATSAPP_TEMPLATE_LOGIN_OTP || '').trim(),
     order: String(process.env.WHATSAPP_TEMPLATE_ORDER || '').trim(),
     payment: String(process.env.WHATSAPP_TEMPLATE_PAYMENT || '').trim(),

@@ -161,6 +161,70 @@ const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' }
     return { subject, text, html };
 };
 
+const buildWelcomeEmailTemplate = ({ user = {} } = {}) => {
+    const customerName = String(user?.name || 'Customer').trim() || 'Customer';
+    const shopUrl = String(process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || 'https://sscjewels.com').trim();
+    const subject = `Welcome to SSC Impon Jewellery, ${customerName}`;
+    const text = [
+        `Hello ${customerName},`,
+        '',
+        'Your account has been successfully created.',
+        'You can now explore products, track orders, and enjoy exclusive offers.',
+        '',
+        `Shop now: ${shopUrl}`,
+        '',
+        'Happy shopping!',
+        'Team SSC Impon Jewellery'
+    ].join('\n');
+    const html = `
+        <div style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;padding:20px;color:#111827;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+                <tr>
+                    <td style="padding:24px;font-size:15px;line-height:1.6;">
+                        <p style="margin:0 0 12px;">Hello ${customerName} 👋</p>
+                        <p style="margin:0 0 12px;">Your account has been successfully created.</p>
+                        <p style="margin:0 0 12px;">You can now explore products, track orders, and enjoy exclusive offers.</p>
+                        <p style="margin:0 0 16px;">We are happy to have you with us.</p>
+                        <a href="${shopUrl}" target="_blank" rel="noreferrer" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Shop Now</a>
+                        <p style="margin:16px 0 0;">Happy shopping!<br/>Team SSC Impon Jewellery</p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    `;
+    return { subject, text, html };
+};
+
+const dispatchWelcomeCommunication = (user = {}) => {
+    const email = String(user?.email || '').trim().toLowerCase();
+    const mobile = String(user?.mobile || '').trim();
+    const payloadUser = { name: user?.name || 'Customer', email, mobile };
+    setImmediate(async () => {
+        try {
+            if (email && isEmail(email)) {
+                const template = buildWelcomeEmailTemplate({ user: payloadUser });
+                await sendEmailCommunication({
+                    to: email,
+                    subject: template.subject,
+                    text: template.text,
+                    html: template.html
+                });
+            }
+            if (mobile) {
+                await sendWhatsapp({
+                    type: 'welcome',
+                    template: 'welcome',
+                    mobile,
+                    name: payloadUser.name,
+                    params: [payloadUser.name]
+                });
+            }
+        } catch (error) {
+            console.error('Welcome communication failed:', error?.message || error);
+        }
+    });
+};
+
 // 2. Validate Input Format
 const validateRegistration = (data) => {
     const { name, email, mobile, password, dob } = data;
@@ -360,6 +424,7 @@ exports.register = async (req, res) => {
             io.emit('user:create', user);
         }
         const token = generateToken(user);
+        dispatchWelcomeCommunication(user);
         res.status(201).json({ message: 'Registered successfully', token, user });
 
     } catch (error) {
@@ -458,10 +523,15 @@ exports.socialLogin = async (req, res) => {
             };
         }
 
-        // 3. Generate Token
+        // 3. Trigger welcome communication for first-time Google users
+        if (isNewUser) {
+            dispatchWelcomeCommunication(user);
+        }
+
+        // 4. Generate Token
         const token = generateToken(user);
         
-        // 4. Send Response
+        // 5. Send Response
         res.json({ 
             message: 'Social Login successful', 
             token, 

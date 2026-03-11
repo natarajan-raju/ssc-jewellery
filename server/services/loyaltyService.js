@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const User = require('../models/User');
 const Coupon = require('../models/Coupon');
-const { sendEmailCommunication } = require('./communications/communicationService');
+const { sendEmailCommunication, sendWhatsapp } = require('./communications/communicationService');
 
 const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -415,6 +415,21 @@ const sendTierUpgradeMail = async ({ user, previousTier, newTier, status }) => {
         text: template.text,
         html: template.html
     });
+    if (user?.mobile) {
+        const previousLabel = getLoyaltyProfileByTier(previousTier)?.label || String(previousTier || 'Basic');
+        const benefit = String(newBenefits?.[0] || 'Exclusive member benefits').trim();
+        await sendWhatsapp({
+            type: 'loyalty_upgrade',
+            template: 'loyalty_upgrade',
+            mobile: user.mobile,
+            user: { name: user.name || 'Customer' },
+            data: {
+                previousTier: previousLabel,
+                newTier: label,
+                benefit
+            }
+        }).catch(() => {});
+    }
 };
 
 const sendTierDowngradeMail = async ({ user, previousTier, newTier, status }) => {
@@ -456,7 +471,7 @@ const sendTierDowngradeMail = async ({ user, previousTier, newTier, status }) =>
 };
 
 const sendMonthlyStatusSummaryMail = async ({ user, status }) => {
-    if (!user?.email || !status) return;
+    if (!status || (!user?.email && !user?.mobile)) return;
     const template = buildLoyaltyMailTemplate({
         user,
         seed: `monthly-summary|${user.id}|${status?.tier || 'regular'}`,
@@ -484,16 +499,31 @@ const sendMonthlyStatusSummaryMail = async ({ user, status }) => {
             'You can expect transparent updates whenever your tier changes.'
         ]
     });
-    await sendEmailCommunication({
-        to: user.email,
-        subject: template.subject,
-        text: template.text,
-        html: template.html
-    });
+    if (user?.email) {
+        await sendEmailCommunication({
+            to: user.email,
+            subject: template.subject,
+            text: template.text,
+            html: template.html
+        });
+    }
+    if (user?.mobile && status?.progress?.nextTier) {
+        await sendWhatsapp({
+            type: 'loyalty_progress',
+            template: 'loyalty_progress',
+            mobile: user.mobile,
+            user: { name: user.name || 'Customer' },
+            data: {
+                currentTier: status?.profile?.label || status?.tier || 'Basic',
+                progressPct: Number(status?.progress?.progressPct || 0),
+                nextTier: getLoyaltyProfileByTier(status?.progress?.nextTier)?.label || status?.progress?.nextTier || 'Next'
+            }
+        }).catch(() => {});
+    }
 };
 
 const sendFomoMailIfEligible = async ({ user, status }) => {
-    if (!user?.email) return;
+    if (!user?.email && !user?.mobile) return;
     const pct = Number(status?.progress?.progressPct || 0);
     if (pct < 75 || pct >= 100) return;
     const nextTier = status?.progress?.nextTier;
@@ -526,12 +556,27 @@ const sendFomoMailIfEligible = async ({ user, status }) => {
             'Our administration team remains available for clarification.'
         ]
     });
-    await sendEmailCommunication({
-        to: user.email,
-        subject: template.subject,
-        text: template.text,
-        html: template.html
-    });
+    if (user?.email) {
+        await sendEmailCommunication({
+            to: user.email,
+            subject: template.subject,
+            text: template.text,
+            html: template.html
+        });
+    }
+    if (user?.mobile) {
+        await sendWhatsapp({
+            type: 'loyalty_progress',
+            template: 'loyalty_progress',
+            mobile: user.mobile,
+            user: { name: user.name || 'Customer' },
+            data: {
+                currentTier: status?.profile?.label || status?.tier || 'Basic',
+                progressPct: Number(status?.progress?.progressPct || 0),
+                nextTier: nextLabel
+            }
+        }).catch(() => {});
+    }
 };
 
 const hashSeed = (input = '') => {
@@ -617,6 +662,12 @@ const buildLoyaltyMailTemplate = ({
     ].filter(Boolean).join('\n');
 
     return { subject, html, text };
+};
+
+const formatDateLabel = (value) => {
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 const reassessUserTier = async (userId, { reason = 'monthly_reassessment', sendNotifications = false, notificationMode = 'full' } = {}) => {
@@ -799,6 +850,22 @@ const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => 
             subject: template.subject,
             text: template.text,
             html: template.html
+        }).catch(() => {});
+    }
+    if (coupon?.code && !existingRows.length && user?.mobile) {
+        const status = await getUserLoyaltyStatus(user.id).catch(() => null);
+        const offer = `${Number(status?.profile?.birthdayDiscountPct ?? 10)}% OFF`;
+        const validUntil = formatDateLabel(new Date(`${year}-12-31T23:59:59`)) || `31 Dec ${year}`;
+        await sendWhatsapp({
+            type: 'birthday',
+            template: 'birthday',
+            mobile: user.mobile,
+            user: { name: user.name || 'Customer' },
+            data: {
+                couponCode: coupon.code,
+                offer,
+                validUntil
+            }
         }).catch(() => {});
     }
     return { created: !existingRows.length, coupon };
