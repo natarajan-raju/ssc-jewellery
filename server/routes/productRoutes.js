@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { protect, admin, staff } = require('../middleware/authMiddleware');
+const { protect, optionalProtect, admin } = require('../middleware/authMiddleware');
 const { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, manageCategoryProductsBulk, createCategory, deleteCategory } = require('../controllers/productController');
 
 // --- MULTER CONFIGURATION (Image Uploads) ---
@@ -49,8 +49,8 @@ const uploadCategoryImage = multer({
 // --- ROUTES ---
 
 // 1. Get Products (Public/Protected depending on need - usually Protected)
-router.get('/', getProducts);
-router.get('/search', searchProducts);
+router.get('/', optionalProtect, getProducts);
+router.get('/search', optionalProtect, searchProducts);
 
 // 2. Create Product (Admin Only, supports max 10 images at once)
 router.post('/', protect, admin, upload.array('images', 10), createProduct);
@@ -60,7 +60,7 @@ router.post('/', protect, admin, upload.array('images', 10), createProduct);
 router.get('/categories/stats', getCategoryStats);
 
 // 2. Get Single Category Details (with ordered products)
-router.get('/categories/:id', getCategoryDetails);
+router.get('/categories/:id', protect, admin, getCategoryDetails);
 
 // 3. Update Category Name
 router.put('/categories/:id', protect, admin, uploadCategoryImage.single('image'), updateCategory);
@@ -80,7 +80,7 @@ router.put('/:id', protect, admin, upload.array('images', 10), updateProduct);
 
 
 
-router.get('/categories', getCategories);
+router.get('/categories', optionalProtect, getCategories);
 // 6. Create Category
 router.post('/categories', protect, admin, uploadCategoryImage.single('image'), createCategory);
 
@@ -89,6 +89,6 @@ router.delete('/categories/:id', protect, admin, deleteCategory);
 
 // 8. Get Single Product (Public)
 // [IMPORTANT] Place this AFTER all '/categories' routes to avoid id collisions
-router.get('/:id', getSingleProduct);
+router.get('/:id', optionalProtect, getSingleProduct);
 
 module.exports = router;

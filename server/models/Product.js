@@ -158,23 +158,24 @@ class Product {
         
         // [FIX] If Sorting Manually, we MUST use JOIN to access 'display_order'
         // This also handles the category filtering more efficiently for this case.
-        if (sort === 'manual' && (hasCategoryId || (category && category !== 'all'))) {
+        const normalizedCategory = String(category || '').trim().toLowerCase();
+
+        if (sort === 'manual' && hasCategoryId) {
             fromClause += ' JOIN product_categories pc_sort ON p.id = pc_sort.product_id JOIN categories c_sort ON pc_sort.category_id = c_sort.id';
-            
-            // Filter by the joined category
-            if (hasCategoryId) {
-                conditions.push('c_sort.id = ?');
-                params.push(numericCategoryId);
-            } else {
-                conditions.push('c_sort.name = ?');
-                params.push(category);
-            }
+
+            conditions.push('c_sort.id = ?');
+            params.push(numericCategoryId);
+        } else if (sort === 'manual' && category && normalizedCategory !== 'all' && normalizedCategory !== 'uncategorized') {
+            fromClause += ' JOIN product_categories pc_sort ON p.id = pc_sort.product_id JOIN categories c_sort ON pc_sort.category_id = c_sort.id';
+            conditions.push('c_sort.name = ?');
+            params.push(category);
         } else {
-            // Standard Category Filter (Using Subquery to avoid duplicate rows)
             if (hasCategoryId) {
                 conditions.push('EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = p.id AND pc.category_id = ?)');
                 params.push(numericCategoryId);
-            } else if (category && category !== 'all') {
+            } else if (normalizedCategory === 'uncategorized') {
+                conditions.push('NOT EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = p.id)');
+            } else if (category && normalizedCategory !== 'all') {
                 conditions.push('EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)');
                 params.push(category);
             }
@@ -195,7 +196,7 @@ class Product {
         // 5. Determine ORDER BY
         let orderByClause = 'ORDER BY p.created_at DESC'; // Default
         
-        if (sort === 'manual' && (hasCategoryId || (category && category !== 'all'))) {
+        if (sort === 'manual' && (hasCategoryId || (category && normalizedCategory !== 'all' && normalizedCategory !== 'uncategorized'))) {
             orderByClause = 'ORDER BY pc_sort.display_order ASC';
         } 
         else if (sort === 'low' || sort === 'high') {
@@ -265,11 +266,15 @@ class Product {
             )
         `;
 
-        if (sort === 'manual' && category && category !== 'all') {
+        const normalizedCategory = String(category || '').trim().toLowerCase();
+
+        if (sort === 'manual' && category && normalizedCategory !== 'all' && normalizedCategory !== 'uncategorized') {
             fromClause += ' JOIN product_categories pc_sort ON p.id = pc_sort.product_id JOIN categories c_sort ON pc_sort.category_id = c_sort.id';
             conditions.push('c_sort.name = ?');
             params.push(category);
-        } else if (category && category !== 'all') {
+        } else if (normalizedCategory === 'uncategorized') {
+            conditions.push('NOT EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = p.id)');
+        } else if (category && normalizedCategory !== 'all') {
             conditions.push(
                 'EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON pc.category_id = c.id WHERE pc.product_id = p.id AND c.name = ?)'
             );
@@ -327,7 +332,7 @@ class Product {
 
         let orderByClause = ' ORDER BY p.created_at DESC';
         const orderParams = [];
-        if (sort === 'manual' && category && category !== 'all') {
+        if (sort === 'manual' && category && normalizedCategory !== 'all' && normalizedCategory !== 'uncategorized') {
             orderByClause = ' ORDER BY pc_sort.display_order ASC';
         } else if (sort === 'low' || sort === 'high') {
             orderByClause = ` ORDER BY ${effectivePrice} ${sort === 'low' ? 'ASC' : 'DESC'}, p.created_at DESC`;

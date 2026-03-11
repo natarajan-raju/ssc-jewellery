@@ -34,11 +34,78 @@ const normalizeVideoType = (value = '') => {
     return '';
 };
 
+const normalizeVariantForPublic = (variant = {}) => {
+    const tracked = variant.track_quantity === 1 || variant.track_quantity === true || variant.track_quantity === '1' || variant.track_quantity === 'true';
+    const trackLowStock = variant.track_low_stock === 1 || variant.track_low_stock === true || variant.track_low_stock === '1' || variant.track_low_stock === 'true';
+    const quantity = Number(variant.quantity || 0);
+    const lowStockThreshold = Number(variant.low_stock_threshold || 0);
+    const hasStock = !tracked || Number(variant.quantity || 0) > 0;
+    const isLowStock = tracked && trackLowStock && quantity > 0 && quantity <= lowStockThreshold;
+    return {
+        id: variant.id,
+        variant_title: variant.variant_title,
+        price: variant.price,
+        discount_price: variant.discount_price,
+        sku: variant.sku,
+        weight_kg: variant.weight_kg,
+        quantity: tracked ? (isLowStock ? quantity : (hasStock ? 1 : 0)) : 0,
+        track_quantity: tracked ? 1 : 0,
+        track_low_stock: trackLowStock ? 1 : 0,
+        low_stock_threshold: trackLowStock ? lowStockThreshold : 0,
+        image_url: variant.image_url
+    };
+};
+
+const serializePublicProduct = (product = {}) => {
+    const tracked = product.track_quantity === 1 || product.track_quantity === true || product.track_quantity === '1' || product.track_quantity === 'true';
+    const trackLowStock = product.track_low_stock === 1 || product.track_low_stock === true || product.track_low_stock === '1' || product.track_low_stock === 'true';
+    const quantity = Number(product.quantity || 0);
+    const lowStockThreshold = Number(product.low_stock_threshold || 0);
+    const hasStock = !tracked || quantity > 0;
+    const isLowStock = tracked && trackLowStock && quantity > 0 && quantity <= lowStockThreshold;
+    return {
+        id: product.id,
+        title: product.title,
+        subtitle: product.subtitle,
+        description: product.description,
+        mrp: product.mrp,
+        discount_price: product.discount_price,
+        ribbon_tag: product.ribbon_tag,
+        sku: product.sku,
+        weight_kg: product.weight_kg,
+        status: product.status,
+        media: safeParse(product.media, []),
+        categories: safeParse(product.categories, []),
+        related_products: safeParse(product.related_products, {}),
+        additional_info: safeParse(product.additional_info, []),
+        polish_warranty_months: product.polish_warranty_months,
+        options: safeParse(product.options, []),
+        quantity: tracked ? (isLowStock ? quantity : (hasStock ? 1 : 0)) : 0,
+        track_quantity: tracked ? 1 : 0,
+        track_low_stock: trackLowStock ? 1 : 0,
+        low_stock_threshold: trackLowStock ? lowStockThreshold : 0,
+        variants: Array.isArray(product.variants) ? product.variants.map(normalizeVariantForPublic) : []
+    };
+};
+
+const canViewAdminProductData = (req) => {
+    const role = String(req?.user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'staff';
+};
+
+const emitProductEvent = (req, event, product) => {
+    const io = req.app.get('io');
+    if (!io || !product?.id) return;
+    console.log(`Event: ${event}`, `for ID: ${product.id}`);
+    io.except('admin').emit(event, serializePublicProduct(product));
+    io.to('admin').emit(event, product);
+};
+
 // Helper to emit event
 const notifyClients = (req, event = 'refresh:categories', payload = {}) => {
     const io = req.app.get('io');
     console.log(`Event: ${event}`, payload.id ? `for ID: ${payload.id}` : '');
-    io.emit(event, payload); // Broadcast to everyone
+    io.emit(event, payload);
 };
 
 const emitProductUpdatesForIds = async (req, productIds = []) => {
@@ -46,7 +113,7 @@ const emitProductUpdatesForIds = async (req, productIds = []) => {
     for (const productId of ids) {
         const product = await Product.findById(productId);
         if (!product) continue;
-        notifyClients(req, 'product:update', product);
+        emitProductEvent(req, 'product:update', product);
     }
 };
 // --- 1. LIST PRODUCTS ---
@@ -61,7 +128,11 @@ const getProducts = async (req, res) => {
         const status = req.query.status || 'all'; 
         const sort = req.query.sort || 'newest';
 
-        const result = await Product.getPaginated(page, limit, category, status, sort, categoryId);
+        const resolvedStatus = canViewAdminProductData(req) ? status : 'active';
+        const result = await Product.getPaginated(page, limit, category, resolvedStatus, sort, categoryId);
+        if (!canViewAdminProductData(req)) {
+            result.products = (result.products || []).filter((product) => String(product.status || '').toLowerCase() === 'active').map(serializePublicProduct);
+        }
         res.json(result);
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
@@ -84,17 +155,21 @@ const searchProducts = async (req, res) => {
         const minPrice = req.query.minPrice ?? null;
         const maxPrice = req.query.maxPrice ?? null;
 
+        const resolvedStatus = canViewAdminProductData(req) ? status : 'active';
         const result = await Product.searchPaginated({
             query,
             page,
             limit,
             category,
-            status,
+            status: resolvedStatus,
             sort,
             inStockOnly,
             minPrice,
             maxPrice
         });
+        if (!canViewAdminProductData(req)) {
+            result.products = (result.products || []).filter((product) => String(product.status || '').toLowerCase() === 'active').map(serializePublicProduct);
+        }
         res.json(result);
     } catch (error) {
         res.status(500).json({ message: 'Search failed', error: error.message });
@@ -108,6 +183,10 @@ const getSingleProduct = async (req, res) => {
         const product = await Product.findById(id);
 
         if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        if (!canViewAdminProductData(req) && String(product.status || '').toLowerCase() !== 'active') {
             return res.status(404).json({ message: 'Product not found' });
         }
 
@@ -127,7 +206,7 @@ const getSingleProduct = async (req, res) => {
              }));
         }
 
-        res.json(product);
+        res.json(canViewAdminProductData(req) ? product : serializePublicProduct(product));
     } catch (error) {
         console.error("Get Single Product Error:", error);
         res.status(500).json({ message: 'Server Error', error: error.message });
@@ -174,7 +253,7 @@ const createProduct = async (req, res) => {
 
         const newProduct = await Product.create(productData);
         const createdProduct = await Product.findById(newProduct.id);
-        notifyClients(req, 'product:create', createdProduct || newProduct);
+        emitProductEvent(req, 'product:create', createdProduct || newProduct);
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
         res.status(201).json(newProduct);
     } catch (error) {
@@ -258,7 +337,7 @@ const updateProduct = async (req, res) => {
         await Product.update(id, productData);
         // 2. [FIX] Fetch the FRESH updated product from DB (ensures we get new Variant IDs)
         const updatedProduct = await Product.findById(id);
-        notifyClients(req, 'product:update', updatedProduct); // [NEW] Notify Sync
+        emitProductEvent(req, 'product:update', updatedProduct);
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
         res.json({ message: 'Product updated successfully' });
     } catch (error) {
@@ -340,10 +419,10 @@ const manageCategoryProduct = async (req, res) => {
             categoryId: req.params.id,
             categoryName: catName,
             action,
-            product: updatedProduct
+            product: serializePublicProduct(updatedProduct)
         }); // [NEW] Notify Sync
         if (updatedProduct) {
-            notifyClients(req, 'product:update', updatedProduct);
+            emitProductEvent(req, 'product:update', updatedProduct);
         }
         // 2. To update category stats (Jumbotron counts)
         const category = await Product.getCategoryStatsById(req.params.id);

@@ -55,6 +55,35 @@ const protect = async (req, res, next) => {
     }
 };
 
+const optionalProtect = async (req, _res, next) => {
+    if (!(req.headers.authorization && req.headers.authorization.startsWith('Bearer'))) {
+        return next();
+    }
+
+    try {
+        const token = req.headers.authorization.split(' ')[1];
+        if (!token || token === 'undefined' || token === 'null') {
+            return next();
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const userId = decoded?.id;
+        if (!userId || (typeof userId !== 'string' && typeof userId !== 'number')) {
+            return next();
+        }
+
+        const user = await User.findById(String(userId));
+        if (!user) return next();
+
+        delete user.password;
+        req.user = user;
+    } catch {
+        // Ignore optional auth failures for public routes.
+    }
+
+    next();
+};
+
 // 2. ADMIN ONLY (Legacy Support)
 const admin = (req, res, next) => {
     if (req.user && req.user.role === 'admin') {
@@ -77,4 +106,4 @@ const authorize = (...roles) => {
     };
 };
 
-module.exports = { protect, admin, authorize };
+module.exports = { protect, optionalProtect, admin, authorize };

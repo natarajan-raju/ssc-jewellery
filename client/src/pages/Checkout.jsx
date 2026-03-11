@@ -1197,6 +1197,9 @@ export default function Checkout() {
                                                     taxLabel: itemTax.taxCode || itemTax.taxName || ''
                                                 })
                                                 : null;
+                                            const lowStockCopy = item.isLowStock
+                                                ? `Only ${Number(item.availableQuantity || 0)} left. Complete payment soon.`
+                                                : '';
                                             return (
                                                 <div key={item.key} className={`flex gap-4 items-center ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
                                                     <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden">
@@ -1209,6 +1212,11 @@ export default function Checkout() {
                                                             <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
                                                                 Out of Stock
                                                             </span>
+                                                        )}
+                                                        {!item.isOutOfStock && lowStockCopy && (
+                                                            <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                                                                {lowStockCopy}
+                                                            </p>
                                                         )}
                                                         <p className="text-xs text-gray-400 mt-1">
                                                             ₹{price.toLocaleString()} x {item.quantity}

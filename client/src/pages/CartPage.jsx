@@ -226,6 +226,9 @@ export default function CartPage() {
                                                 const mrp = Number(item.compareAt || 0);
                                                 const hasDiscount = mrp > price;
                                                 const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                                                const lowStockCopy = item.isLowStock
+                                                    ? `Only ${Number(item.availableQuantity || 0)} left. Checkout soon.`
+                                                    : '';
                                                 return (
                                                     <>
                                                     <p className="text-base font-semibold text-gray-800 line-clamp-1">{item.title}</p>
@@ -234,6 +237,11 @@ export default function CartPage() {
                                                         <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
                                                             Out of Stock
                                                         </span>
+                                                    )}
+                                                    {!item.isOutOfStock && lowStockCopy && (
+                                                        <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                                                            {lowStockCopy}
+                                                        </p>
                                                     )}
                                                     <div className="mt-2 flex items-center gap-2 flex-wrap">
                                                         <p className="text-sm text-primary font-semibold">₹{price.toLocaleString()}</p>

@@ -280,7 +280,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const saveOption = () => {
         if (!optionForm.name || optionForm.values.length === 0) return toast.error("Name and values required");
         const newOpt = { id: optionForm.id || Date.now().toString(), name: optionForm.name, values: optionForm.values };
-        const newOptions = optionForm.id ? options.map(o => o.id === o.id ? newOpt : o) : [...options, newOpt];
+        const newOptions = optionForm.id ? options.map((o) => (o.id === optionForm.id ? newOpt : o)) : [...options, newOpt];
         setOptions(newOptions);
         generateVariants(newOptions);
         setIsOptionModalOpen(false);
@@ -462,7 +462,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             try {
                 const data = await productService.getCategories();
                 setAvailableCategories(data);
-            } catch (error) {
+            } catch {
                 console.error("Failed to load categories");
             } finally {
                 setIsCategoriesLoading(false);

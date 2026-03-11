@@ -39,9 +39,11 @@ const parseProductsCacheKey = (key = '') => {
 const normalizeText = (value) => String(value || '').trim().toLowerCase();
 
 const matchesCategory = (product, category) => {
-    if (normalizeText(category) === 'all') return true;
+    const normalizedCategory = normalizeText(category);
+    if (normalizedCategory === 'all') return true;
     const categories = Array.isArray(product?.categories) ? product.categories : [];
-    const wanted = normalizeText(category);
+    if (normalizedCategory === 'uncategorized') return categories.length === 0;
+    const wanted = normalizedCategory;
     return categories.some((entry) => normalizeText(entry) === wanted);
 };
 
@@ -92,7 +94,7 @@ const handleResponse = async (res) => {
 export const productService = {
     clearCache: () => {
         productCache = {};
-        try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
+        try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch { /* ignore storage errors */ }
     },
     // --- GET PRODUCTS (With Caching) ---
     getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10, categoryId = null) => {
@@ -197,7 +199,7 @@ export const productService = {
     },
     invalidateCategoryStatsCache: () => {
         delete productCache['category_stats'];
-        try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
+        try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch { /* ignore storage errors */ }
     },
     invalidateCategoryListCache: () => {
         delete productCache['all_categories'];
@@ -295,7 +297,9 @@ export const productService = {
             if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
                 return cached.data;
             }
-            const res = await fetch(`${API_URL}/${id}`);
+            const res = await fetch(`${API_URL}/${id}`, {
+                headers: getAuthHeader()
+            });
             const data = await handleResponse(res);
             
             
@@ -369,7 +373,7 @@ export const productService = {
     // --- CATEGORY MANAGEMENT ---
     getCategoryStats: async (force = false) => {
         if (force) {
-            try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch {}
+            try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch { /* ignore storage errors */ }
             delete productCache['category_stats'];
         }
         const cached = productCache['category_stats'];
@@ -386,13 +390,15 @@ export const productService = {
                     return parsed.data;
                 }
             }
-        } catch {}
+        } catch {
+            // Ignore corrupt or unavailable local storage cache.
+        }
 
         const res = await fetch(`${API_URL}/categories/stats`);
         const data = await handleResponse(res);
         const payload = { data, timestamp: Date.now() };
         productCache['category_stats'] = payload;
-        try { localStorage.setItem(CATEGORY_STATS_CACHE_KEY, JSON.stringify(payload)); } catch {}
+        try { localStorage.setItem(CATEGORY_STATS_CACHE_KEY, JSON.stringify(payload)); } catch { /* ignore storage errors */ }
         return data;
     },
     patchCategoryStatsCache: (updater) => {
@@ -404,11 +410,15 @@ export const productService = {
             const payload = { data: next, timestamp: Date.now() };
             productCache['category_stats'] = payload;
             localStorage.setItem(CATEGORY_STATS_CACHE_KEY, JSON.stringify(payload));
-        } catch {}
+        } catch {
+            // Ignore local storage cache update failures.
+        }
     },
 
     getCategoryDetails: async (id) => {
-        const res = await fetch(`${API_URL}/categories/${id}`);
+        const res = await fetch(`${API_URL}/categories/${id}`, {
+            headers: getAuthHeader()
+        });
         return handleResponse(res);
     },
 

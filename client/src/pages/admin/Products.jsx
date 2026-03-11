@@ -102,6 +102,9 @@ const extractCategoryNames = (value) => {
         .filter(Boolean);
 };
 
+const ADMIN_FILTER_ALL = 'all';
+const ADMIN_FILTER_UNCATEGORIZED = 'uncategorized';
+
 export default function Products({ onNavigate, focusProductId = null, onFocusHandled = () => {} }) {
     const [allProducts, setAllProducts] = useState([]);
     const [isDownloading, setIsDownloading] = useState(false);
@@ -126,19 +129,15 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             const data = await productService.getCategories();
             const nextCategories = Array.isArray(data) ? data : [];
             setCategories(nextCategories);
-            if (!nextCategories.length) {
-                setFilterCategory('');
-                setAllProducts([]);
-                return;
-            }
             setFilterCategory((prev) => {
+                if (prev === ADMIN_FILTER_ALL || prev === ADMIN_FILTER_UNCATEGORIZED) return prev;
                 if (prev && nextCategories.includes(prev)) return prev;
-                return nextCategories[0];
+                return ADMIN_FILTER_ALL;
             });
         } catch (error) {
             console.error('Failed to load categories', error);
             setCategories([]);
-            setFilterCategory('');
+            setFilterCategory(ADMIN_FILTER_ALL);
             setAllProducts([]);
         } finally {
             setIsCategoriesLoading(false);
@@ -186,6 +185,14 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
         });
     }, [filterCategory]);
 
+    const matchesCurrentFilter = useCallback((product = {}) => {
+        const categoryNames = extractCategoryNames(product.categories);
+        const normalizedCurrent = String(filterCategory || '').trim().toLowerCase();
+        if (normalizedCurrent === ADMIN_FILTER_ALL) return true;
+        if (normalizedCurrent === ADMIN_FILTER_UNCATEGORIZED) return categoryNames.length === 0;
+        return categoryNames.some((name) => name.toLowerCase() === normalizedCurrent);
+    }, [filterCategory]);
+
     useEffect(() => {
         loadCategories();
     }, [loadCategories]);
@@ -210,7 +217,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             const categoryNames = extractCategoryNames(product);
             categoryNames.forEach(clearCategoryCache);
             if (!product?.id) return;
-            const isInCurrent = categoryNames.some((name) => name.toLowerCase() === String(filterCategory || '').toLowerCase());
+            const isInCurrent = matchesCurrentFilter(product);
             if (!isInCurrent) return;
             patchCurrentCategoryList((prev) => {
                 const exists = prev.some((item) => String(item?.id || '') === String(product.id));
@@ -223,7 +230,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             if (!product?.id) return;
             const categoryNames = extractCategoryNames(product);
             categoryNames.forEach(clearCategoryCache);
-            const isInCurrent = categoryNames.some((name) => name.toLowerCase() === String(filterCategory || '').toLowerCase());
+            const isInCurrent = matchesCurrentFilter(product);
             patchCurrentCategoryList((prev) => {
                 const exists = prev.some((item) => String(item?.id || '') === String(product.id));
                 if (exists && !isInCurrent) {
@@ -401,9 +408,10 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                             value={filterCategory}
                             onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
                             className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer md:max-w-[200px]"
-                            disabled={isCategoriesLoading || categories.length === 0}
+                            disabled={isCategoriesLoading}
                         >
-                            {!filterCategory && <option value="">Select Category</option>}
+                            <option value={ADMIN_FILTER_ALL}>All Products</option>
+                            <option value={ADMIN_FILTER_UNCATEGORIZED}>Uncategorized</option>
                             {categories.map(cat => (
                                 <option key={cat} value={cat}>{cat}</option>
                             ))}

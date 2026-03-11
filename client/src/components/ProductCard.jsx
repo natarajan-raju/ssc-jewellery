@@ -114,6 +114,29 @@ export default function ProductCard({ product, displayCategory = '' }) {
         return Number(product?.quantity || 0) <= 0;
     }, [product]);
     const isUnavailable = isInactive || isOutOfStock;
+    const lowStockCopy = useMemo(() => {
+        const variants = Array.isArray(product?.variants) ? product.variants : [];
+        if (variants.length > 1) {
+            const hasUrgencyVariant = variants.some((variant) => {
+                const tracked = String(variant?.track_quantity) === '1' || String(variant?.track_quantity) === 'true' || variant?.track_quantity === true;
+                const trackLowStock = String(variant?.track_low_stock) === '1' || String(variant?.track_low_stock) === 'true' || variant?.track_low_stock === true;
+                const qty = Number(variant?.quantity || 0);
+                const threshold = Number(variant?.low_stock_threshold || 0);
+                return tracked && trackLowStock && qty > 0 && qty <= threshold;
+            });
+            return hasUrgencyVariant ? 'Selling fast' : '';
+        }
+
+        const source = variants[0] || product;
+        const tracked = String(source?.track_quantity) === '1' || String(source?.track_quantity) === 'true' || source?.track_quantity === true;
+        const trackLowStock = String(source?.track_low_stock) === '1' || String(source?.track_low_stock) === 'true' || source?.track_low_stock === true;
+        const qty = Number(source?.quantity || 0);
+        const threshold = Number(source?.low_stock_threshold || 0);
+        if (tracked && trackLowStock && qty > 0 && qty <= threshold) {
+            return `Only ${qty} left`;
+        }
+        return '';
+    }, [product]);
     const wishlisted = isWishlisted(product?.id);
 
     // --- 3. Image Logic (Based on your JSON 'media' array) ---
@@ -352,6 +375,11 @@ export default function ProductCard({ product, displayCategory = '' }) {
                 {memberPct > 0 && (
                     <p className="text-[11px] text-blue-700 mt-1">
                         {formatTierLabel(loyaltyTier)} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
+                    </p>
+                )}
+                {!isUnavailable && lowStockCopy && (
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mt-2">
+                        {lowStockCopy}
                     </p>
                 )}
                 <div className="md:hidden">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
     Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, Minus, Plus,
@@ -296,20 +296,11 @@ export default function ProductPage() {
         if (!product?.additional_info) return [];
         try {
             return typeof product.additional_info === 'string' ? JSON.parse(product.additional_info) : product.additional_info;
-        } catch (e) {
+        } catch {
             return [];
         }
     }, [product]);
 
-    // 3. Product Options
-    const productOptions = useMemo(() => {
-        if (!product?.options) return [];
-        try {
-            return typeof product.options === 'string' ? JSON.parse(product.options) : product.options;
-        } catch (e) {
-            return [];
-        }
-    }, [product]);
     const polishWarrantyMonths = useMemo(() => {
         const raw = Number(product?.polish_warranty_months);
         const allowed = [6, 7, 8, 9, 12];
@@ -364,14 +355,14 @@ export default function ProductPage() {
             if (path.startsWith('http')) return path;
             // If it's a local upload, ensure it starts with /
             if (!path.startsWith('/')) return `/${path}`;
-        } catch (e) {
+        } catch {
             return placeholderImg;
         }
         return path;
     };
 
     // [NEW] Helper to refresh Related Products
-    const loadRelatedProducts = async (data) => {
+    const loadRelatedProducts = useCallback(async (data) => {
         let searchCategory = null;
         
         // 1. Default to product's main category
@@ -387,7 +378,9 @@ export default function ProductPage() {
             if (rpConfig && rpConfig.show === true && rpConfig.category) {
                 searchCategory = rpConfig.category;
             }
-        } catch (e) {}
+        } catch {
+            // Ignore malformed related product config.
+        }
 
         // [CRITICAL] Save the category we are searching for into Ref
         relatedCategoryRef.current = searchCategory; 
@@ -413,16 +406,16 @@ export default function ProductPage() {
                 console.error("Failed to load related products", err);
             }
         }
-    };
+    }, []);
 
-    const scheduleRelatedReload = (data) => {
+    const scheduleRelatedReload = useCallback((data) => {
         if (!data) return;
         if (relatedReloadTimerRef.current) clearTimeout(relatedReloadTimerRef.current);
         relatedReloadTimerRef.current = setTimeout(() => {
             loadRelatedProducts(data);
         }, 180);
-    };
-    const scheduleLiveProductRefresh = (delay = 220) => {
+    }, [loadRelatedProducts]);
+    const scheduleLiveProductRefresh = useCallback((delay = 220) => {
         if (!id) return;
         if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
         liveRefreshTimerRef.current = setTimeout(async () => {
@@ -433,7 +426,7 @@ export default function ProductPage() {
                 // Silent fallback: socket payload has already updated optimistic state.
             }
         }, delay);
-    };
+    }, [id]);
 
     const handleAddToCart = async () => {
         if (!product) return;
@@ -513,7 +506,7 @@ export default function ProductPage() {
 
                     setActiveVariantId(firstVar.id);
                     // Set initial image
-                    const vImg = data.variants[0].image_url;
+                    const vImg = firstVar?.image_url;
                     setSelectedImage(vImg || (images.length > 0 ? images[0] : null));
                 } else {
                     setSelectedImage(images.length > 0 ? images[0] : null);
@@ -530,7 +523,7 @@ export default function ProductPage() {
             }
         };
         fetchAllData();
-    }, [id, navigate]);
+    }, [id, navigate, toast, loadRelatedProducts]);
 
     // --- 2. Real-Time Sync ---
     useEffect(() => {
@@ -609,7 +602,7 @@ export default function ProductPage() {
                 } else if (oldOutOfStock && !newOutOfStock) {
                     toast.success(`${priceLabel} is back in stock.`);
                 } else if (!newOutOfStock && oldQty !== newQty && newQty >= 0) {
-                    toast.info(`Stock updated for ${priceLabel}: ${newQty} left.`);
+                    toast.info(`Availability updated for ${priceLabel}.`);
                 }
                 
                 if (newSelectedId) {
@@ -708,7 +701,7 @@ export default function ProductPage() {
                 liveRefreshTimerRef.current = null;
             }
         };
-    }, [socket, id, toast]);
+    }, [socket, id, toast, scheduleLiveProductRefresh, scheduleRelatedReload]);
     
     // --- 3. Handlers ---
     const handleVariantChange = (variant) => {
@@ -764,7 +757,7 @@ export default function ProductPage() {
                     url: shareUrl
                 });
                 return;
-            } catch (err) {
+            } catch {
                 // Fall back to panel
             }
         }
@@ -1039,7 +1032,7 @@ export default function ProductPage() {
                             )}
                             {isLowStock && (
                                 <span className="text-orange-500 font-medium">
-                                    Only {currentQty} left!
+                                    Only {currentQty} left. Order soon.
                                 </span>
                             )}
                             {currentSKU && <span className="text-gray-400">SKU: {currentSKU}</span>}
