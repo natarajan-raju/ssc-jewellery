@@ -1,5 +1,6 @@
 const AbandonedCart = require('../models/AbandonedCart');
 const { runDueAbandonedCartRecoveriesUntilClear, runAbandonedCartMaintenanceOnce } = require('../services/abandonedCartRecoveryService');
+const { listCommunicationDeliveryLogs } = require('../services/communications/communicationRetryService');
 
 const parseIntegerArrayStrict = (value, field) => {
     if (value == null) return undefined;
@@ -108,11 +109,23 @@ const getAbandonedCartInsights = async (req, res) => {
     }
 };
 
+const getCommunicationDeliveryLogs = async (req, res) => {
+    try {
+        const status = String(req.query.status || 'all').trim().toLowerCase();
+        const limit = Number(req.query.limit || 50);
+        const logs = await listCommunicationDeliveryLogs({ status, limit });
+        return res.json({ logs });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to load communication delivery logs' });
+    }
+};
+
 module.exports = {
     getAbandonedCartCampaign,
     updateAbandonedCartCampaign,
     processAbandonedCartRecoveriesNow,
     listAbandonedCartJourneys,
     getAbandonedCartJourneyTimeline,
-    getAbandonedCartInsights
+    getAbandonedCartInsights,
+    getCommunicationDeliveryLogs
 };

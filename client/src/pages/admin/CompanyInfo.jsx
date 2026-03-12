@@ -5,6 +5,7 @@ import {
     Facebook,
     Instagram,
     Key,
+    Mail,
     MessageCircle,
     Plus,
     Save,
@@ -36,6 +37,8 @@ const DEFAULT_FORM = {
     facebookUrl: '',
     whatsappNumber: '',
     contactJumbotronImageUrl: '/assets/contact.jpg',
+    emailChannelEnabled: true,
+    whatsappChannelEnabled: true,
     razorpayKeyId: '',
     razorpayKeySecret: '',
     razorpayWebhookSecret: '',
@@ -57,6 +60,8 @@ const isValidUrl = (value = '') => {
         return false;
     }
 };
+
+const isDevMode = import.meta.env.DEV;
 
 export default function CompanyInfo() {
     const toast = useToast();
@@ -89,6 +94,8 @@ export default function CompanyInfo() {
     });
     const [isWhatsappTestSending, setIsWhatsappTestSending] = useState(false);
     const [whatsappTestResult, setWhatsappTestResult] = useState(null);
+    const [communicationLogs, setCommunicationLogs] = useState([]);
+    const [isCommunicationLogsLoading, setIsCommunicationLogsLoading] = useState(false);
 
     const staffAndAdmins = useMemo(
         () => users.filter((u) => u.role === 'admin' || u.role === 'staff'),
@@ -119,6 +126,21 @@ export default function CompanyInfo() {
             }
         };
         load();
+    }, [toast]);
+
+    useEffect(() => {
+        const loadLogs = async () => {
+            setIsCommunicationLogsLoading(true);
+            try {
+                const data = await adminService.getCommunicationDeliveryLogs({ status: 'all', limit: 20 });
+                setCommunicationLogs(Array.isArray(data?.logs) ? data.logs : []);
+            } catch (error) {
+                toast.error(error?.message || 'Failed to load communication delivery logs');
+            } finally {
+                setIsCommunicationLogsLoading(false);
+            }
+        };
+        loadLogs();
     }, [toast]);
 
     useAdminCrudSync({
@@ -423,6 +445,31 @@ export default function CompanyInfo() {
         }
     };
 
+    const refreshCommunicationLogs = async () => {
+        setIsCommunicationLogsLoading(true);
+        try {
+            const data = await adminService.getCommunicationDeliveryLogs({ status: 'all', limit: 20 });
+            setCommunicationLogs(Array.isArray(data?.logs) ? data.logs : []);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to refresh communication delivery logs');
+        } finally {
+            setIsCommunicationLogsLoading(false);
+        }
+    };
+
+    const formatLogDateTime = (value) => {
+        if (!value) return 'N/A';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return 'N/A';
+        return date.toLocaleString('en-IN', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
     if (isLoading) {
         return <div className="py-16 text-center text-gray-400">Loading settings...</div>;
     }
@@ -449,6 +496,44 @@ export default function CompanyInfo() {
             <div className="mb-6">
                 <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Settings</h1>
                 <p className="text-gray-500 text-sm mt-1">Manage company profile and payment gateway configuration.</p>
+            </div>
+
+            <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden mb-6">
+                <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                <div className="relative z-10">
+                    <h3 className="text-sm font-semibold text-gray-800">Communication Channels</h3>
+                    <p className="text-xs text-gray-500 mt-1">Global channel controls live here. Workflow-specific recipients remain under dashboard alerts.</p>
+                </div>
+                <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-start gap-3">
+                        <Mail size={18} className="mt-0.5 text-gray-500" />
+                        <div className="flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">Email channel</p>
+                                    <p className="text-xs text-gray-500 mt-1">Always on. Email remains the required baseline channel for customer communication.</p>
+                                </div>
+                                <input type="checkbox" checked readOnly disabled className="cursor-not-allowed" />
+                            </div>
+                        </div>
+                    </label>
+                    <label className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-start gap-3">
+                        <MessageCircle size={18} className="mt-0.5 text-green-600" />
+                        <div className="flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">WhatsApp channel</p>
+                                    <p className="text-xs text-gray-500 mt-1">Disabling this stops WhatsApp sends across OTP, loyalty, order, abandoned cart, and dashboard alert flows.</p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(form.whatsappChannelEnabled)}
+                                    onChange={(e) => handleChange('whatsappChannelEnabled', e.target.checked)}
+                                />
+                            </div>
+                        </div>
+                    </label>
+                </div>
             </div>
 
             <div className="emboss-card relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
@@ -945,64 +1030,122 @@ export default function CompanyInfo() {
 
                 <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
                     <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
-                    <div className="relative z-10">
-                        <h3 className="text-sm font-semibold text-gray-800">WhatsApp Test</h3>
-                        <p className="text-xs text-gray-500 mt-1">Send a test template and inspect provider response.</p>
-                    </div>
-                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <Field
-                            label="Recipient Mobile"
-                            value={whatsappTestForm.mobile}
-                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, mobile: String(value || '').replace(/\D/g, '').slice(0, 14) }))}
-                            placeholder={form.whatsappNumber ? `Default: ${form.whatsappNumber}` : '91XXXXXXXXXX'}
-                        />
-                        <Field
-                            label="Template"
-                            value={whatsappTestForm.template}
-                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, template: value }))}
-                            placeholder="generic / login_otp / order ..."
-                        />
-                        <Field
-                            label="Name"
-                            value={whatsappTestForm.name}
-                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, name: value }))}
-                            placeholder="Customer name"
-                        />
-                        <Field
-                            label="Params (Comma Separated)"
-                            value={whatsappTestForm.params}
-                            onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, params: value }))}
-                            placeholder="Ravi,SSC Jewellery,Today"
-                        />
-                        <div className="md:col-span-2">
-                            <Field
-                                label="Message (Optional Fallback)"
-                                value={whatsappTestForm.message}
-                                onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, message: value }))}
-                                placeholder="Optional plain text fallback"
-                            />
+                    <div className="relative z-10 flex items-start justify-between gap-3">
+                        <div>
+                            <h3 className="text-sm font-semibold text-gray-800">Communication Retry Log</h3>
+                            <p className="text-xs text-gray-500 mt-1">Recent queued, sent, and failed communication retries for admin review.</p>
                         </div>
-                    </div>
-                    <div className="relative z-10 flex items-center justify-between gap-3">
                         <button
                             type="button"
-                            onClick={handleSendWhatsappTest}
-                            disabled={isWhatsappTestSending}
-                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100 disabled:opacity-60"
+                            onClick={refreshCommunicationLogs}
+                            disabled={isCommunicationLogsLoading}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                         >
-                            <MessageCircle size={14} />
-                            {isWhatsappTestSending ? 'Sending...' : 'Send Test WhatsApp'}
+                            {isCommunicationLogsLoading ? 'Refreshing...' : 'Refresh'}
                         </button>
                     </div>
-                    {whatsappTestResult && (
-                        <div className="relative z-10">
-                            <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold mb-2">Response</p>
-                            <pre className="max-h-64 overflow-auto rounded-xl border border-gray-200 bg-gray-50 p-3 text-[11px] text-gray-700 whitespace-pre-wrap break-words">
-                                {JSON.stringify(whatsappTestResult, null, 2)}
-                            </pre>
+                    <div className="relative z-10 overflow-hidden rounded-xl border border-gray-200">
+                        <div className="hidden md:grid grid-cols-[90px_110px_minmax(0,1fr)_90px_90px_160px] bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                            <span>Channel</span>
+                            <span>Workflow</span>
+                            <span>Recipient / Error</span>
+                            <span>Status</span>
+                            <span>Attempts</span>
+                            <span>Updated</span>
                         </div>
-                    )}
+                        <div className="divide-y divide-gray-100">
+                            {communicationLogs.map((log) => (
+                                <div key={log.id} className="grid grid-cols-1 gap-2 px-3 py-3 md:grid-cols-[90px_110px_minmax(0,1fr)_90px_90px_160px] md:items-center">
+                                    <span className="text-xs font-semibold uppercase text-gray-700">{log.channel}</span>
+                                    <span className="text-xs text-gray-600">{log.workflow}</span>
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm text-gray-800">{log.recipient}</p>
+                                        <p className="truncate text-xs text-gray-500">{log.lastError || 'No error recorded'}</p>
+                                    </div>
+                                    <span className={`inline-flex w-fit items-center rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                        log.status === 'sent'
+                                            ? 'bg-emerald-50 text-emerald-700'
+                                            : log.status === 'failed'
+                                                ? 'bg-red-50 text-red-700'
+                                                : 'bg-amber-50 text-amber-700'
+                                    }`}>
+                                        {log.status}
+                                    </span>
+                                    <span className="text-xs text-gray-600">{log.attemptCount}/{log.maxAttempts}</span>
+                                    <span className="text-xs text-gray-500">{formatLogDateTime(log.updatedAt)}</span>
+                                </div>
+                            ))}
+                            {!communicationLogs.length && (
+                                <div className="px-3 py-6 text-center text-xs text-gray-500">
+                                    {isCommunicationLogsLoading ? 'Loading communication retry logs...' : 'No communication retry activity yet.'}
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
+
+                {isDevMode && (
+                    <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
+                        <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                        <div className="relative z-10">
+                            <h3 className="text-sm font-semibold text-gray-800">WhatsApp Test</h3>
+                            <p className="text-xs text-gray-500 mt-1">Send a test template and inspect provider response.</p>
+                        </div>
+                        <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Field
+                                label="Recipient Mobile"
+                                value={whatsappTestForm.mobile}
+                                onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, mobile: String(value || '').replace(/\D/g, '').slice(0, 14) }))}
+                                placeholder={form.whatsappNumber ? `Default: ${form.whatsappNumber}` : '91XXXXXXXXXX'}
+                            />
+                            <Field
+                                label="Template"
+                                value={whatsappTestForm.template}
+                                onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, template: value }))}
+                                placeholder="generic / login_otp / order ..."
+                            />
+                            <Field
+                                label="Name"
+                                value={whatsappTestForm.name}
+                                onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, name: value }))}
+                                placeholder="Customer name"
+                            />
+                            <Field
+                                label="Params (Comma Separated)"
+                                value={whatsappTestForm.params}
+                                onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, params: value }))}
+                                placeholder="Ravi,SSC Jewellery,Today"
+                            />
+                            <div className="md:col-span-2">
+                                <Field
+                                    label="Message (Optional Fallback)"
+                                    value={whatsappTestForm.message}
+                                    onChange={(value) => setWhatsappTestForm((prev) => ({ ...prev, message: value }))}
+                                    placeholder="Optional plain text fallback"
+                                />
+                            </div>
+                        </div>
+                        <div className="relative z-10 flex items-center justify-between gap-3">
+                            <button
+                                type="button"
+                                onClick={handleSendWhatsappTest}
+                                disabled={isWhatsappTestSending}
+                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100 disabled:opacity-60"
+                            >
+                                <MessageCircle size={14} />
+                                {isWhatsappTestSending ? 'Sending...' : 'Send Test WhatsApp'}
+                            </button>
+                        </div>
+                        {whatsappTestResult && (
+                            <div className="relative z-10">
+                                <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold mb-2">Response</p>
+                                <pre className="max-h-64 overflow-auto rounded-xl border border-gray-200 bg-gray-50 p-3 text-[11px] text-gray-700 whitespace-pre-wrap break-words">
+                                    {JSON.stringify(whatsappTestResult, null, 2)}
+                                </pre>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="pt-2 flex justify-end">
                     <button

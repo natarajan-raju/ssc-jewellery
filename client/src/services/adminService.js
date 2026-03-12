@@ -282,6 +282,11 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    getCommunicationDeliveryLogs: async ({ status = 'all', limit = 30 } = {}) => {
+        const query = `?status=${encodeURIComponent(status)}&limit=${encodeURIComponent(limit)}`;
+        const res = await fetch(`${API_URL}/communications/delivery-logs${query}`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
     getTaxConfigs: async () => {
         const res = await fetch(`${API_URL}/taxes`, { headers: getAuthHeader() });
         return handleResponse(res);
@@ -523,6 +528,7 @@ export const adminService = {
             headers: getAuthHeader(),
             body: JSON.stringify(settings || {})
         });
+        dashboardCache = {};
         return handleResponse(res);
     },
     runDashboardAlertsNow: async () => {

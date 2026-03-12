@@ -12,6 +12,8 @@ const DEFAULT_COMPANY_PROFILE = {
     facebookUrl: '',
     whatsappNumber: '',
     contactJumbotronImageUrl: '/assets/contact.jpg',
+    emailChannelEnabled: true,
+    whatsappChannelEnabled: true,
     razorpayKeyId: '',
     razorpayEmiMinAmount: 3000,
     razorpayStartingTenureMonths: 12
@@ -40,6 +42,8 @@ const normalizeRow = (row) => {
         facebookUrl: row.facebook_url || '',
         whatsappNumber: row.whatsapp_number || '',
         contactJumbotronImageUrl: row.contact_jumbotron_image_url || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
+        emailChannelEnabled: Number(row.email_channel_enabled ?? 1) === 1,
+        whatsappChannelEnabled: Number(row.whatsapp_channel_enabled ?? 1) === 1,
         razorpayKeyId: row.razorpay_key_id || '',
         razorpayEmiMinAmount: Math.max(1, Number(row.razorpay_emi_min_amount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
         razorpayStartingTenureMonths: Math.max(1, Number(row.razorpay_starting_tenure_months || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
@@ -55,8 +59,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -70,6 +74,8 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.facebookUrl,
                 DEFAULT_COMPANY_PROFILE.whatsappNumber,
                 DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
+                DEFAULT_COMPANY_PROFILE.emailChannelEnabled ? 1 : 0,
+                DEFAULT_COMPANY_PROFILE.whatsappChannelEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.razorpayKeyId,
                 '',
                 '',
@@ -110,6 +116,8 @@ class CompanyProfile {
             facebookUrl: String(payload.facebookUrl || '').trim(),
             whatsappNumber: String(payload.whatsappNumber || '').trim(),
             contactJumbotronImageUrl: String(payload.contactJumbotronImageUrl || '').trim() || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
+            emailChannelEnabled: true,
+            whatsappChannelEnabled: payload.whatsappChannelEnabled !== false,
             razorpayKeyId: String(payload.razorpayKeyId || '').trim(),
             razorpayKeySecret: incomingKeySecret !== null ? incomingKeySecret : existingRawKeySecret,
             razorpayWebhookSecret: incomingWebhookSecret !== null ? incomingWebhookSecret : existingRawWebhookSecret,
@@ -119,8 +127,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 contact_number = VALUES(contact_number),
@@ -133,6 +141,8 @@ class CompanyProfile {
                 facebook_url = VALUES(facebook_url),
                 whatsapp_number = VALUES(whatsapp_number),
                 contact_jumbotron_image_url = VALUES(contact_jumbotron_image_url),
+                email_channel_enabled = VALUES(email_channel_enabled),
+                whatsapp_channel_enabled = VALUES(whatsapp_channel_enabled),
                 razorpay_key_id = VALUES(razorpay_key_id),
                 razorpay_key_secret = VALUES(razorpay_key_secret),
                 razorpay_webhook_secret = VALUES(razorpay_webhook_secret),
@@ -151,6 +161,8 @@ class CompanyProfile {
                 next.facebookUrl,
                 next.whatsappNumber,
                 next.contactJumbotronImageUrl,
+                next.emailChannelEnabled ? 1 : 0,
+                next.whatsappChannelEnabled ? 1 : 0,
                 next.razorpayKeyId,
                 next.razorpayKeySecret,
                 next.razorpayWebhookSecret,
@@ -200,6 +212,8 @@ class CompanyProfile {
             facebookUrl: String(source.facebookUrl || ''),
             whatsappNumber: String(source.whatsappNumber || ''),
             contactJumbotronImageUrl: String(source.contactJumbotronImageUrl || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl),
+            emailChannelEnabled: true,
+            whatsappChannelEnabled: source.whatsappChannelEnabled !== false,
             razorpayKeyId: String(source.razorpayKeyId || ''),
             razorpayEmiMinAmount: Math.max(1, Number(source.razorpayEmiMinAmount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
             razorpayStartingTenureMonths: Math.max(1, Number(source.razorpayStartingTenureMonths || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),

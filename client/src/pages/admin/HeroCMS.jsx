@@ -150,19 +150,6 @@ const [modalConfig, setModalConfig] = useState({
     targetId: null,
     targetKind: 'slide'
     });
-    useEffect(() => { 
-        loadSlides(); 
-        loadHeroTexts();
-        loadBanner();
-        loadSecondaryBanner();
-        loadTertiaryBanner();
-        loadFeaturedConfig();
-        loadFeaturedCategories();
-        loadCarouselCards();
-        loadCarouselSources();
-        loadAutopilotConfig();
-    }, [loadAutopilotConfig, loadBanner, loadCarouselCards, loadCarouselSources, loadFeaturedCategories, loadFeaturedConfig, loadHeroTexts, loadSecondaryBanner, loadSlides, loadTertiaryBanner]);
-
     useEffect(() => {
         return () => {
             if (sourceSearchTimerRef.current) clearTimeout(sourceSearchTimerRef.current);
@@ -283,6 +270,19 @@ const [modalConfig, setModalConfig] = useState({
             toast.error("Failed to load product/category sources");
         }
     }, [toast]);
+
+    useEffect(() => { 
+        loadSlides(); 
+        loadHeroTexts();
+        loadBanner();
+        loadSecondaryBanner();
+        loadTertiaryBanner();
+        loadFeaturedConfig();
+        loadFeaturedCategories();
+        loadCarouselCards();
+        loadCarouselSources();
+        loadAutopilotConfig();
+    }, [loadAutopilotConfig, loadBanner, loadCarouselCards, loadCarouselSources, loadFeaturedCategories, loadFeaturedConfig, loadHeroTexts, loadSecondaryBanner, loadSlides, loadTertiaryBanner]);
 
     const putProductsInLookup = (list = []) => {
         const safe = Array.isArray(list) ? list : [];

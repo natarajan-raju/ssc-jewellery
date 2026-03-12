@@ -747,7 +747,7 @@ test('order confirmation communication does not let WhatsApp failure block email
             sendEmail: async () => ({ ok: true, provider: 'smtp' })
         },
         whatsappChannel: {
-            sendOrderWhatsapp: async () => {
+            sendWhatsapp: async () => {
                 throw new Error('whatsapp down');
             }
         }
@@ -773,7 +773,7 @@ test('payment lifecycle communication does not let email failure block WhatsApp'
             }
         },
         whatsappChannel: {
-            sendPaymentWhatsapp: async () => ({ ok: true, provider: 'whatsapp' })
+            sendWhatsapp: async () => ({ ok: true, provider: 'whatsapp' })
         }
     });
 
@@ -787,6 +787,45 @@ test('payment lifecycle communication does not let email failure block WhatsApp'
     assert.equal(result.email.ok, false);
     assert.equal(result.email.reason, 'email_send_failed');
     assert.equal(result.whatsapp.ok, true);
+});
+
+test('whatsapp channel respects admin global disable switch', async () => {
+    const originalEnabled = process.env.WHATSAPP_ENABLED;
+    const originalLicense = process.env.WHATSAPP_LICENSE_NUMBER;
+    const originalApiKey = process.env.WHATSAPP_API_KEY;
+    process.env.WHATSAPP_ENABLED = 'true';
+    process.env.WHATSAPP_LICENSE_NUMBER = 'license';
+    process.env.WHATSAPP_API_KEY = 'api-key';
+
+    const whatsappChannel = requireFresh('../services/communications/channels/whatsappChannel');
+    whatsappChannel.__test.resetChannelCache();
+    const originalExecute = db.execute;
+    db.execute = async (sql) => {
+        if (String(sql).includes('company_profile')) {
+            return [[{ whatsapp_channel_enabled: 0 }]];
+        }
+        return [[]];
+    };
+    try {
+        const result = await whatsappChannel.sendWhatsapp({
+            type: 'generic',
+            template: 'generic',
+            mobile: '9876543210',
+            message: 'Test'
+        });
+        assert.equal(result.ok, false);
+        assert.equal(result.skipped, true);
+        assert.equal(result.reason, 'whatsapp_disabled_by_admin');
+    } finally {
+        db.execute = originalExecute;
+        whatsappChannel.__test.resetChannelCache();
+        if (originalEnabled === undefined) delete process.env.WHATSAPP_ENABLED;
+        else process.env.WHATSAPP_ENABLED = originalEnabled;
+        if (originalLicense === undefined) delete process.env.WHATSAPP_LICENSE_NUMBER;
+        else process.env.WHATSAPP_LICENSE_NUMBER = originalLicense;
+        if (originalApiKey === undefined) delete process.env.WHATSAPP_API_KEY;
+        else process.env.WHATSAPP_API_KEY = originalApiKey;
+    }
 });
 
 test('welcome communication still attempts WhatsApp when email send fails', async () => {

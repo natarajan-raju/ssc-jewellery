@@ -1,4 +1,5 @@
 const https = require('https');
+const db = require('../../../config/db');
 const { resolveWorkflowContent } = require('./whatsappContentRepo');
 
 const PROVIDER_NAME = 'mydreamstechnology';
@@ -8,6 +9,8 @@ const API_KEY = String(process.env.WHATSAPP_API_KEY || '').trim();
 const REQUEST_TIMEOUT_MS = Math.max(2000, Number(process.env.WHATSAPP_TIMEOUT_MS || 15000));
 const ENABLED = ['1', 'true', 'yes', 'on'].includes(String(process.env.WHATSAPP_ENABLED || '').trim().toLowerCase())
     || Boolean(LICENSE_NUMBER && API_KEY);
+const DB_CHANNEL_CACHE_TTL_MS = 15 * 1000;
+let cachedDbChannelState = { value: true, ts: 0 };
 
 const WORKFLOW_TEMPLATES = {
     default: String(process.env.WHATSAPP_TEMPLATE_DEFAULT || '').trim(),
@@ -169,12 +172,37 @@ const hasMissingTemplateNameError = (body = '') => {
     return normalized.includes("template['name'] is required");
 };
 
+const isAdminWhatsappChannelEnabled = async () => {
+    const now = Date.now();
+    if (now - cachedDbChannelState.ts < DB_CHANNEL_CACHE_TTL_MS) {
+        return cachedDbChannelState.value;
+    }
+    try {
+        const [rows] = await db.execute('SELECT whatsapp_channel_enabled FROM company_profile WHERE id = 1 LIMIT 1');
+        const enabled = Number(rows?.[0]?.whatsapp_channel_enabled ?? 1) === 1;
+        cachedDbChannelState = { value: enabled, ts: now };
+        return enabled;
+    } catch {
+        cachedDbChannelState = { value: true, ts: now };
+        return true;
+    }
+};
+
 const sendWhatsapp = async (payload = {}) => {
     if (!ENABLED) {
         return {
             ok: false,
             skipped: true,
             reason: 'whatsapp_disabled',
+            provider: PROVIDER_NAME
+        };
+    }
+    const channelEnabled = await isAdminWhatsappChannelEnabled();
+    if (!channelEnabled) {
+        return {
+            ok: false,
+            skipped: true,
+            reason: 'whatsapp_disabled_by_admin',
             provider: PROVIDER_NAME
         };
     }
@@ -261,5 +289,11 @@ module.exports = {
     sendWhatsapp,
     sendOrderWhatsapp,
     sendPaymentWhatsapp,
-    sendAbandonedCartWhatsapp
+    sendAbandonedCartWhatsapp,
+    __test: {
+        isAdminWhatsappChannelEnabled,
+        resetChannelCache() {
+            cachedDbChannelState = { value: true, ts: 0 };
+        }
+    }
 };

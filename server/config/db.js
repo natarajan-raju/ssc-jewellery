@@ -717,6 +717,7 @@ const initDB = async () => {
             CREATE TABLE IF NOT EXISTS dashboard_alert_settings (
                 id INT PRIMARY KEY,
                 is_active TINYINT(1) NOT NULL DEFAULT 0,
+                whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
                 email_recipients TEXT,
                 whatsapp_recipients TEXT,
                 pending_over72_threshold INT NOT NULL DEFAULT 10,
@@ -726,11 +727,16 @@ const initDB = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        try {
+            await connection.query('ALTER TABLE dashboard_alert_settings ADD COLUMN whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER is_active');
+        } catch {}
         await connection.execute(
             `INSERT INTO dashboard_alert_settings
-                (id, is_active, email_recipients, whatsapp_recipients, pending_over72_threshold, failed_payment_6h_threshold, cod_cancel_rate_threshold, low_stock_threshold)
-             VALUES (1, 0, '', '', 10, 8, 20, 5)
-             ON DUPLICATE KEY UPDATE id = id`
+                (id, is_active, whatsapp_channel_enabled, email_recipients, whatsapp_recipients, pending_over72_threshold, failed_payment_6h_threshold, cod_cancel_rate_threshold, low_stock_threshold)
+             VALUES (1, 0, 1, '', '', 10, 8, 20, 5)
+             ON DUPLICATE KEY UPDATE
+                whatsapp_channel_enabled = COALESCE(whatsapp_channel_enabled, 1),
+                id = id`
         );
 
         await connection.query(`
@@ -1104,6 +1110,8 @@ const initDB = async () => {
                 gst_number VARCHAR(30),
                 tax_enabled TINYINT(1) NOT NULL DEFAULT 0,
                 contact_jumbotron_image_url TEXT,
+                email_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
                 razorpay_key_id VARCHAR(120),
                 razorpay_key_secret VARCHAR(160),
                 razorpay_webhook_secret VARCHAR(160),
@@ -1123,6 +1131,12 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN contact_jumbotron_image_url TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN email_channel_enabled TINYINT(1) NOT NULL DEFAULT 1');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1');
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_secret VARCHAR(160)');
@@ -1148,6 +1162,27 @@ const initDB = async () => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_tax_configs_default_active (is_default, is_active, display_order)
+            )
+        `);
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS communication_delivery_logs (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                channel VARCHAR(20) NOT NULL,
+                workflow VARCHAR(80) NOT NULL DEFAULT 'generic',
+                recipient VARCHAR(255) NOT NULL,
+                payload_json LONGTEXT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'queued',
+                attempt_count INT NOT NULL DEFAULT 0,
+                max_attempts INT NOT NULL DEFAULT 3,
+                last_error TEXT NULL,
+                last_result_json LONGTEXT NULL,
+                next_retry_at DATETIME NULL,
+                locked_at DATETIME NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_comm_delivery_status_next (status, next_retry_at),
+                INDEX idx_comm_delivery_channel_status (channel, status),
+                INDEX idx_comm_delivery_created (created_at)
             )
         `);
         try {
@@ -1220,9 +1255,9 @@ const initDB = async () => {
         if (companyRows.length === 0) {
             await connection.execute(
                 `INSERT INTO company_profile
-                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '/assets/contact.jpg', '', '', '', 3000, 12]
+                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '/assets/contact.jpg', 1, 1, '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

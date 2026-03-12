@@ -1960,6 +1960,8 @@ const updateCompanyInfo = async (req, res) => {
             return res.status(400).json({ message: 'Starting tenure must be between 1 and 120 months' });
         }
 
+        payload.emailChannelEnabled = true;
+        payload.whatsappChannelEnabled = payload.whatsappChannelEnabled !== false;
         const company = await CompanyProfile.update(payload);
         await emitCompanyTaxUpdate(req, { includeCompany: true });
         return res.json({ company });

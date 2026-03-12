@@ -9,7 +9,8 @@ const {
     processAbandonedCartRecoveriesNow,
     listAbandonedCartJourneys,
     getAbandonedCartJourneyTimeline,
-    getAbandonedCartInsights
+    getAbandonedCartInsights,
+    getCommunicationDeliveryLogs
 } = require('../controllers/communicationsController');
 
 // All routes here require login (protect) and must be either Admin or Staff
@@ -58,6 +59,7 @@ router.delete('/shipping/zones/:id', deleteZone);
 router.get('/communications/email/verify', verifyEmailChannel);
 router.post('/communications/email/test', sendTestEmail);
 router.post('/communications/whatsapp/test', sendTestWhatsapp);
+router.get('/communications/delivery-logs', getCommunicationDeliveryLogs);
 router.get('/communications/abandoned-carts/campaign', getAbandonedCartCampaign);
 router.put('/communications/abandoned-carts/campaign', updateAbandonedCartCampaign);
 router.post('/communications/abandoned-carts/process', processAbandonedCartRecoveriesNow);

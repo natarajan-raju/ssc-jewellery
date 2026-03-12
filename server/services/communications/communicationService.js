@@ -1,11 +1,9 @@
 const { sendEmail, verifyEmailTransport } = require('./channels/emailChannel');
 const {
-    sendWhatsapp,
-    sendOrderWhatsapp,
-    sendPaymentWhatsapp,
-    sendAbandonedCartWhatsapp
+    sendWhatsapp: sendWhatsappDirect
 } = require('./channels/whatsappChannel');
 const { buildInvoiceShareUrl } = require('../invoiceShareService');
+const { queueCommunicationFailure } = require('./communicationRetryService');
 
 const normalizeCustomer = (customer = {}) => ({
     name: String(customer?.name || 'Customer').trim(),
@@ -21,8 +19,36 @@ const sendEmailCommunication = async ({
     replyTo = null,
     cc = null,
     bcc = null,
-    attachments = []
-}) => sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
+    attachments = [],
+    workflow = 'generic'
+}) => {
+    try {
+        return await sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
+    } catch (error) {
+        await queueCommunicationFailure({
+            channel: 'email',
+            workflow,
+            recipient: Array.isArray(to) ? to.join(',') : String(to || ''),
+            payload: { to, subject, text, html, replyTo, cc, bcc, attachments },
+            error
+        }).catch(() => {});
+        throw error;
+    }
+};
+
+const sendWhatsapp = async (payload = {}) => {
+    const result = await sendWhatsappDirect(payload);
+    if (!result?.ok && !result?.skipped) {
+        await queueCommunicationFailure({
+            channel: 'whatsapp',
+            workflow: String(payload?.type || payload?.template || 'generic').trim().toLowerCase() || 'generic',
+            recipient: String(payload?.contact || payload?.mobile || payload?.to || '').trim(),
+            payload,
+            result
+        }).catch(() => {});
+    }
+    return result;
+};
 
 const toChannelFailure = (error, fallbackReason = 'channel_failed') => ({
     ok: false,
@@ -345,11 +371,13 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
                 attachments: invoiceAttachment ? [invoiceAttachment] : []
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-        sendOrderWhatsapp({
+        sendWhatsapp({
             stage: safeStage,
             customer: recipient,
             order,
+            type: 'order',
             template: 'order',
+            mobile: recipient.mobile,
             fileUrl: invoiceFileUrl || '',
             pdfName: includeInvoice ? invoiceFileName : ''
         })
@@ -407,7 +435,15 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
         recipient.email
             ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-        sendPaymentWhatsapp({ stage: safeStage, customer: recipient, order, payment })
+        sendWhatsapp({
+            stage: safeStage,
+            customer: recipient,
+            order,
+            payment,
+            type: 'payment',
+            template: 'payment',
+            mobile: recipient.mobile
+        })
     ]);
     return {
         email: emailResult.status === 'fulfilled'
@@ -461,7 +497,13 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
         recipient.email
             ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-        sendAbandonedCartWhatsapp({ customer: recipient, cart })
+        sendWhatsapp({
+            customer: recipient,
+            cart,
+            type: 'abandoned_cart_recovery',
+            template: 'abandoned_cart_recovery',
+            mobile: recipient.mobile
+        })
     ]);
     return {
         email: emailResult.status === 'fulfilled'

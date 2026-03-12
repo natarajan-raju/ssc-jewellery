@@ -66,6 +66,10 @@ const {
 } = require('./services/abandonedCartRecoveryService');
 const { runMonthlyLoyaltyReassessment, ensureLoyaltyConfigLoaded, issueBirthdayCouponsForEligibleUsersToday } = require('./services/loyaltyService');
 const { runDashboardAlertsJob, refreshDashboardDailyAggregates } = require('./controllers/adminController');
+const {
+    processQueuedCommunicationRetries,
+    pruneCommunicationDeliveryLogs
+} = require('./services/communications/communicationRetryService');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
 
 const app = express();
@@ -329,8 +333,34 @@ const scheduleDashboardAggregatesRefresh = () => {
     run();
 };
 
+const scheduleCommunicationRetryProcessing = () => {
+    const run = async () => {
+        try {
+            await processQueuedCommunicationRetries();
+        } catch (error) {
+            console.error('Communication retry scheduler failed:', error?.message || error);
+        }
+    };
+    setInterval(run, 5 * 60 * 1000);
+    run();
+};
+
+const scheduleCommunicationRetryMaintenance = () => {
+    const run = async () => {
+        try {
+            await pruneCommunicationDeliveryLogs();
+        } catch (error) {
+            console.error('Communication retry maintenance failed:', error?.message || error);
+        }
+    };
+    setInterval(run, 12 * 60 * 60 * 1000);
+    run();
+};
+
 scheduleDashboardAlerts();
 scheduleDashboardAggregatesRefresh();
+scheduleCommunicationRetryProcessing();
+scheduleCommunicationRetryMaintenance();
 
 startAbandonedCartRecoveryScheduler({
     onJourneyUpdate: (payload = {}) => {
