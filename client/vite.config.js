@@ -30,6 +30,31 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_BASE_URL__: JSON.stringify(publicBaseUrl)
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalized = String(id || '');
+            if (normalized.includes('node_modules/react') || normalized.includes('node_modules/scheduler')) {
+              return 'react-vendor';
+            }
+            if (normalized.includes('node_modules/react-router')) {
+              return 'router-vendor';
+            }
+            if (normalized.includes('node_modules/lucide-react')) {
+              return 'icons-vendor';
+            }
+            if (normalized.includes('node_modules/firebase')) {
+              return 'firebase-vendor';
+            }
+            if (normalized.includes('/src/pages/admin/')) {
+              return 'admin-pages';
+            }
+            return undefined;
+          }
+        }
+      }
+    },
     plugins: [
       react(),
       VitePWA({
@@ -73,6 +98,13 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true,
       port: 5173,
+      strictPort: true,
+      hmr: {
+        protocol: 'ws',
+        host: 'localhost',
+        port: 5173,
+        clientPort: 5173
+      },
       // [ROOT CAUSE FIX] Explicitly disable isolation
       headers: {
         "Cross-Origin-Opener-Policy": "unsafe-none",

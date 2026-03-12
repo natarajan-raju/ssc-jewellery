@@ -1,3 +1,5 @@
+import { dispatchSessionExpired, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
+
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 const SEARCH_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 const CATEGORY_STATS_CACHE_KEY = 'category_stats_cache_v1';
@@ -81,18 +83,11 @@ const safeLocalStorageJson = (key, fallback = {}) => {
 
 // --- AUTH HEADER HELPER ---
 const getAuthHeader = () => {
-    let token = null;
     const userObj = safeLocalStorageJson('user', {});
     const userInfo = safeLocalStorageJson('userInfo', {});
-    token = userObj.token || userInfo.token || localStorage.getItem('token');
-    // 1. Check if token exists and is not a "garbage" string
-    if (!token || token === 'undefined' || token === 'null') {
-        return {}; // Return empty object so no Authorization header is sent
-    }
-    return { 
-        'Authorization': `Bearer ${token}`
-        // Note: Content-Type is NOT set here because FormData sets it automatically
-    };
+    const token = userObj.token || userInfo.token || getStoredToken();
+    if (!token) return {};
+    return { Authorization: `Bearer ${token}` };
 };
 
 const handleResponse = async (res) => {
@@ -103,6 +98,9 @@ const handleResponse = async (res) => {
     };
     if (!res.ok) {
         const err = await parseJsonSafely();
+        if (shouldTreatAsExpiredSession(res.status, err.message || res.statusText)) {
+            dispatchSessionExpired(err.message || 'Session expired. Please login again.');
+        }
         throw new Error(err.message || res.statusText || 'Server Error');
     }
     return parseJsonSafely();
@@ -441,14 +439,19 @@ export const productService = {
 
     // [UPDATED] Update Category (Supports Image)
     updateCategory: async (id, formData) => {
-        const token = localStorage.getItem('token');
+        const token = getStoredToken();
         const res = await fetch(`${API_URL}/categories/${id}`, {
             method: 'PUT',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to update category');
+        if (!res.ok) {
+            if (shouldTreatAsExpiredSession(res.status, data?.message || res.statusText)) {
+                dispatchSessionExpired(data?.message || 'Session expired. Please login again.');
+            }
+            throw new Error(data.message || 'Failed to update category');
+        }
         return data;
     },
 
@@ -481,15 +484,20 @@ export const productService = {
 
     // [UPDATED] Create Category (Supports Image)
     createCategory: async (formData) => {
-        const token = localStorage.getItem('token');
+        const token = getStoredToken();
         // Note: Do NOT set Content-Type header for FormData; browser sets boundary automatically
         const res = await fetch(`${API_URL}/categories`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Failed to create category');
+        if (!res.ok) {
+            if (shouldTreatAsExpiredSession(res.status, data?.message || res.statusText)) {
+                dispatchSessionExpired(data?.message || 'Session expired. Please login again.');
+            }
+            throw new Error(data.message || 'Failed to create category');
+        }
         return data;
     },
 

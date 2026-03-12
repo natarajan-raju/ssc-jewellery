@@ -689,12 +689,34 @@ export default function ProductPage() {
             }
         };
 
+        const handleDelete = (payload = {}) => {
+            const deletedProductId = String(
+                payload?.id
+                || payload?.productId
+                || payload?.product?.id
+                || ''
+            ).trim();
+            if (!deletedProductId) return;
+
+            productService.removeProductFromProductsCache(deletedProductId);
+
+            if (deletedProductId === String(id)) {
+                toast.info('This product is no longer available.');
+                navigate('/shop', { replace: true });
+                return;
+            }
+
+            setRelatedProducts((prev) => prev.filter((entry) => String(entry?.id || '') !== deletedProductId));
+        };
+
         // Listeners
         socket.on('product:update', handleUpdate);
+        socket.on('product:delete', handleDelete);
         socket.on('refresh:categories', handleCategoryChange);      // Handles Reorder
         socket.on('product:category_change', handleCategoryChange); // Handles Add/Remove
         return () => {
             socket.off('product:update', handleUpdate);
+            socket.off('product:delete', handleDelete);
             socket.off('refresh:categories', handleCategoryChange);
             socket.off('product:category_change', handleCategoryChange);
             if (relatedReloadTimerRef.current) {
@@ -706,7 +728,7 @@ export default function ProductPage() {
                 liveRefreshTimerRef.current = null;
             }
         };
-    }, [socket, id, toast, scheduleLiveProductRefresh, scheduleRelatedReload]);
+    }, [socket, id, navigate, toast, scheduleLiveProductRefresh, scheduleRelatedReload]);
     
     // --- 3. Handlers ---
     const handleVariantChange = (variant) => {

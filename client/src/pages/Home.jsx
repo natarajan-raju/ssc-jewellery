@@ -68,7 +68,10 @@ const CarouselHero = ({ slides }) => {
                         <img 
                             src={slide.image_url} 
                             alt={slide.title} 
-                            className="w-full h-full object-cover transition-transform duration-[8000ms] ease-linear scale-105 group-hover:scale-110" 
+                            className="w-full h-full object-cover transition-transform duration-[8000ms] ease-linear scale-105 group-hover:scale-110"
+                            loading={index === currentSlide ? 'eager' : 'lazy'}
+                            fetchPriority={index === currentSlide ? 'high' : 'auto'}
+                            decoding="async"
                         />
                         {/* [OPTION 1] FULL BLACK MASK */}
                         <div className="absolute inset-0 bg-black/50"></div>
@@ -213,6 +216,7 @@ export default function Home() {
     const [isLoadingTertiaryBanner, setIsLoadingTertiaryBanner] = useState(true);
     const [isLoadingFeaturedSection, setIsLoadingFeaturedSection] = useState(true);
     const [isLoadingOffers, setIsLoadingOffers] = useState(true);
+    const [shouldLoadDeferredContent, setShouldLoadDeferredContent] = useState(false);
     const { getSlides, getHeroTexts, getBanner, getSecondaryBanner, getTertiaryBanner, getFeaturedCategory, getCarouselCards } = useCms();
     const infoSectionRef = useRef(null);
     const bottomCarouselTrackRef = useRef(null);
@@ -418,26 +422,60 @@ export default function Home() {
         }
     }, [getCarouselCards]);
 
-    // [FIX] Unified Parallel Data Loading
+    // Keep above-the-fold fetches on the critical path only.
     useEffect(() => {
         const loadInitialData = async () => {
-            // Start both requests in parallel
             await Promise.all([
                 fetchHero(),
                 fetchHeroTexts(),
                 fetchCategories(),
-                fetchBestSellers(),
-                fetchNewArrivals(),
                 fetchBanner(),
-                fetchSecondaryBanner(),
-                fetchTertiaryBanner(),
-                fetchFeaturedSection(),
-                fetchOffers(),
-                fetchBottomCarouselCards()
+                fetchFeaturedSection()
             ]);
         };
         loadInitialData();
-    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBestSellers, fetchNewArrivals, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchOffers, fetchBottomCarouselCards]);
+    }, [fetchHero, fetchHeroTexts, fetchCategories, fetchBanner, fetchFeaturedSection]);
+
+    useEffect(() => {
+        let cancelled = false;
+        let fallbackTimer = null;
+        const enableDeferredContent = () => {
+            if (cancelled) return;
+            setShouldLoadDeferredContent(true);
+        };
+
+        if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+            const idleId = window.requestIdleCallback(enableDeferredContent, { timeout: 1200 });
+            return () => {
+                cancelled = true;
+                window.cancelIdleCallback?.(idleId);
+            };
+        }
+
+        fallbackTimer = window.setTimeout(enableDeferredContent, 700);
+        return () => {
+            cancelled = true;
+            if (fallbackTimer) window.clearTimeout(fallbackTimer);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!shouldLoadDeferredContent) return;
+        fetchBestSellers();
+        fetchNewArrivals();
+        fetchSecondaryBanner();
+        fetchTertiaryBanner();
+        fetchOffers();
+        fetchBottomCarouselCards();
+    }, [
+        shouldLoadDeferredContent,
+        fetchBestSellers,
+        fetchNewArrivals,
+        fetchSecondaryBanner,
+        fetchTertiaryBanner,
+        fetchOffers,
+        fetchBottomCarouselCards
+    ]);
 
     useEffect(() => {
         if (!featuredSection) return;
@@ -935,6 +973,7 @@ export default function Home() {
                                             alt={cat.name} 
                                             className="w-full h-full object-cover"
                                             loading="lazy"
+                                            decoding="async"
                                         />
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center text-primary/20">
@@ -971,7 +1010,7 @@ export default function Home() {
             <section 
                 ref={infoSectionRef}
                 onMouseMove={handleMouseMove}
-                className="relative py-16 overflow-hidden bg-gray-900"
+                className="relative py-16 overflow-hidden bg-gray-900 [content-visibility:auto] [contain-intrinsic-size:1px_900px]"
             >
                 {/* 1. Base Dark Background */}
                 <div className="absolute inset-0 bg-[#111827] z-0"></div>
@@ -991,9 +1030,12 @@ export default function Home() {
                     <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-12 animate-fade-in">
                         <img 
                             src={logoLight}
-                            alt="Logo" 
+                            alt="Logo"
                             // [FIX] Increased mobile size to w-24 (96px) for better visibility
                             className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"
+                            loading="lazy"
+                            decoding="async"
+                            fetchPriority="low"
                         />
                         <h2 className="text-3xl md:text-4xl font-serif text-white text-center md:text-left">
                             Why Customers Trust us?
@@ -1089,7 +1131,7 @@ export default function Home() {
             </section>
 
               {/* --- BEST SELLERS --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">Best Sellers</h2>
@@ -1125,7 +1167,7 @@ export default function Home() {
 
             {/* --- HOME BANNER --- */}
             {((isLoadingBanner) || hasBannerImage(homeBanner?.image_url)) && (
-            <section className="w-full tier-surface">
+            <section className="w-full tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_420px]">
                 {isLoadingBanner ? (
                     <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
@@ -1140,6 +1182,8 @@ export default function Home() {
                                     src={imageUrl}
                                     alt="Featured banner"
                                     className="absolute inset-0 w-full h-full object-contain"
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                             </div>
                         );
@@ -1163,7 +1207,7 @@ export default function Home() {
             )}
 
             {/* --- NEW ARRIVALS --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">New Arrivals</h2>
@@ -1199,7 +1243,7 @@ export default function Home() {
 
             {/* --- SECOND HOME BANNER --- */}
             {((isLoadingSecondaryBanner) || hasBannerImage(secondaryBanner?.image_url)) && (
-            <section className="w-full tier-surface">
+            <section className="w-full tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_420px]">
                 {isLoadingSecondaryBanner ? (
                     <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
@@ -1214,6 +1258,8 @@ export default function Home() {
                                     src={imageUrl}
                                     alt="Featured banner"
                                     className="absolute inset-0 w-full h-full object-contain"
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                             </div>
                         );
@@ -1237,7 +1283,7 @@ export default function Home() {
             )}
 
             {/* --- FEATURED CATEGORY SECTION --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 {isLoadingFeaturedSection ? (
                     <div className="h-32 bg-gray-100 rounded-2xl animate-pulse" />
                 ) : (
@@ -1292,7 +1338,7 @@ export default function Home() {
 
             {/* --- HOME BANNER 3 (below featured showcase section) --- */}
             {((isLoadingTertiaryBanner) || hasBannerImage(tertiaryBanner?.image_url)) && (
-            <section className="w-full tier-surface">
+            <section className="w-full tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_420px]">
                 {isLoadingTertiaryBanner ? (
                     <div className="w-full animate-pulse pt-[56.25%]" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }} />
                 ) : (
@@ -1307,6 +1353,8 @@ export default function Home() {
                                     src={imageUrl}
                                     alt="Home banner 3"
                                     className="absolute inset-0 w-full h-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                             </div>
                         );
@@ -1330,7 +1378,7 @@ export default function Home() {
             )}
 
             {/* --- OFFERS --- */}
-            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface">
+            <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
                     <div>
                         <h2 className="text-3xl font-serif text-primary">Offers</h2>
@@ -1365,7 +1413,7 @@ export default function Home() {
             </section>
 
             {(isLoadingBottomCarousel || bottomCarouselCards.length > 0) && (
-                <section className="container mx-auto px-4 md:px-6 py-8 md:py-12 tier-surface">
+                <section className="container mx-auto px-4 md:px-6 py-8 md:py-12 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_520px]">
                     <div className="flex items-center justify-between gap-4 mb-5">
                         <div>
                             <p className="text-[11px] uppercase tracking-[0.32em] text-gray-500 font-semibold">Featured for you</p>

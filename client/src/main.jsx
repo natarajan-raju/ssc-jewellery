@@ -7,7 +7,16 @@ import { installFetchRetry } from './utils/fetchRetry'
 import './index.css'
 
 installFetchRetry()
-registerSW({ immediate: true })
+
+if (import.meta.env.PROD) {
+  registerSW({ immediate: true })
+} else if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((registration) => {
+      registration.unregister().catch(() => {})
+    })
+  }).catch(() => {})
+}
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
 const appNode = googleClientId ? (

@@ -1,3 +1,5 @@
+import { dispatchSessionExpired, getAuthHeaders, getStoredToken, isTokenExpired, shouldTreatAsExpiredSession } from '../utils/authSession';
+
 const API_URL = import.meta.env.PROD 
   ? '/api/auth' 
   : 'http://localhost:5000/api/auth';
@@ -13,26 +15,17 @@ const parseJsonSafely = async (res) => {
 const handleResponse = async (res) => {
   const data = await parseJsonSafely(res);
   if (!res.ok) {
+    if (shouldTreatAsExpiredSession(res.status, data?.message || res.statusText)) {
+      dispatchSessionExpired(data?.message || 'Session expired. Please login again.');
+    }
     throw new Error(data?.message || res.statusText || 'Request failed');
   }
   return data;
 };
 
 export const authService = {
-  getAuthHeader: () => {
-    const token = localStorage.getItem('token');
-    if (!token || token === 'undefined' || token === 'null') {
-      return { 'Content-Type': 'application/json' };
-    }
-    return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-  },
-  getAuthTokenHeader: () => {
-    const token = localStorage.getItem('token');
-    if (!token || token === 'undefined' || token === 'null') {
-      return {};
-    }
-    return { 'Authorization': `Bearer ${token}` };
-  },
+  getAuthHeader: () => getAuthHeaders({ includeJsonContentType: true }),
+  getAuthTokenHeader: () => getAuthHeaders({ includeJsonContentType: false }),
   sendOtp: async (mobile) => {
     const res = await fetch(`${API_URL}/send-otp`, {
       method: 'POST',
@@ -117,16 +110,6 @@ export const authService = {
     });
     return handleResponse(res);
   },
-  isTokenExpired: (token) => {
-    if (!token) return true;
-    try {
-        // Decode the payload (2nd part of JWT)
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        
-        // Check if current time is past expiration (exp is in seconds, Date.now is ms)
-        return payload.exp * 1000 < Date.now();
-    } catch (e) {
-        return true; // If invalid format, treat as expired
-    }
-  }
+  isTokenExpired,
+  getStoredToken
 };

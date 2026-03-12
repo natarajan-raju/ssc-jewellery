@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { Link } from 'react-router-dom';
 import { Gem, Sparkles } from 'lucide-react';
 import { buildAboutSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
-
-const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
 const DEFAULT_COMPANY = {
     displayName: 'SSC Impon Jewellery',
@@ -32,41 +31,24 @@ const resolveCompanyAddress = (company = {}) => {
 };
 
 export default function About() {
-    const [company, setCompany] = useState(DEFAULT_COMPANY);
+    const { companyInfo, refreshCompanyInfo, applyCompanyInfo: patchPublicCompanyInfo } = usePublicCompanyInfo();
+    const company = useMemo(() => ({
+        ...DEFAULT_COMPANY,
+        ...(companyInfo || {}),
+        address: resolveCompanyAddress(companyInfo || {}) || DEFAULT_COMPANY.address
+    }), [companyInfo]);
     const seoConfig = useMemo(() => buildAboutSeo({ company }), [company]);
     useSeo(seoConfig);
 
-    const applyCompanyInfo = (payload = {}) => {
-        setCompany((prev) => ({
-            ...prev,
-            ...payload,
-            address: resolveCompanyAddress(payload) || prev.address
-        }));
-    };
-
     useEffect(() => {
-        let cancelled = false;
-        const loadCompanyInfo = async () => {
-            try {
-                const res = await fetch(`${CMS_API_URL}/company-info`);
-                const data = await res.json();
-                if (!res.ok || cancelled) return;
-                const payload = data?.company && typeof data.company === 'object' ? data.company : {};
-                applyCompanyInfo(payload);
-            } catch {
-                // Keep defaults.
-            }
-        };
-        loadCompanyInfo();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+        if (companyInfo) return;
+        refreshCompanyInfo().catch(() => {});
+    }, [companyInfo, refreshCompanyInfo]);
 
     useAdminCrudSync({
         'company:info_update': ({ company: nextCompany } = {}) => {
             if (!nextCompany || typeof nextCompany !== 'object') return;
-            applyCompanyInfo(nextCompany);
+            patchPublicCompanyInfo(nextCompany);
         }
     });
 

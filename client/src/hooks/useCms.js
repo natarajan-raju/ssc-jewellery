@@ -1,27 +1,26 @@
 import { useAuth } from '../context/AuthContext';
 import { useCallback } from 'react';
+import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
 
 const API_URL = import.meta.env.PROD 
   ? '/api/cms' 
   : 'http://localhost:5000/api/cms';
 
 export const useCms = () => {
-    const { logout } = useAuth(); // [NEW] We can now access Context!
+    useAuth();
 
     // Helper to handle Fetch with Auth
     const authFetch = useCallback(async (endpoint, options = {}) => {
-        const token = localStorage.getItem('token');
-        
-        const headers = { ...options.headers };
-        if (token && token !== "undefined" && token !== "null") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = {
+            ...getAuthHeaders({ includeJsonContentType: false }),
+            ...(options.headers || {})
+        };
 
         const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
 
         // [NEW] Security Feature: Auto-Logout on 401
-        if (res.status === 401) {
-            logout(); 
+        if (shouldTreatAsExpiredSession(res.status, res.statusText)) {
+            dispatchSessionExpired("Session expired. Please login again.");
             throw new Error("Session expired. Please login again.");
         }
 
@@ -31,36 +30,27 @@ export const useCms = () => {
         }
 
         return res.json();
-    }, [logout]);
+    }, []);
 
     // 1. Get Slides (Public or Admin)
     const getSlides = useCallback(async (isAdmin = false) => {
         // Public requests don't need the authFetch wrapper if strict, 
         // but using it is fine as public endpoints ignore the header.
-        const token = localStorage.getItem('token');
-        const headers = {};
-        // [FIX] Prevent sending "Bearer undefined"
-        if (isAdmin && token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/hero?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         return res.json();
-    }, [logout]);
+    }, []);
 
     // 1.0 Get Hero Texts
     const getHeroTexts = useCallback(async (isAdmin = false) => {
-        const token = localStorage.getItem('token');
-        const headers = {};
-        if (isAdmin && token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/hero-texts?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         if (!res.ok) {
@@ -68,17 +58,13 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, [logout]);
+    }, []);
     // 1.1 Get Home Banner (Public or Admin)
     const getBanner = useCallback(async (isAdmin = false) => {
-        const token = localStorage.getItem('token');
-        const headers = {};
-        if (isAdmin && token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/banner?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         if (!res.ok) {
@@ -86,17 +72,13 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, [logout]);
+    }, []);
 
     const getSecondaryBanner = useCallback(async (isAdmin = false) => {
-        const token = localStorage.getItem('token');
-        const headers = {};
-        if (isAdmin && token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/banner-secondary?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         if (!res.ok) {
@@ -104,17 +86,13 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, [logout]);
+    }, []);
 
     const getFeaturedCategory = useCallback(async (isAdmin = false) => {
-        const token = localStorage.getItem('token');
-        const headers = {};
-        if (token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/featured-category?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         if (!res.ok) {
@@ -122,17 +100,13 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, [logout]);
+    }, []);
 
     const getCarouselCards = useCallback(async (isAdmin = false) => {
-        const token = localStorage.getItem('token');
-        const headers = {};
-        if (isAdmin && token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/carousel-cards?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         if (!res.ok) {
@@ -140,17 +114,13 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, [logout]);
+    }, []);
 
     const getTertiaryBanner = useCallback(async (isAdmin = false) => {
-        const token = localStorage.getItem('token');
-        const headers = {};
-        if (isAdmin && token && token !== "undefined") {
-            headers['Authorization'] = `Bearer ${token}`;
-        }
+        const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
         const res = await fetch(`${API_URL}/banner-tertiary?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
-            logout();
+            dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         if (!res.ok) {
@@ -158,7 +128,7 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, [logout]);
+    }, []);
 
     const getAutopilotConfig = useCallback(async () => {
         return authFetch('/autopilot');

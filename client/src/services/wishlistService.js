@@ -1,17 +1,10 @@
+import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
+
 const API_URL = import.meta.env.PROD
     ? '/api/wishlist'
     : 'http://localhost:5000/api/wishlist';
 
-const getAuthHeader = () => {
-    const token = localStorage.getItem('token');
-    if (!token || token === 'undefined' || token === 'null') {
-        return { 'Content-Type': 'application/json' };
-    }
-    return {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-    };
-};
+const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
 
 const handleResponse = async (res) => {
     const parseJsonSafely = async () => {
@@ -21,6 +14,9 @@ const handleResponse = async (res) => {
     };
     if (!res.ok) {
         const err = await parseJsonSafely();
+        if (shouldTreatAsExpiredSession(res.status, err.message || res.statusText)) {
+            dispatchSessionExpired(err.message || 'Session expired. Please login again.');
+        }
         throw new Error(err.message || res.statusText || 'Server Error');
     }
     return parseJsonSafely();

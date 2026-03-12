@@ -1,30 +1,35 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { authService } from '../services/authService';
 import { productService } from '../services/productService';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
+import { getSessionExpiredEventName, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const logoutInFlightRef = useRef(false);
 
     // 3. Centralized Logout Function
-    const performLogout = async () => {
+    const performLogout = useCallback(async () => {
+        if (logoutInFlightRef.current) return;
+        logoutInFlightRef.current = true;
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         try { await signOut(auth); } catch (e) { console.error(e); }
         setUser(null); // Updates Navbar instantly!
         productService.clearCache();
-    };
+        logoutInFlightRef.current = false;
+    }, []);
 
     // 1. Check Session on Mount (The "Auto-Login" Logic)
     useEffect(() => {
         let cancelled = false;
         const initAuth = async () => {
-            const token = localStorage.getItem('token');
+            const token = getStoredToken();
             const storedUser = localStorage.getItem('user');
             let parsedStoredUser = null;
             try {
@@ -91,14 +96,14 @@ export const AuthProvider = ({ children }) => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [performLogout]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
 
         const syncCurrentUser = async () => {
-            const token = localStorage.getItem('token');
-            if (!token || token === 'undefined' || token === 'null') return;
+            const token = getStoredToken();
+            if (!token) return;
             try {
                 const [profileResult, loyaltyResult] = await Promise.allSettled([
                     authService.getProfile(),
@@ -127,7 +132,7 @@ export const AuthProvider = ({ children }) => {
             } catch (error) {
                 console.error('Current user sync failed:', error);
                 const message = String(error?.message || '').toLowerCase();
-                if (message.includes('deactivated') || message.includes('not authorized') || message.includes('session expired')) {
+                if (message.includes('deactivated') || shouldTreatAsExpiredSession(401, message)) {
                     await performLogout();
                 }
             }
@@ -157,7 +162,20 @@ export const AuthProvider = ({ children }) => {
             window.removeEventListener('auth:user-updated', handleUserUpdated);
             window.removeEventListener('auth:user-deleted', handleUserDeleted);
         };
-    }, [user]);
+    }, [performLogout, user]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+
+        const handleSessionExpired = async () => {
+            await performLogout();
+        };
+
+        window.addEventListener(getSessionExpiredEventName(), handleSessionExpired);
+        return () => {
+            window.removeEventListener(getSessionExpiredEventName(), handleSessionExpired);
+        };
+    }, [performLogout]);
 
     // 2. Centralized Login Function
     const login = (token, userData) => {

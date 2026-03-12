@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 import { ProductProvider } from './context/ProductContext';
@@ -10,8 +10,6 @@ import { OrderProvider } from './context/OrderContext';
 import { WishlistProvider } from './context/WishlistContext';
 import { useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
-import CategoryStore from './pages/CategoryStore';
-import Shop from './pages/Shop';
 
 // Components & Pages
 import Navbar from './components/Navbar';
@@ -22,26 +20,38 @@ import CustomerCouponPopup from './components/CustomerCouponPopup';
 import GuestGoogleOneTap from './components/GuestGoogleOneTap';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 import AppSeoDefaults from './components/AppSeoDefaults';
+import ScrollToTop from './components/ScrollToTop';
 import Home from './pages/Home';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import ForgotPassword from './pages/ForgotPassword';
-import AdminLogin from './pages/admin/AdminLogin';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import ProductPage from './pages/ProductPage';
-import Contact from './pages/Contact';
-import Profile from './pages/Profile';
-import Wishlist from './pages/Wishlist';
-import Checkout from './pages/Checkout';
-import CartPage from './pages/CartPage';
-import Orders from './pages/Orders';
-import PaymentSuccess from './pages/PaymentSuccess';
-import PaymentFailed from './pages/PaymentFailed';
-import TrackOrder from './pages/TrackOrder';
-import PolicyPage from './pages/PolicyPage';
-import About from './pages/About';
-import Faq from './pages/Faq';
 import { canAccessAdminDashboard, shouldRedirectAdminToDashboard } from './utils/authRoutePolicy';
+
+const Shop = lazy(() => import('./pages/Shop'));
+const CategoryStore = lazy(() => import('./pages/CategoryStore'));
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
+const AdminLogin = lazy(() => import('./pages/admin/AdminLogin'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const ProductPage = lazy(() => import('./pages/ProductPage'));
+const Contact = lazy(() => import('./pages/Contact'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Wishlist = lazy(() => import('./pages/Wishlist'));
+const Checkout = lazy(() => import('./pages/Checkout'));
+const CartPage = lazy(() => import('./pages/CartPage'));
+const Orders = lazy(() => import('./pages/Orders'));
+const PaymentSuccess = lazy(() => import('./pages/PaymentSuccess'));
+const PaymentFailed = lazy(() => import('./pages/PaymentFailed'));
+const TrackOrder = lazy(() => import('./pages/TrackOrder'));
+const PolicyPage = lazy(() => import('./pages/PolicyPage'));
+const About = lazy(() => import('./pages/About'));
+const Faq = lazy(() => import('./pages/Faq'));
+
+const RouteFallback = () => (
+  <div className="min-h-[40vh] bg-secondary flex items-center justify-center px-4">
+    <div className="rounded-2xl border border-gray-200 bg-white/90 px-4 py-3 text-sm text-gray-500 shadow-sm">
+      Loading page...
+    </div>
+  </div>
+);
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -93,6 +103,7 @@ const PublicLayout = () => {
 function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <ToastProvider>
         <AuthProvider>
             <SocketProvider>
@@ -105,6 +116,7 @@ function App() {
                   <GuestGoogleOneTap />
                   <PwaInstallPrompt />
                   <AppSeoDefaults />
+                  <Suspense fallback={<RouteFallback />}>
                   <Routes>
               
               {/* Public Routes */}
@@ -157,6 +169,7 @@ function App() {
 
               <Route path="*" element={<Navigate to="/" />} />
                   </Routes>
+                  </Suspense>
                     </CartProvider>
                     </WishlistProvider>
                   </ShippingProvider>

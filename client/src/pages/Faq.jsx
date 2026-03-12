@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { CircleHelp, Mail, Phone } from 'lucide-react';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { FAQ_ITEMS } from '../seo/faqContent';
 import { buildFaqSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
-
-const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
 const DEFAULT_COMPANY = {
     displayName: 'SSC Impon Jewellery',
@@ -14,30 +14,19 @@ const DEFAULT_COMPANY = {
 };
 
 export default function Faq() {
-    const [company, setCompany] = useState(DEFAULT_COMPANY);
-
-    useEffect(() => {
-        let cancelled = false;
-        const loadCompanyInfo = async () => {
-            try {
-                const res = await fetch(`${CMS_API_URL}/company-info`);
-                const data = await res.json();
-                if (!res.ok || cancelled) return;
-                const payload = data?.company && typeof data.company === 'object' ? data.company : {};
-                setCompany((prev) => ({ ...prev, ...payload }));
-            } catch {
-                // Keep defaults.
-            }
-        };
-        loadCompanyInfo();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const { companyInfo, applyCompanyInfo } = usePublicCompanyInfo();
+    const company = useMemo(() => ({ ...DEFAULT_COMPANY, ...(companyInfo || {}) }), [companyInfo]);
 
     const faqs = useMemo(() => FAQ_ITEMS.map((item) => ({ q: item.question, a: item.answer })), []);
     const seoConfig = useMemo(() => buildFaqSeo({ company }), [company]);
     useSeo(seoConfig);
+
+    useAdminCrudSync({
+        'company:info_update': ({ company: nextCompany } = {}) => {
+            if (!nextCompany || typeof nextCompany !== 'object') return;
+            applyCompanyInfo(nextCompany);
+        }
+    });
 
     return (
         <div className="min-h-screen bg-secondary py-10">

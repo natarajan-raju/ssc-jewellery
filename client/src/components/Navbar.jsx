@@ -7,6 +7,7 @@ import { productService } from '../services/productService';
 import logo from '../assets/logo.webp';
 import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCategories } from '../hooks/usePublicSiteShell';
 import { formatTierLabel } from '../utils/tierFormat';
 
 const TIER_STYLES = {
@@ -99,8 +100,7 @@ export default function Navbar() {
     const [isOpen, setIsOpen] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isMegaOpen, setIsMegaOpen] = useState(false);
-    const [categories, setCategories] = useState([]);
-    const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+    const { categories, isLoadingCategories, refreshCategories } = usePublicCategories();
     const userMenuRef = useRef(null);
     const megaMenuRef = useRef(null);
     const megaTriggerRef = useRef(null);
@@ -164,66 +164,48 @@ export default function Navbar() {
         prevCountRef.current = itemCount;
     }, [itemCount]);
 
-    const loadCategories = useCallback(async (force = false) => {
-        setIsLoadingCategories(true);
-        try {
-            const data = await productService.getCategoryStats(force);
-            const filtered = Array.isArray(data)
-                ? data.filter((category) =>
-                    category &&
-                    typeof category.name === 'string' &&
-                    category.name.trim().length > 0 &&
-                    Number(category.product_count) > 0
-                )
-                : [];
-            const sorted = filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            setCategories(sorted);
-        } catch (error) {
-            console.error('Failed to load categories for mega menu', error);
-            setCategories([]);
-        } finally {
-            setIsLoadingCategories(false);
-        }
-    }, []);
-
     useEffect(() => {
-        loadCategories();
-    }, [loadCategories]);
+        refreshCategories().catch((error) => {
+            console.error('Failed to load categories for mega menu', error);
+        });
+    }, [refreshCategories]);
 
     useEffect(() => {
         if (!isMegaOpen) return;
-        loadCategories();
-    }, [isMegaOpen, loadCategories]);
+        refreshCategories().catch((error) => {
+            console.error('Failed to refresh categories for mega menu', error);
+        });
+    }, [isMegaOpen, refreshCategories]);
 
     useAdminCrudSync({
         'refresh:categories': () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadCategories(true);
+                refreshCategories(true).catch(() => {});
             }, 120);
         },
         'product:category_change': () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadCategories(true);
+                refreshCategories(true).catch(() => {});
             }, 120);
         },
         'product:create': () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadCategories(true);
+                refreshCategories(true).catch(() => {});
             }, 120);
         },
         'product:update': () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadCategories(true);
+                refreshCategories(true).catch(() => {});
             }, 120);
         },
         'product:delete': () => {
             if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
             refreshTimerRef.current = setTimeout(() => {
-                loadCategories(true);
+                refreshCategories(true).catch(() => {});
             }, 120);
         }
     });
@@ -421,7 +403,9 @@ export default function Navbar() {
                         <img 
                             src={logo} 
                             alt="Logo" 
-                            className={`w-auto object-contain transition-all duration-300 h-10`} 
+                            className={`w-auto object-contain transition-all duration-300 h-10`}
+                            decoding="async"
+                            fetchPriority="high"
                         />
                         <span className={`font-serif font-bold tracking-wide text-primary transition-all duration-300 text-xl`}>
                             SSC Jewellery
@@ -639,18 +623,6 @@ export default function Navbar() {
                                 {tierLabel}
                             </span>
                         )}
-                        <button 
-                            type="button"
-                            onClick={handleCartClick}
-                            className={`relative p-2 text-primary ${shakeCart ? 'cart-shake' : ''}`}
-                        >
-                            <ShoppingCart size={24} />
-                            {itemCount > 0 && (
-                                <span className={`absolute -top-1 -right-1 bg-primary text-accent text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center ${popBadge ? 'cart-pop' : ''}`}>
-                                    {itemCount}
-                                </span>
-                            )}
-                        </button>
                         <button 
                             className="p-2 text-primary"
                             onClick={() => setIsOpen(!isOpen)}

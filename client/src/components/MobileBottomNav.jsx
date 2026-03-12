@@ -12,7 +12,7 @@ const getRedirectPath = (pathname = '/') => {
     return pathname;
 };
 
-const tabBaseClassName = 'group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-semibold tracking-wide transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.96] active:translate-y-0.5';
+const tabBaseClassName = 'group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[11px] font-semibold tracking-wide transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.96] active:translate-y-0.5';
 const HIDDEN_PATHS = new Set(['/checkout', '/payment/success', '/payment/failed']);
 
 export default function MobileBottomNav() {
@@ -113,13 +113,13 @@ export default function MobileBottomNav() {
     return (
         <div
             ref={navRef}
-            className={`md:hidden fixed inset-x-0 bottom-0 z-[75] px-3 transition-transform duration-300 ease-out ${(isVisible && !shouldHideNav) ? 'pointer-events-auto' : 'pointer-events-none'}`}
+            className={`md:hidden fixed inset-x-0 bottom-0 z-[75] transition-transform duration-300 ease-out ${(isVisible && !shouldHideNav) ? 'pointer-events-auto' : 'pointer-events-none'}`}
             style={{ transform: TAB_TRANSFORM_HIDDEN }}
             aria-hidden={!isVisible || shouldHideNav}
         >
             <div
-                className="pointer-events-auto mx-auto mb-0.5 flex max-w-md items-center gap-1 rounded-[28px] border border-slate-900/10 bg-white/88 p-2 shadow-[0_16px_42px_rgba(15,23,42,0.18)] backdrop-blur-2xl"
-                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}
+                className="pointer-events-auto flex w-full items-center gap-1 border-t border-white/70 bg-white/90 px-3 pt-1.5 pb-1 shadow-sm backdrop-blur-2xl"
+                style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.25rem)' }}
             >
                 {tabs.map((tab) => {
                     const { key, label, active, badge, onClick, to } = tab;

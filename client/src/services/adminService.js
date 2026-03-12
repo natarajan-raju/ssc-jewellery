@@ -1,3 +1,5 @@
+import { dispatchSessionExpired, getAuthHeaders, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
+
 const API_URL = import.meta.env.PROD 
   ? '/api/admin' 
   : 'http://localhost:5000/api/admin';
@@ -6,19 +8,7 @@ const UPLOAD_API_URL = import.meta.env.PROD
   : 'http://localhost:5000/api/uploads';
 
 // 1. Get Token Securely
-const getAuthHeader = () => {
-    const token = localStorage.getItem('token');
-
-    // [FIX] Safety check: Return JSON header only if no token (prevents "Bearer null" error)
-    if (!token || token === 'undefined' || token === 'null') {
-        return { 'Content-Type': 'application/json' };
-    }
-
-    return { 
-        'Authorization': `Bearer ${token}`, 
-        'Content-Type': 'application/json' 
-    };
-};
+const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
 
 // --- SIMPLE IN-MEMORY CACHE ---
 let userCache = {};
@@ -41,6 +31,9 @@ const handleResponse = async (res) => {
     };
     if (!res.ok) {
         const err = await parseJsonSafely();
+        if (shouldTreatAsExpiredSession(res.status, err.message || res.statusText)) {
+            dispatchSessionExpired(err.message || 'Session expired. Please login again.');
+        }
         throw new Error(err.message || res.statusText || 'Server Error');
     }
     return parseJsonSafely();
@@ -366,45 +359,45 @@ export const adminService = {
         return handleResponse(res);
     },
     uploadLoyaltyPopupImage: async (file) => {
-        const token = localStorage.getItem('token');
+        const token = getStoredToken();
         const formData = new FormData();
         formData.append('image', file);
         const res = await fetch(`${UPLOAD_API_URL}/popup-image`, {
             method: 'POST',
-            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData
         });
         return handleResponse(res);
     },
     uploadLoyaltyPopupAudio: async (file) => {
-        const token = localStorage.getItem('token');
+        const token = getStoredToken();
         const formData = new FormData();
         formData.append('audio', file);
         const res = await fetch(`${UPLOAD_API_URL}/popup-audio`, {
             method: 'POST',
-            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData
         });
         return handleResponse(res);
     },
     uploadContactJumbotronImage: async (file) => {
-        const token = localStorage.getItem('token');
+        const token = getStoredToken();
         const formData = new FormData();
         formData.append('image', file);
         const res = await fetch(`${UPLOAD_API_URL}/contact-jumbotron-image`, {
             method: 'POST',
-            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData
         });
         return handleResponse(res);
     },
     uploadCarouselCardImage: async (file) => {
-        const token = localStorage.getItem('token');
+        const token = getStoredToken();
         const formData = new FormData();
         formData.append('image', file);
         const res = await fetch(`${UPLOAD_API_URL}/carousel-card-image`, {
             method: 'POST',
-            headers: token && token !== 'undefined' && token !== 'null' ? { Authorization: `Bearer ${token}` } : {},
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: formData
         });
         return handleResponse(res);

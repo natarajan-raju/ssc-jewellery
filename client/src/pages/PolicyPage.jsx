@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Copyright, FileText, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
+import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { buildPolicySeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
-
-const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 const WEBSITE_URL = 'https://sscjewels.com';
 
 const DEFAULT_COMPANY = {
@@ -174,30 +174,12 @@ const POLICY_THEME = {
 
 export default function PolicyPage() {
     const location = useLocation();
-    const [company, setCompany] = useState(DEFAULT_COMPANY);
-
-    useEffect(() => {
-        let cancelled = false;
-        const loadCompanyInfo = async () => {
-            try {
-                const res = await fetch(`${CMS_API_URL}/company-info`);
-                const data = await res.json();
-                if (!res.ok || cancelled) return;
-                const payload = data?.company && typeof data.company === 'object' ? data.company : {};
-                setCompany((prev) => ({
-                    ...prev,
-                    ...payload,
-                    address: resolveCompanyAddress(payload)
-                }));
-            } catch {
-                // Keep defaults.
-            }
-        };
-        loadCompanyInfo();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+    const { companyInfo, applyCompanyInfo } = usePublicCompanyInfo();
+    const company = useMemo(() => ({
+        ...DEFAULT_COMPANY,
+        ...(companyInfo || {}),
+        address: resolveCompanyAddress(companyInfo || {}) || DEFAULT_COMPANY.address
+    }), [companyInfo]);
 
     const policyKey = useMemo(() => {
         const pathname = String(location.pathname || '').toLowerCase();
@@ -226,6 +208,14 @@ export default function PolicyPage() {
         policyTitle: current?.title || 'Policy'
     }), [company, current?.title, policyKey]);
     useSeo(seoConfig);
+
+    useAdminCrudSync({
+        'company:info_update': ({ company: nextCompany } = {}) => {
+            if (!nextCompany || typeof nextCompany !== 'object') return;
+            applyCompanyInfo(nextCompany);
+        }
+    });
+
     const theme = POLICY_THEME[policyKey] || POLICY_THEME.terms;
     const HeaderIcon = theme.Icon;
 

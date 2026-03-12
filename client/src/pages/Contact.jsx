@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Mail, Phone, MapPin, MessageCircle, Instagram, Send } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { useToast } from '../context/ToastContext';
 import fallbackContactImage from '../assets/contact.jpg';
 import { buildContactSeo } from '../seo/rules';
@@ -48,7 +49,12 @@ const InfoCard = ({ title, value, href = '', icon, iconTint = 'text-primary' }) 
 
 export default function Contact() {
     const toast = useToast();
-    const [company, setCompany] = useState(DEFAULT_COMPANY);
+    const { companyInfo, refreshCompanyInfo, applyCompanyInfo: patchPublicCompanyInfo } = usePublicCompanyInfo();
+    const company = useMemo(() => ({
+        ...DEFAULT_COMPANY,
+        ...(companyInfo || {}),
+        contactJumbotronImageUrl: String(companyInfo?.contactJumbotronImageUrl || DEFAULT_JUMBOTRON)
+    }), [companyInfo]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [formData, setFormData] = useState({
         name: '',
@@ -58,34 +64,15 @@ export default function Contact() {
         message: ''
     });
 
-    const loadCompanyInfo = async () => {
-        try {
-            const res = await fetch(`${CMS_API_URL}/company-info`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data?.message || 'Failed to fetch company info');
-            const payload = data?.company && typeof data.company === 'object' ? data.company : {};
-            setCompany((prev) => ({
-                ...prev,
-                ...payload,
-                contactJumbotronImageUrl: String(payload.contactJumbotronImageUrl || prev.contactJumbotronImageUrl || DEFAULT_JUMBOTRON)
-            }));
-        } catch {
-            // Keep safe defaults if API fails.
-        }
-    };
-
     useEffect(() => {
-        loadCompanyInfo();
-    }, []);
+        if (companyInfo) return;
+        refreshCompanyInfo().catch(() => {});
+    }, [companyInfo, refreshCompanyInfo]);
 
     useAdminCrudSync({
         'company:info_update': ({ company: nextCompany } = {}) => {
             if (!nextCompany || typeof nextCompany !== 'object') return;
-            setCompany((prev) => ({
-                ...prev,
-                ...nextCompany,
-                contactJumbotronImageUrl: String(nextCompany.contactJumbotronImageUrl || prev.contactJumbotronImageUrl || DEFAULT_JUMBOTRON)
-            }));
+            patchPublicCompanyInfo(nextCompany);
         }
     });
 
@@ -146,6 +133,8 @@ export default function Contact() {
                     src={jumbotronImage}
                     alt="Contact"
                     className="absolute inset-0 w-full h-full object-cover"
+                    decoding="async"
+                    fetchPriority="high"
                     onError={(e) => { e.currentTarget.src = fallbackContactImage; }}
                 />
                 <div className="relative z-20 container mx-auto px-4 h-full flex flex-col justify-center items-center text-center">

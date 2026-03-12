@@ -1,14 +1,10 @@
+import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
+
 const API_URL = import.meta.env.PROD
   ? '/api'
   : 'http://localhost:5000/api';
 
-const getAuthHeader = () => {
-  const token = localStorage.getItem('token');
-  if (!token || token === 'undefined' || token === 'null') {
-    return { 'Content-Type': 'application/json' };
-  }
-  return { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
-};
+const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
 
 const handleResponse = async (res) => {
   const parseJsonSafely = async () => {
@@ -18,6 +14,9 @@ const handleResponse = async (res) => {
   };
   if (!res.ok) {
     const data = await parseJsonSafely();
+    if (shouldTreatAsExpiredSession(res.status, data?.message || res.statusText)) {
+      dispatchSessionExpired(data?.message || 'Session expired. Please login again.');
+    }
     throw new Error(data.message || 'Request failed');
   }
   return parseJsonSafely();

@@ -346,6 +346,8 @@ export default function ProductCard({ product, displayCategory = '' }) {
                     src={mainImage} 
                     alt={product.title}
                     className={`w-full h-full object-cover transition-transform duration-700 ${isHovered ? 'scale-110' : 'scale-100'}`}
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => { e.target.src = placeholderImg; }}
                 />
                 {isUnavailable && (

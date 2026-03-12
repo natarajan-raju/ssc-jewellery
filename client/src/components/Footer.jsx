@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
-import { productService } from '../services/productService';
 import { useAuth } from '../context/AuthContext';
 import logoLight from '../assets/logo_light.webp';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 
 export default function Footer() {
     const { user } = useAuth();
-    const [categories, setCategories] = useState([]);
-    const [company, setCompany] = useState({
+    const { categories, refreshCategories } = usePublicCategories();
+    const { companyInfo, refreshCompanyInfo, applyCompanyInfo } = usePublicCompanyInfo();
+    const company = {
         displayName: 'SSC Jewellery',
         contactNumber: '',
         supportEmail: '',
@@ -19,60 +20,31 @@ export default function Footer() {
         facebookUrl: '',
         whatsappNumber: '',
         gstNumber: '',
-        taxEnabled: false
-    });
-    const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
-
-    const loadCategories = useCallback(async (force = false) => {
-        try {
-            const [statsData, categoriesData] = await Promise.all([
-                productService.getCategoryStats(force).catch(() => []),
-                productService.getCategories().catch(() => [])
-            ]);
-            const statsList = Array.isArray(statsData) ? statsData : (Array.isArray(statsData?.categories) ? statsData.categories : []);
-            const categoryList = Array.isArray(categoriesData) ? categoriesData : (Array.isArray(categoriesData?.categories) ? categoriesData.categories : []);
-            if (statsList.length) {
-                setCategories(statsList);
-                return;
-            }
-            setCategories(categoryList);
-        } catch {
-            setCategories([]);
-        }
-    }, []);
-    const loadCompanyInfo = useCallback(async () => {
-        try {
-            const res = await fetch(`${CMS_API_URL}/company-info`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data?.message || 'Failed to load company info');
-            const nextCompany = data?.company || {};
-            setCompany((prev) => ({ ...prev, ...nextCompany }));
-        } catch {
-            // Keep existing company defaults if CMS info is unavailable.
-        }
-    }, [CMS_API_URL]);
+        taxEnabled: false,
+        ...(companyInfo || {})
+    };
 
     useEffect(() => {
-        loadCategories();
-        loadCompanyInfo();
-    }, [loadCategories, loadCompanyInfo]);
+        refreshCategories().catch(() => {});
+        refreshCompanyInfo().catch(() => {});
+    }, [refreshCategories, refreshCompanyInfo]);
 
     useAdminCrudSync({
-        'refresh:categories': () => loadCategories(true),
-        'product:category_change': () => loadCategories(true),
-        'product:create': () => loadCategories(true),
-        'product:update': () => loadCategories(true),
-        'product:delete': () => loadCategories(true),
+        'refresh:categories': () => refreshCategories(true).catch(() => {}),
+        'product:category_change': () => refreshCategories(true).catch(() => {}),
+        'product:create': () => refreshCategories(true).catch(() => {}),
+        'product:update': () => refreshCategories(true).catch(() => {}),
+        'product:delete': () => refreshCategories(true).catch(() => {}),
         'company:info_update': ({ company: nextCompany } = {}) => {
             if (nextCompany && typeof nextCompany === 'object') {
-                setCompany((prev) => ({ ...prev, ...nextCompany }));
+                applyCompanyInfo(nextCompany);
             } else {
-                loadCompanyInfo();
+                refreshCompanyInfo(true).catch(() => {});
             }
         }
     });
 
-    const categoryLinks = categories
+    const categoryLinks = [...categories]
         .filter((c) => {
             if (!c?.name) return false;
             if (c?.product_count == null) return true;
@@ -97,7 +69,7 @@ export default function Footer() {
             <div className="container mx-auto px-4 py-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
                     <div className="space-y-4">
-                        <img src={logoLight} alt="SSC Jewellery" className="h-14 w-auto" />
+                        <img src={logoLight} alt="SSC Jewellery" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
                         <p className="text-sm text-white/70">
                             Premium Impon jewellery crafted with care. Discover timeless designs and elegant collections.
                         </p>

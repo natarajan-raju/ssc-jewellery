@@ -6,6 +6,7 @@ import { orderService } from '../services/orderService';
 import { productService } from '../services/productService';
 import { adminService } from '../services/adminService';
 import { useToast } from './ToastContext';
+import { dispatchSessionExpired, getStoredToken } from '../utils/authSession';
 
 const SocketContext = createContext(null);
 
@@ -28,7 +29,7 @@ const adminNewOrderPopupSeen = new Map();
 
 export const SocketProvider = ({ children }) => {
     const [socket] = useState(globalSocket);
-    const { user, logout } = useAuth();
+    const { user } = useAuth();
     const toast = useToast();
 
     useEffect(() => {
@@ -50,12 +51,12 @@ export const SocketProvider = ({ children }) => {
         if (!socket) return;
 
         const authenticateSocket = () => {
-            const token = localStorage.getItem('token');
-            if (user?.id && token && token !== 'undefined' && token !== 'null' && !socket.connected) {
+            const token = getStoredToken();
+            if (user?.id && token && !socket.connected) {
                 socket.connect();
                 return;
             }
-            if (user?.id && token && token !== 'undefined' && token !== 'null') {
+            if (user?.id && token) {
                 socket.emit('auth', { token });
             }
         };
@@ -74,12 +75,12 @@ export const SocketProvider = ({ children }) => {
         if (!socket) return;
 
         const handleSocketAuthError = async (payload = {}) => {
-            const token = localStorage.getItem('token');
-            if (!token || token === 'undefined' || token === 'null') return;
+            const token = getStoredToken();
+            if (!token) return;
 
             const message = String(payload?.message || '').trim() || 'Realtime session expired';
             socket.disconnect();
-            await logout();
+            dispatchSessionExpired(message);
             toast.error(message);
         };
 
@@ -87,7 +88,7 @@ export const SocketProvider = ({ children }) => {
         return () => {
             socket.off('auth:error', handleSocketAuthError);
         };
-    }, [logout, socket, toast]);
+    }, [socket, toast]);
 
     useEffect(() => {
         if (!socket) return;
