@@ -91,7 +91,12 @@ export default defineConfig(({ mode }) => {
           clientsClaim: true,
           // 3. Ensure the index.html is never cached blindly
           navigateFallback: 'index.html',
-          navigateFallbackDenylist: [/^\/api/], // Don't cache API calls
+          navigateFallbackDenylist: [
+            /^\/api/,
+            /^\/sitemap\.xml$/i,
+            /^\/robots\.txt$/i,
+            /\/[^/?]+\.(xml|txt)$/i
+          ], // Don't route crawl/static docs through the SPA shell
         }
       })
     ],

@@ -77,6 +77,31 @@ const formatSplitTaxLabel = (amount) => {
     const half = total / 2;
     return `SGST ${formatCurrency(half)} + CGST ${formatCurrency(half)}`;
 };
+const roundCurrency = (value) => Math.round(Number(value || 0) * 100) / 100;
+const buildDiscountCellHtml = (item = {}) => {
+    const totalDiscount = Math.max(
+        0,
+        Number(item.productDiscount || 0) + Number(item.couponShare || 0) + Number(item.memberShare || 0) + Number(item.shippingBenefitShare || 0)
+    );
+    const lines = [
+        `<div style="font-size:12px;color:#111827;">${formatCurrency(totalDiscount)}</div>`,
+        `<div style="font-size:11px;color:#6b7280;">Product: ${formatCurrency(item.productDiscount)}</div>`,
+        `<div style="font-size:11px;color:#6b7280;">Coupon: ${formatCurrency(item.couponShare)}</div>`,
+        `<div style="font-size:11px;color:#6b7280;">Member: ${formatCurrency(item.memberShare)}</div>`
+    ];
+    if (Number(item.shippingBenefitShare || 0) > 0) {
+        lines.push(`<div style="font-size:11px;color:#6b7280;">Shipping Benefit: ${formatCurrency(item.shippingBenefitShare)}</div>`);
+    }
+    return lines.join('');
+};
+const buildTaxCellHtml = (item = {}) => {
+    const totalTax = Math.max(0, Number(item.taxAmount || 0));
+    const lines = [`<div style="font-size:12px;color:#111827;">${formatCurrency(totalTax)}</div>`];
+    if (totalTax > 0) {
+        lines.push(`<div style="font-size:11px;color:#6b7280;">${formatSplitTaxLabel(totalTax)}</div>`);
+    }
+    return lines.join('');
+};
 const parseSnapshotSafe = (value) => {
     if (!value) return null;
     if (typeof value === 'object') return value;
@@ -94,8 +119,22 @@ const buildOrderSnapshotLine = (order = {}) => {
             const quantity = Math.max(0, Number(snapshot?.quantity ?? item?.quantity ?? 0));
             const title = String(snapshot?.title || item?.title || 'Item').trim() || 'Item';
             const variantTitle = String(snapshot?.variantTitle || item?.variant_title || item?.variantTitle || '').trim();
-            const lineTotal = Number(snapshot?.lineTotal ?? item?.line_total ?? ((Number(item?.price || 0) * quantity) || 0));
-            return { quantity, title, variantTitle, lineTotal };
+            const paidUnit = Number(item?.price ?? snapshot?.unitPrice ?? 0);
+            const mrpUnit = Number(item?.original_price ?? snapshot?.originalPrice ?? paidUnit);
+            const lineTotal = Number(snapshot?.lineTotal ?? item?.line_total ?? ((paidUnit * quantity) || 0));
+            const taxAmount = Number(item?.tax_amount ?? snapshot?.taxAmount ?? 0);
+            const taxRatePercent = Number(item?.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
+            return {
+                quantity,
+                title,
+                variantTitle,
+                paidUnit,
+                mrpUnit,
+                lineTotal,
+                taxAmount,
+                taxRatePercent,
+                productDiscount: Math.max(0, (mrpUnit - paidUnit) * quantity)
+            };
         })
         .filter((item) => item.quantity > 0);
     if (!resolvedItems.length) return '';
@@ -109,6 +148,46 @@ const buildOrderSnapshotLine = (order = {}) => {
     const basePriceBeforeDiscounts = Math.max(0, subtotal + shippingFee);
     const taxableValueAfterDiscounts = Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount);
     const couponCode = String(order?.coupon_code || '').trim().toUpperCase();
+    const lineDenominator = subtotal > 0
+        ? subtotal
+        : Math.max(1, resolvedItems.reduce((sum, item) => sum + Math.max(0, Number(item.lineTotal || 0)), 0));
+    let couponAllocated = 0;
+    let memberAllocated = 0;
+    const allocatedItems = resolvedItems.map((item, index) => {
+        const ratio = lineDenominator > 0 ? (Math.max(0, item.lineTotal) / lineDenominator) : 0;
+        const isLast = index === resolvedItems.length - 1;
+        const couponShare = isLast ? Math.max(0, couponDiscount - couponAllocated) : roundCurrency(couponDiscount * ratio);
+        couponAllocated += couponShare;
+        const memberShare = isLast ? Math.max(0, loyaltyDiscount - memberAllocated) : roundCurrency(loyaltyDiscount * ratio);
+        memberAllocated += memberShare;
+        return {
+            ...item,
+            couponShare,
+            memberShare,
+            shippingShare: 0,
+            shippingBenefitShare: 0,
+            netShippingShare: 0,
+            lineTotalInclTax: Math.max(0, item.lineTotal - couponShare - memberShare) + Math.max(0, item.taxAmount)
+        };
+    });
+    const shippingTaxAmount = Math.max(0, roundCurrency(taxTotal - allocatedItems.reduce((sum, item) => sum + Math.max(0, Number(item.taxAmount || 0)), 0)));
+    const shippingRow = (shippingFee > 0 || loyaltyShippingDiscount > 0 || shippingTaxAmount > 0)
+        ? {
+            quantity: 1,
+            title: 'Shipping',
+            variantTitle: 'Delivery charge',
+            mrpUnit: shippingFee,
+            lineTotal: Math.max(0, shippingFee - loyaltyShippingDiscount),
+            taxAmount: shippingTaxAmount,
+            taxRatePercent: 0,
+            productDiscount: 0,
+            couponShare: 0,
+            memberShare: 0,
+            shippingBenefitShare: loyaltyShippingDiscount,
+            lineTotalInclTax: Math.max(0, shippingFee - loyaltyShippingDiscount) + shippingTaxAmount
+        }
+        : null;
+    const tableItems = shippingRow ? [...allocatedItems, shippingRow] : allocatedItems;
     const summaryParts = [
         `Tier: <strong>${formatTier(order?.loyalty_tier || order?.loyaltyTier)}</strong>`,
         `Base Price (Before Discounts): <strong>${formatCurrency(basePriceBeforeDiscounts)}</strong>`,
@@ -120,17 +199,63 @@ const buildOrderSnapshotLine = (order = {}) => {
         `Taxable Value After Discounts: <strong>${formatCurrency(taxableValueAfterDiscounts)}</strong>`,
         taxTotal > 0 ? `GST: <strong>${formatCurrency(taxTotal)}</strong> (${formatSplitTaxLabel(taxTotal)})` : null
     ].filter(Boolean);
-    const visibleItems = resolvedItems.slice(0, 10);
-    const lines = visibleItems.map((item, idx) => (
-        `${idx + 1}. ${item.quantity} x ${item.title}${item.variantTitle ? ` (${item.variantTitle})` : ''} - ${formatCurrency(item.lineTotal)}`
-    ));
-    if (resolvedItems.length > visibleItems.length) {
-        lines.push(`+${resolvedItems.length - visibleItems.length} more item(s)`);
-    }
+    const visibleItems = tableItems.slice(0, 8);
+    const rows = visibleItems.map((item, idx) => `
+        <tr>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;vertical-align:top;">${idx + 1}</td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;vertical-align:top;">
+                <div style="font-weight:600;">${item.title}</div>
+                ${item.variantTitle ? `<div style="color:#6b7280;margin-top:2px;">${item.variantTitle}</div>` : ''}
+            </td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;text-align:right;vertical-align:top;">${formatCurrency(item.mrpUnit)}</td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;text-align:right;vertical-align:top;">${item.quantity}</td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:11px;color:#111827;text-align:right;vertical-align:top;">${buildDiscountCellHtml(item)}</td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:11px;color:#111827;text-align:right;vertical-align:top;">${buildTaxCellHtml(item)}</td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;text-align:right;vertical-align:top;font-weight:600;">${formatCurrency(item.lineTotalInclTax)}</td>
+        </tr>
+    `).join('');
+    const tableTotals = {
+        qty: tableItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+        unitPriceMrp: tableItems.reduce((sum, item) => sum + (Number(item.mrpUnit || 0) * Number(item.quantity || 0)), 0),
+        productDiscount: tableItems.reduce((sum, item) => sum + Number(item.productDiscount || 0), 0),
+        couponShare: tableItems.reduce((sum, item) => sum + Number(item.couponShare || 0), 0),
+        memberShare: tableItems.reduce((sum, item) => sum + Number(item.memberShare || 0), 0),
+        shippingBenefitShare: tableItems.reduce((sum, item) => sum + Number(item.shippingBenefitShare || 0), 0),
+        taxAmount: tableItems.reduce((sum, item) => sum + Number(item.taxAmount || 0), 0),
+        lineTotalInclTax: tableItems.reduce((sum, item) => sum + Number(item.lineTotalInclTax || 0), 0)
+    };
+    const tableHtml = `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;border-collapse:separate;border-spacing:0;">
+            <thead>
+                <tr style="background:#f9fafb;">
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:left;">#</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:left;">Item</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Unit Price (MRP)</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Qty</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Discount</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">GST</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Line Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+                <tr style="background:#f9fafb;">
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;"></td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;font-weight:700;">Table Totals</td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;text-align:right;font-weight:700;">${formatCurrency(tableTotals.unitPriceMrp)}</td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;text-align:right;font-weight:700;">${Math.round(tableTotals.qty)}</td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:11px;color:#374151;text-align:right;font-weight:700;">${buildDiscountCellHtml(tableTotals)}</td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:11px;color:#374151;text-align:right;font-weight:700;">${buildTaxCellHtml({ taxAmount: tableTotals.taxAmount })}</td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;text-align:right;font-weight:700;">${formatCurrency(tableTotals.lineTotalInclTax)}</td>
+                </tr>
+            </tbody>
+        </table>
+    `;
     return [
         '<strong>Order snapshot</strong>',
         summaryParts.length ? summaryParts.join(' | ') : null,
-        ...lines
+        tableHtml,
+        tableItems.length > visibleItems.length ? `+${tableItems.length - visibleItems.length} more item(s)` : null
     ].filter(Boolean).join('<br/>');
 };
 
