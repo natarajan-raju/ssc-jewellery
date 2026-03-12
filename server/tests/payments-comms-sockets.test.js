@@ -8,9 +8,11 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const Order = require('../models/Order');
+const User = require('../models/User');
 const WebhookEvent = require('../models/WebhookEvent');
 const socketAudience = require('../utils/socketAudience');
 const db = require('../config/db');
+const CompanyProfile = require('../models/CompanyProfile');
 
 const loadOrderController = ({
     razorpayConfig = null,
@@ -825,6 +827,67 @@ test('whatsapp channel respects admin global disable switch', async () => {
         else process.env.WHATSAPP_LICENSE_NUMBER = originalLicense;
         if (originalApiKey === undefined) delete process.env.WHATSAPP_API_KEY;
         else process.env.WHATSAPP_API_KEY = originalApiKey;
+    }
+});
+
+test('sendAdminInvoiceCommunication reports only actually queued channels and uses invoice stage', async () => {
+    const originalAppBaseUrl = process.env.APP_BASE_URL;
+    process.env.APP_BASE_URL = 'https://shop.example.com';
+    const invoicePdf = require('../utils/invoicePdf');
+    let communicationPayload = null;
+    const controller = loadOrderController({
+        comms: {
+            sendOrderLifecycleCommunication: async (payload) => {
+                communicationPayload = payload;
+                return {
+                    email: { ok: false, skipped: true, reason: 'missing_email' },
+                    whatsapp: { ok: true }
+                };
+            }
+        }
+    });
+
+    const req = {
+        params: { id: '101' }
+    };
+    const res = createMockRes();
+
+    try {
+        await withPatched(Order, {
+            getById: async () => ({
+                id: 101,
+                user_id: 'u1',
+                order_ref: 'REF-101',
+                payment_status: PAYMENT_STATUS.PAID
+            })
+        }, async () => withPatched(User, {
+            findById: async () => ({
+                id: 'u1',
+                name: 'User',
+                email: '',
+                mobile: '9876543210'
+            })
+        }, async () => withPatched(CompanyProfile, {
+            get: async () => ({ whatsappChannelEnabled: true })
+        }, async () => withPatched(invoicePdf, {
+            buildInvoicePdfBuffer: async () => Buffer.from('pdf')
+        }, async () => withPatched(global, {
+            setImmediate: async (fn) => fn()
+        }, async () => {
+            await controller.sendAdminInvoiceCommunication(req, res);
+        })))));
+
+        assert.equal(res.statusCode, 202);
+        assert.equal(res.body.queuedChannels.email, false);
+        assert.equal(res.body.queuedChannels.whatsapp, true);
+        assert.equal(res.body.skippedChannels.email, 'Customer email unavailable');
+        assert.equal(communicationPayload.stage, 'invoice');
+        assert.equal(communicationPayload.allowEmail, false);
+        assert.equal(communicationPayload.allowWhatsapp, true);
+        assert.match(String(communicationPayload.invoiceShareUrl || ''), /^https:\/\/shop\.example\.com\//);
+    } finally {
+        if (originalAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
+        else process.env.APP_BASE_URL = originalAppBaseUrl;
     }
 });
 

@@ -14,7 +14,7 @@ const Product = require('../models/Product');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
-const { verifyInvoiceShareToken } = require('../services/invoiceShareService');
+const { verifyInvoiceShareToken, buildInvoiceShareUrl } = require('../services/invoiceShareService');
 const { reassessUserTier } = require('../services/loyaltyService');
 const { emitToOrderAudiences } = require('../utils/socketAudience');
 const { emitProductEvent } = require('./productController');
@@ -2733,6 +2733,33 @@ const sendAdminInvoiceCommunication = async (req, res) => {
         if (!customer) {
             return res.status(404).json({ message: 'Customer not found for this order' });
         }
+        const normalizedEmail = String(customer.email || '').trim();
+        const normalizedMobile = String(customer.mobile || '').replace(/\D/g, '');
+        const hasEmail = Boolean(normalizedEmail);
+        const company = await CompanyProfile.get().catch(() => null);
+        const whatsappGloballyEnabled = company?.whatsappChannelEnabled !== false;
+        let invoiceShareUrl = '';
+        let whatsappBlockedReason = '';
+
+        if (whatsappGloballyEnabled && normalizedMobile.length >= 10) {
+            try {
+                invoiceShareUrl = buildInvoiceShareUrl({ orderId: order.id, userId: order.user_id });
+            } catch (shareUrlError) {
+                whatsappBlockedReason = shareUrlError?.message || 'Invoice share URL unavailable';
+            }
+        } else if (!whatsappGloballyEnabled) {
+            whatsappBlockedReason = 'WhatsApp channel disabled in settings';
+        } else {
+            whatsappBlockedReason = 'Customer WhatsApp number unavailable';
+        }
+
+        const allowEmail = hasEmail;
+        const allowWhatsapp = Boolean(invoiceShareUrl);
+        if (!allowEmail && !allowWhatsapp) {
+            return res.status(400).json({
+                message: whatsappBlockedReason || 'Customer does not have a reachable invoice delivery channel'
+            });
+        }
 
         const orderForInvoice = await hydrateOrderForInvoice(order);
         const pdfBuffer = await buildInvoicePdfBuffer(orderForInvoice);
@@ -2747,11 +2774,14 @@ const sendAdminInvoiceCommunication = async (req, res) => {
         setImmediate(async () => {
             try {
                 const result = await sendOrderLifecycleCommunication({
-                    stage: 'updated',
+                    stage: 'invoice',
                     customer,
                     order,
                     includeInvoice: true,
-                    invoiceAttachment
+                    invoiceAttachment,
+                    allowEmail,
+                    allowWhatsapp,
+                    invoiceShareUrl
                 });
                 console.info(
                     `Invoice communication result for order ${order?.id || 'unknown'}`,
@@ -2782,8 +2812,16 @@ const sendAdminInvoiceCommunication = async (req, res) => {
         });
 
         return res.status(202).json({
-            message: 'Invoice communication queued for email + WhatsApp',
-            queued: true
+            message: `Invoice communication queued for ${[allowEmail ? 'email' : '', allowWhatsapp ? 'WhatsApp' : ''].filter(Boolean).join(' + ')}`,
+            queued: true,
+            queuedChannels: {
+                email: allowEmail,
+                whatsapp: allowWhatsapp
+            },
+            skippedChannels: {
+                email: allowEmail ? null : 'Customer email unavailable',
+                whatsapp: allowWhatsapp ? null : whatsappBlockedReason
+            }
         });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to send invoice communication' });

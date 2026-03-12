@@ -24,6 +24,9 @@ const resolveBaseUrl = (baseUrl = '') => {
         || ''
     ).trim().replace(/\/+$/, '');
     if (envBase) return envBase;
+    if (!isNonProductionLike()) {
+        throw new Error('APP_BASE_URL or another public base URL must be configured');
+    }
     const port = Number(process.env.PORT || 5000);
     return `http://localhost:${port}`;
 };

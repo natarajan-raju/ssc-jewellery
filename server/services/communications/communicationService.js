@@ -230,6 +230,7 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         shipped_followup: Array.from({ length: 10 }, (_, i) => `A quick delivery check for order ${orderRef} (${i + 1}/10)`),
         completed: Array.from({ length: 10 }, (_, i) => `Thank you for choosing SSC Jewellery (${orderRef}) (${i + 1}/10)`),
         delivered: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} delivered (${i + 1}/10)`),
+        invoice: Array.from({ length: 10 }, (_, i) => `Invoice for order ${orderRef} (${i + 1}/10)`),
         cancelled: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} cancelled (${i + 1}/10)`),
         failed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} needs attention (${i + 1}/10)`)
     };
@@ -249,6 +250,7 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         shipped_followup: `Your order <strong>${orderRef}</strong> is marked as shipped. We hope it has reached you safely.`,
         completed: `Thank you for shopping with us. We are grateful for your trust in SSC Jewellery.`,
         delivered: `Your order <strong>${orderRef}</strong> has been delivered successfully.`,
+        invoice: `Please find the invoice for your order <strong>${orderRef}</strong>${createdDate ? ` placed on <strong>${createdDate}</strong>` : ''}.`,
         cancelled: `Your order <strong>${orderRef}</strong> has been cancelled in our system.`,
         failed: `Your order <strong>${orderRef}</strong> requires your attention before we can proceed.`
     };
@@ -263,6 +265,7 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         shipped_followup: ['Please confirm receipt using the link shared below.', 'Reply if you need any assistance from our support team.', 'We will update the order status as soon as you confirm receipt.'],
         completed: ['Enjoy your purchase and keep this email for your records.', 'Reply if you need support with product or service.', 'We would love to serve you again soon.'],
         delivered: ['Please verify package contents after delivery.', 'Reach us immediately if there is any issue.', 'Share your experience with our team.'],
+        invoice: ['Keep this invoice for your records.', 'Review billing details and tax lines carefully.', 'Reply if any billing information needs correction.'],
         cancelled: ['Review cancellation and refund details in your account.', 'For EMI refunds, contact your issuing bank for statement timeline updates if needed.', 'Reply to this email if any refund detail looks incorrect.'],
         failed: ['Reply to this email for immediate support.', 'Recheck payment/order details in your account.', 'Our team will guide you through quick resolution.']
     };
@@ -351,18 +354,27 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     });
 };
 
-const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {}, includeInvoice = false, invoiceAttachment = null }) => {
+const sendOrderLifecycleCommunication = async ({
+    stage,
+    customer = {},
+    order = {},
+    includeInvoice = false,
+    invoiceAttachment = null,
+    allowEmail = true,
+    allowWhatsapp = true,
+    invoiceShareUrl = null
+}) => {
     const recipient = normalizeCustomer(customer);
     const safeStage = String(stage || 'updated').trim().toLowerCase();
     const template = buildOrderLifecycleTemplate({ stage: safeStage, customer: recipient, order, includeInvoice });
     const invoiceRef = String(order?.order_ref || order?.orderRef || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
     const invoiceFileName = `invoice-${invoiceRef}.pdf`;
     const invoiceFileUrl = includeInvoice
-        ? buildInvoiceShareUrl({ orderId: order?.id, userId: order?.user_id })
+        ? (typeof invoiceShareUrl === 'string' ? invoiceShareUrl : buildInvoiceShareUrl({ orderId: order?.id, userId: order?.user_id }))
         : '';
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
-        recipient.email
+        (allowEmail && recipient.email)
             ? sendEmailCommunication({
                 to: recipient.email,
                 subject: template.subject,
@@ -371,16 +383,18 @@ const sendOrderLifecycleCommunication = async ({ stage, customer = {}, order = {
                 attachments: invoiceAttachment ? [invoiceAttachment] : []
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-        sendWhatsapp({
-            stage: safeStage,
-            customer: recipient,
-            order,
-            type: 'order',
-            template: 'order',
-            mobile: recipient.mobile,
-            fileUrl: invoiceFileUrl || '',
-            pdfName: includeInvoice ? invoiceFileName : ''
-        })
+        allowWhatsapp
+            ? sendWhatsapp({
+                stage: safeStage,
+                customer: recipient,
+                order,
+                type: 'order',
+                template: 'order',
+                mobile: recipient.mobile,
+                fileUrl: invoiceFileUrl || '',
+                pdfName: includeInvoice ? invoiceFileName : ''
+            })
+            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_whatsapp' })
     ]);
     return {
         email: emailResult.status === 'fulfilled'
