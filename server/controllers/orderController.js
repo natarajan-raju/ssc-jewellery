@@ -2256,19 +2256,45 @@ const createAdminManualOrder = async (req, res) => {
         if (!order?.id) {
             return res.status(400).json({ message: 'Failed to create manual order' });
         }
+        await User.updateProfile(userId, {
+            address: shippingAddress || null,
+            billingAddress: billingAddress || shippingAddress || null
+        });
         const persisted = await Order.getById(order.id);
+        const finalOrder = persisted || order;
+        const paymentPayload = {
+            paymentStatus: PAYMENT_STATUS.PAID,
+            paymentMethod: paymentMode,
+            paymentReference: paymentReference || null
+        };
         const io = req.app.get('io');
-        if (io && persisted) {
-            emitToOrderAudiences(io, persisted, 'order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
+        if (io && finalOrder) {
+            emitToOrderAudiences(io, finalOrder, 'order:create', { order: finalOrder });
+            emitToOrderAudiences(io, finalOrder, 'order:update', {
+                orderId: finalOrder.id,
+                status: finalOrder.status,
+                order: finalOrder
+            });
+            emitToOrderAudiences(io, finalOrder, 'payment:update', {
+                orderId: finalOrder.id,
+                status: finalOrder.status,
+                order: finalOrder,
+                payment: paymentPayload
+            });
         }
-        await emitProductUpdatesForIds(req, collectOrderProductIds(persisted || order));
-        emitCouponChangedForOrder(req, persisted || order);
+        await emitProductUpdatesForIds(req, collectOrderProductIds(finalOrder));
+        emitCouponChangedForOrder(req, finalOrder);
         void triggerOrderLifecycleEmail({
-            order: persisted || order,
+            order: finalOrder,
             stage: 'confirmed',
             includeInvoice: true
         });
-        return res.status(201).json({ order: persisted || order });
+        void triggerPaymentLifecycleCommunication({
+            order: finalOrder,
+            stage: PAYMENT_STATUS.PAID,
+            payment: paymentPayload
+        });
+        return res.status(201).json({ order: finalOrder });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to create manual order' });
     }

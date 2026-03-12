@@ -138,6 +138,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
         }
         return '';
     }, [product]);
+    const showUrgencyCopy = !isUnavailable && Boolean(lowStockCopy);
     const wishlisted = isWishlisted(product?.id);
 
     // --- 3. Image Logic (Based on your JSON 'media' array) ---
@@ -236,7 +237,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
 
     const renderQuickAction = (isMobile = false) => {
         const wrapperClasses = isMobile
-            ? 'mt-3 w-full'
+            ? 'mt-2.5 w-full'
             : `w-full transition-all duration-300 ${(quickAddAdded || isHovered || productCartQty > 0) ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`;
         const buttonClasses = isMobile
             ? `w-full font-bold py-2 rounded-lg border transition-all duration-150 flex items-center justify-center gap-2 ${cartPressed ? 'scale-[0.98]' : 'scale-100'}`
@@ -316,15 +317,31 @@ export default function ProductCard({ product, displayCategory = '' }) {
             </div>
 
             {/* --- WISHLIST BUTTON --- */}
-            <button 
-                onClick={handleWishlist}
-                className={`absolute top-3 right-3 z-20 p-2 bg-white/80 backdrop-blur-sm rounded-full text-gray-400 hover:text-red-500 hover:bg-white transition-all duration-150 shadow-sm ${heartPressed ? 'scale-110' : 'scale-100'}`}
-            >
-                <Heart size={20} className={wishlisted ? 'fill-red-500 text-red-500' : ''} />
-            </button>
+            <div className="absolute top-3 right-3 z-20 flex flex-col gap-2">
+                <button
+                    onClick={handleWishlist}
+                    className={`p-2 bg-white/80 backdrop-blur-sm rounded-full text-gray-400 hover:text-red-500 hover:bg-white transition-all duration-150 shadow-sm ${heartPressed ? 'scale-110' : 'scale-100'}`}
+                >
+                    <Heart size={20} className={wishlisted ? 'fill-red-500 text-red-500' : ''} />
+                </button>
+                <button
+                    onClick={handleAddToCart}
+                    disabled={isUnavailable}
+                    className={`md:hidden p-2 rounded-full backdrop-blur-sm transition-all duration-150 shadow-sm ${
+                        isUnavailable
+                            ? 'bg-white/70 text-gray-300 cursor-not-allowed'
+                            : quickAddAdded
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-white/80 text-gray-700 hover:bg-white hover:text-primary'
+                    } ${cartPressed ? 'scale-95' : 'scale-100'}`}
+                    aria-label={quickAddAdded ? 'Added to cart' : 'Add to cart'}
+                >
+                    {quickAddAdded ? <Check size={18} /> : <ShoppingCart size={18} />}
+                </button>
+            </div>
 
             {/* --- IMAGE AREA --- */}
-            <div className="relative aspect-[4/5] tier-muted-surface overflow-hidden rounded-t-2xl">
+            <div className="relative aspect-[4/4.65] tier-muted-surface overflow-hidden rounded-t-2xl">
                 <img 
                     src={mainImage} 
                     alt={product.title}
@@ -340,20 +357,20 @@ export default function ProductCard({ product, displayCategory = '' }) {
                 )}
                 
                 {/* Quick Add Overlay */}
-                <div className="hidden md:block absolute inset-x-0 bottom-0 p-4">
+                <div className="hidden md:block absolute inset-x-0 bottom-0 p-3.5">
                     {renderQuickAction(false)}
                 </div>
             </div>
 
             {/* --- INFO AREA --- */}
-            <div className="p-4">
+            <div className="px-4 py-3.5">
                 {/* Categories */}
                 <p className="text-xs text-gray-400 uppercase tracking-wide mb-1 font-medium">
                     {resolvedCategoryLabel}
                 </p>
                 
                 {/* Title */}
-                <h3 className="font-bold text-gray-800 text-base line-clamp-2 min-h-[3rem] mb-1 group-hover:text-primary transition-colors">
+                <h3 className="font-bold text-gray-800 text-base line-clamp-2 min-h-[2.75rem] mb-1 group-hover:text-primary transition-colors">
                     {product.title}
                 </h3>
                 
@@ -363,7 +380,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
                 )}
                 
                 {/* Price Section */}
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-2 mt-1.5">
                     <span className="text-lg font-bold text-primary">
                         {label}₹{displayPrice.toLocaleString()}
                     </span>
@@ -378,13 +395,12 @@ export default function ProductCard({ product, displayCategory = '' }) {
                         {formatTierLabel(loyaltyTier)} member price: ₹{memberPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ({memberPct}% extra off)
                     </p>
                 )}
-                {!isUnavailable && lowStockCopy && (
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mt-2">
-                        {lowStockCopy}
-                    </p>
-                )}
-                <div className="md:hidden">
-                    {renderQuickAction(true)}
+                <div className="mt-2 min-h-[1rem]">
+                    {showUrgencyCopy ? (
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                            {lowStockCopy}
+                        </p>
+                    ) : null}
                 </div>
             </div>
         </div>

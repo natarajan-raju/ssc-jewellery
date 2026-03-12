@@ -233,7 +233,6 @@ export default function CustomerCouponPopup() {
 
     const handleScratchMove = (event) => {
         if (!isScratching) return;
-        if (event.cancelable) event.preventDefault();
         scratchAt(event);
         updateScratchProgress();
     };
@@ -311,6 +310,7 @@ export default function CustomerCouponPopup() {
                             className={`relative mt-5 mx-auto w-full max-w-[360px] touch-none transition-all duration-500 ${
                                 scratchUnlocked ? 'scale-[0.94] translate-y-4 opacity-90' : ''
                             }`}
+                            style={{ touchAction: 'none' }}
                             onMouseDown={handleScratchStart}
                             onMouseMove={handleScratchMove}
                             onMouseUp={handleScratchEnd}

@@ -159,8 +159,8 @@ export default function CartDrawer() {
                 className={`absolute inset-0 bg-black/35 backdrop-blur-[2px] transition-opacity duration-300 ease-out motion-reduce:transition-none ${active ? 'opacity-100' : 'opacity-0'}`}
                 onClick={closeCart}
             />
-            <div 
-                className={`absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col will-change-transform transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'}`}
+            <div
+                className={`absolute right-0 top-0 h-[100dvh] max-h-[100dvh] w-full max-w-md bg-white shadow-2xl flex flex-col overflow-hidden will-change-transform transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'}`}
             >
                 <div className="p-5 border-b border-gray-100 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -173,7 +173,7 @@ export default function CartDrawer() {
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div className="min-h-[50dvh] flex-1 overflow-y-auto overscroll-contain touch-pan-y p-5 space-y-4 [-webkit-overflow-scrolling:touch]">
                     {isSyncing && items.length === 0 && (
                         <div className="text-xs text-gray-400">Syncing your cart...</div>
                     )}
@@ -311,7 +311,7 @@ export default function CartDrawer() {
                 </div>
 
                 {items.length > 0 && (
-                <div className="relative p-5 border-t border-gray-100">
+                <div className="relative max-h-[42dvh] overflow-y-auto overscroll-contain touch-pan-y border-t border-gray-100 p-5 [-webkit-overflow-scrolling:touch]">
                     <div ref={confettiLayerRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
                     <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
                         <span>Subtotal</span>

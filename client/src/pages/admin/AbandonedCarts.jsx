@@ -686,7 +686,7 @@ export default function AbandonedCarts() {
                         type="button"
                         onClick={handleProcessNow}
                         disabled={isProcessingNow}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
+                        className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
                     >
                         <RefreshCw size={14} className={isProcessingNow ? 'animate-spin' : ''} />
                         {isProcessingNow ? 'Processing...' : 'Run Recovery Now'}
