@@ -312,13 +312,15 @@ const scheduleDailyBirthdayCoupons = () => {
 scheduleDailyBirthdayCoupons();
 
 const scheduleDashboardAlerts = () => {
-    setInterval(async () => {
+    const run = async () => {
         try {
             await runDashboardAlertsJob();
         } catch (error) {
             console.error('Dashboard alert scheduler failed:', error?.message || error);
         }
-    }, 10 * 60 * 1000);
+    };
+    setInterval(run, 10 * 60 * 1000);
+    run();
 };
 
 const scheduleDashboardAggregatesRefresh = () => {

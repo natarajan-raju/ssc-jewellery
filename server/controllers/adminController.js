@@ -118,6 +118,13 @@ const DASHBOARD_MAX_RANGE_DAYS = 90;
 const DASHBOARD_CACHE_TTL_MS = Math.max(30 * 1000, Number(process.env.DASHBOARD_CACHE_TTL_MS || 120 * 1000));
 const DASHBOARD_CACHE_MAX_ENTRIES = 120;
 const dashboardPayloadCache = new Map();
+const hasFullDashboardAggregateCoverage = (rowCount, startDate, endDate) => {
+    const start = toDateOnlyInput(startDate);
+    const end = toDateOnlyInput(endDate);
+    if (!start || !end || end.getTime() < start.getTime()) return false;
+    const expectedDays = diffDaysUTC(start, end) + 1;
+    return Number(rowCount || 0) >= expectedDays;
+};
 
 const toDateOnlyInput = (value) => {
     const raw = String(value || '').trim();
@@ -353,7 +360,11 @@ const getDashboardInsightsPayload = async (query = {}) => {
              WHERE day_date BETWEEN ? AND ?`,
             [scope.seriesStartDate, scope.seriesEndDate]
         );
-        useDailyAggregate = Number(aggregateCoverageRows?.[0]?.total || 0) > 0;
+        useDailyAggregate = hasFullDashboardAggregateCoverage(
+            aggregateCoverageRows?.[0]?.total || 0,
+            scope.seriesStartDate,
+            scope.seriesEndDate
+        );
     }
 
     const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows], [paymentGatewayRows], [paymentModeRows]] = await Promise.all([
@@ -869,7 +880,8 @@ const getDashboardInsightsPayloadCached = async (query = {}, { force = false } =
 
 const getDashboardInsights = async (req, res) => {
     try {
-        const payload = await getDashboardInsightsPayloadCached(req.query || {});
+        const force = String(req.query?.force || '').trim() === '1';
+        const payload = await getDashboardInsightsPayloadCached(req.query || {}, { force });
         return res.json(payload);
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard insights' });
@@ -949,7 +961,7 @@ const listDashboardGoals = async (req, res) => {
                 status: 'all',
                 paymentMode: 'all',
                 sourceChannel: 'all'
-            });
+            }, { force: true });
             cache.set(key, payload);
             return payload;
         };
@@ -1170,6 +1182,13 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
             message: `${Number(payload.risk.failedPaymentsCurrent6h || 0)} failed payments in last 6 hours`
         });
     }
+    if (Number(payload?.risk?.codCancellationRate || 0) >= Number(settings.cod_cancel_rate_threshold || 20)) {
+        candidates.push({
+            key: 'cod_cancellation_rate',
+            severity: Number(payload.risk.codCancellationRate || 0) >= Number(settings.cod_cancel_rate_threshold || 20) + 10 ? 'high' : 'medium',
+            message: `COD cancellation rate is ${Number(payload.risk.codCancellationRate || 0).toFixed(1)}%`
+        });
+    }
     const lowStockAlerts = (payload?.actions || []).filter((item) => String(item?.id || '').startsWith('low_stock_fast_seller_'));
     if (lowStockAlerts.length >= 1) {
         candidates.push({
@@ -1185,7 +1204,10 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
 
     const emailRecipients = String(settings.email_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
     const whatsappRecipients = String(settings.whatsapp_recipients || '').split(',').map((item) => item.trim()).filter(Boolean);
-    const sentLogs = [];
+    const alertResults = [];
+    let sentCount = 0;
+    let failedCount = 0;
+    let skippedCount = 0;
 
     for (const candidate of candidates) {
         const [dupRows] = await db.execute(
@@ -1195,7 +1217,11 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
                AND sent_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)`,
             [candidate.key]
         );
-        if (Number(dupRows?.[0]?.total || 0) > 0) continue;
+        if (Number(dupRows?.[0]?.total || 0) > 0) {
+            skippedCount += 1;
+            alertResults.push({ ...candidate, channels: [], status: 'skipped', reason: 'duplicate_suppressed' });
+            continue;
+        }
 
         const channels = [];
         if (emailRecipients.length) {
@@ -1221,6 +1247,13 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
             if (whatsappSent) channels.push('whatsapp');
         }
 
+        const status = channels.length
+            ? 'sent'
+            : ((emailRecipients.length || whatsappRecipients.length) ? 'failed' : 'skipped');
+        if (status === 'sent') sentCount += 1;
+        else if (status === 'failed') failedCount += 1;
+        else skippedCount += 1;
+
         await db.execute(
             `INSERT INTO dashboard_alert_logs
                 (alert_key, severity, message, payload_json, channels_json, status)
@@ -1235,15 +1268,20 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
                     snapshot: payload || {}
                 }),
                 JSON.stringify(channels),
-                channels.length
-                    ? 'sent'
-                    : ((emailRecipients.length || whatsappRecipients.length) ? 'failed' : 'skipped')
+                status
             ]
         );
-        sentLogs.push({ ...candidate, channels });
+        alertResults.push({ ...candidate, channels, status });
     }
 
-    return { ok: true, sent: sentLogs.length, alerts: sentLogs };
+    return {
+        ok: true,
+        sent: sentCount,
+        failed: failedCount,
+        skipped: skippedCount,
+        processed: candidates.length,
+        alerts: alertResults
+    };
 };
 
 const runDashboardAlerts = async (req, res) => {
@@ -2546,6 +2584,7 @@ module.exports = {
         computeChange,
         toSafeEnum,
         normalizeDashboardEventType,
-        buildDashboardCacheKey
+        buildDashboardCacheKey,
+        hasFullDashboardAggregateCoverage
     }
 };

@@ -451,14 +451,15 @@ export const adminService = {
         comparisonMode = 'previous_period',
         status = 'all',
         paymentMode = 'all',
-        sourceChannel = 'all'
+        sourceChannel = 'all',
+        forceRefresh = false
     } = {}) => {
         const cacheKey = `${quickRange}::${startDate}::${endDate}::${comparisonMode}::${status}::${paymentMode}::${sourceChannel}`;
         const cached = dashboardCache[cacheKey];
-        if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
+        if (!forceRefresh && cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const query = `?quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&comparisonMode=${encodeURIComponent(comparisonMode)}&status=${encodeURIComponent(status)}&paymentMode=${encodeURIComponent(paymentMode)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
+        const query = `?quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&comparisonMode=${encodeURIComponent(comparisonMode)}&status=${encodeURIComponent(status)}&paymentMode=${encodeURIComponent(paymentMode)}&sourceChannel=${encodeURIComponent(sourceChannel)}&force=${forceRefresh ? '1' : '0'}`;
         const res = await fetch(`${API_URL}/dashboard/insights${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         dashboardCache[cacheKey] = { ts: Date.now(), data };

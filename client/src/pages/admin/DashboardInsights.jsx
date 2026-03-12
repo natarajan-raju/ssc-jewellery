@@ -78,6 +78,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         whatsappRecipients: '',
         pendingOver72Threshold: 10,
         failedPayment6hThreshold: 8,
+        codCancelRateThreshold: 20,
         lowStockThreshold: 5
     });
     const [isSavingAlerts, setIsSavingAlerts] = useState(false);
@@ -91,6 +92,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [goalCelebration, setGoalCelebration] = useState({ active: false, title: '' });
     const [showGoalSaveSpark, setShowGoalSaveSpark] = useState(false);
     const [syncTick, setSyncTick] = useState(0);
+    const forceRefreshRef = useRef(false);
     const hasTrackedFilterChangeRef = useRef(false);
     const startDateInputRef = useRef(null);
     const endDateInputRef = useRef(null);
@@ -151,15 +153,25 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         return () => clearTimeout(timer);
     }, [goalCelebration.active]);
 
+    const queueForcedRefresh = () => {
+        forceRefreshRef.current = true;
+        adminService.invalidateDashboardCache();
+        setSyncTick((prev) => prev + 1);
+    };
+
     useAdminCrudSync({
-        'order:create': () => setSyncTick((prev) => prev + 1),
-        'order:update': () => setSyncTick((prev) => prev + 1),
-        'payment:update': () => setSyncTick((prev) => prev + 1),
-        'product:update': () => setSyncTick((prev) => prev + 1),
-        'product:delete': () => setSyncTick((prev) => prev + 1),
-        'coupon:changed': () => setSyncTick((prev) => prev + 1),
-        'abandoned_cart:journey:update': () => setSyncTick((prev) => prev + 1),
-        'abandoned_cart:recovered': () => setSyncTick((prev) => prev + 1)
+        'order:create': queueForcedRefresh,
+        'order:update': queueForcedRefresh,
+        'payment:update': queueForcedRefresh,
+        'product:create': queueForcedRefresh,
+        'product:update': queueForcedRefresh,
+        'product:delete': queueForcedRefresh,
+        'user:create': queueForcedRefresh,
+        'user:update': queueForcedRefresh,
+        'user:delete': queueForcedRefresh,
+        'coupon:changed': queueForcedRefresh,
+        'abandoned_cart:journey:update': queueForcedRefresh,
+        'abandoned_cart:recovered': queueForcedRefresh
     });
 
     useEffect(() => {
@@ -178,6 +190,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         const load = async () => {
             setIsLoading(true);
             setLoadError('');
+            const shouldForceRefresh = forceRefreshRef.current;
+            forceRefreshRef.current = false;
             let lastError = null;
             for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
                 try {
@@ -188,7 +202,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                         comparisonMode,
                         status: statusFilter,
                         paymentMode,
-                        sourceChannel
+                        sourceChannel,
+                        forceRefresh: shouldForceRefresh
                     });
                     if (!cancelled) {
                         setData(response || null);
@@ -234,6 +249,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             whatsappRecipients: alertData.settings.whatsappRecipients || '',
                             pendingOver72Threshold: Number(alertData.settings.pendingOver72Threshold || 10),
                             failedPayment6hThreshold: Number(alertData.settings.failedPayment6hThreshold || 8),
+                            codCancelRateThreshold: Number(alertData.settings.codCancelRateThreshold || 20),
                             lowStockThreshold: Number(alertData.settings.lowStockThreshold || 5)
                         });
                     }
@@ -246,7 +262,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         };
         loadPhaseThree();
         return () => { cancelled = true; };
-    }, [evaluateGoalCompletions]);
+    }, [evaluateGoalCompletions, syncTick]);
 
     const overview = data?.overview || {};
     const products = data?.products || {};
@@ -260,7 +276,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const trendSeries = useMemo(() => {
         const base = [...trends];
         if (trendGranularity === 'daily') {
-            return base.filter((entry) => Number(entry?.revenue || 0) > 0);
+            return base;
         }
         if (trendGranularity === 'weekly') {
             const grouped = new Map();
@@ -278,7 +294,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                 prev.revenue += Number(entry?.revenue || 0);
                 grouped.set(key, prev);
             });
-            return [...grouped.values()].filter((entry) => Number(entry?.revenue || 0) > 0).slice(-12);
+            return [...grouped.values()].slice(-12);
         }
         const grouped = new Map();
         base.forEach((entry) => {
@@ -290,7 +306,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             prev.revenue += Number(entry?.revenue || 0);
             grouped.set(key, prev);
         });
-        return [...grouped.values()].filter((entry) => Number(entry?.revenue || 0) > 0).slice(-12);
+        return [...grouped.values()].slice(-12);
     }, [trendGranularity, trends]);
     const trendDailyPages = useMemo(() => {
         if (trendGranularity !== 'daily') return [];
@@ -465,6 +481,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     whatsappRecipients: dataRes.settings.whatsappRecipients || '',
                     pendingOver72Threshold: Number(dataRes.settings.pendingOver72Threshold || 10),
                     failedPayment6hThreshold: Number(dataRes.settings.failedPayment6hThreshold || 8),
+                    codCancelRateThreshold: Number(dataRes.settings.codCancelRateThreshold || 20),
                     lowStockThreshold: Number(dataRes.settings.lowStockThreshold || 5)
                 });
             }
@@ -483,7 +500,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             const result = await adminService.runDashboardAlertsNow();
             trackEvent('alerts_run', { widgetId: 'alerts', meta: { sent: Number(result?.sent || 0) } });
             if (Number(result?.sent || 0) > 0) {
-                toastRef.current.success(`Sent ${result.sent} dashboard alerts`);
+                const suffix = Number(result?.failed || 0) > 0 ? `, ${result.failed} failed` : '';
+                toastRef.current.success(`Sent ${result.sent} dashboard alerts${suffix}`);
+            } else if (Number(result?.failed || 0) > 0) {
+                toastRef.current.error(`Dashboard alerts failed for ${result.failed} candidate${Number(result.failed) > 1 ? 's' : ''}`);
             } else {
                 toastRef.current.info(result?.reason ? `No alerts sent (${result.reason})` : 'No alerts sent');
             }
@@ -529,7 +549,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             return next;
         });
         trackEvent('action_resolved', { actionId, widgetId: 'action_center' });
-        toastRef.current.success('Action marked as resolved');
+        toastRef.current.success('Action dismissed for this session');
     };
     const lastUpdatedLabel = data?.lastUpdatedAt
         ? formatPrettyDate(new Date(data.lastUpdatedAt).toISOString().slice(0, 10))
@@ -1074,7 +1094,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             onClick={() => handleResolveAction(action)}
                                             className="w-full inline-flex items-center justify-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg border border-gray-200 hover:bg-gray-50"
                                         >
-                                            Resolve
+                                            Dismiss
                                         </button>
                                     </div>
                                 </div>
@@ -1188,6 +1208,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             <input type="number" value={alertSettings.failedPayment6hThreshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, failedPayment6hThreshold: Number(e.target.value || 0) }))} className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
                                         </label>
                                     </div>
+                                    <label className="text-xs text-gray-600 block">
+                                        COD Cancel Rate Threshold (%)
+                                        <input type="number" value={alertSettings.codCancelRateThreshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, codCancelRateThreshold: Number(e.target.value || 0) }))} className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                                    </label>
                                     <label className="text-xs text-gray-600 block">
                                         Low Stock Threshold
                                         <input type="number" value={alertSettings.lowStockThreshold} onChange={(e) => setAlertSettings((prev) => ({ ...prev, lowStockThreshold: Number(e.target.value || 0) }))} className="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
