@@ -1,8 +1,14 @@
 const crypto = require('crypto');
 
 const DELIVERY_TOKEN_TTL_DAYS = Number(process.env.DELIVERY_CONFIRM_TTL_DAYS || 30);
+const isNonProductionLike = () => ['development', 'dev', 'test'].includes(String(process.env.NODE_ENV || '').trim().toLowerCase());
 
-const getSecret = () => String(process.env.DELIVERY_CONFIRM_SECRET || process.env.JWT_SECRET || 'ssc-delivery-confirm-secret');
+const getSecret = () => {
+    const secret = String(process.env.DELIVERY_CONFIRM_SECRET || process.env.JWT_SECRET || '').trim();
+    if (secret) return secret;
+    if (isNonProductionLike()) return 'ssc-delivery-confirm-secret';
+    throw new Error('DELIVERY_CONFIRM_SECRET or JWT_SECRET must be configured');
+};
 
 const resolveBaseUrl = (baseUrl = '') => {
     const explicit = String(baseUrl || '').trim().replace(/\/+$/, '');

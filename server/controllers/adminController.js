@@ -19,6 +19,7 @@ const {
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
 const { emitToUserAudiences } = require('../utils/socketAudience');
+const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 
 const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -1856,6 +1857,9 @@ const getUserAvailableCoupons = async (req, res) => {
 
 const verifyEmailChannel = async (_req, res) => {
     try {
+        if (isProductionLike()) {
+            return res.status(403).json({ ok: false, channel: 'email', message: 'Email test endpoints are disabled in production' });
+        }
         const result = await verifyEmailTransport();
         return res.json({ ok: true, channel: 'email', ...result });
     } catch (error) {
@@ -1865,6 +1869,9 @@ const verifyEmailChannel = async (_req, res) => {
 
 const sendTestEmail = async (req, res) => {
     try {
+        if (isProductionLike()) {
+            return res.status(403).json({ ok: false, channel: 'email', message: 'Email test endpoints are disabled in production' });
+        }
         const {
             to,
             subject = 'SSC Jewellery - Test Email',
@@ -1895,6 +1902,9 @@ const sendTestEmail = async (req, res) => {
 
 const sendTestWhatsapp = async (req, res) => {
     try {
+        if (isProductionLike()) {
+            return res.status(403).json({ ok: false, channel: 'whatsapp', message: 'WhatsApp test endpoints are disabled in production' });
+        }
         const {
             mobile,
             template = 'generic',
