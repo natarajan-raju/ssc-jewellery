@@ -14,7 +14,7 @@ const {
     sendEmailCommunication,
     sendWhatsapp
 } = require('../services/communications/communicationService');
-const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded } = require('../services/loyaltyService');
+const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 
@@ -2099,7 +2099,11 @@ const updateLoyaltyConfig = async (req, res) => {
         await ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
         const io = req.app.get('io');
         if (io) {
-            io.emit('loyalty:config_update', { config });
+            io.to('admin').emit('loyalty:config_update', { config });
+            const updatedCustomers = await reassessActiveCustomersForConfigChange({ reason: 'admin_config_update' }).catch(() => []);
+            updatedCustomers.forEach((customer) => {
+                emitToUserAudiences(io, customer, 'user:update', customer);
+            });
         }
         return res.json({ config });
     } catch (error) {

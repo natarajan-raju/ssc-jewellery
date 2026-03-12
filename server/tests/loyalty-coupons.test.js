@@ -109,6 +109,39 @@ test('updating loyalty popup config emits realtime popup update payload', async 
     assert.equal(io.emitted[1].payload.key, 'popup-key-1');
 });
 
+test('updating loyalty config emits admin-scoped realtime payload only', async () => {
+    const io = createMockIo();
+    const req = {
+        body: { config: [{ tier: 'gold', threshold: 5000 }] },
+        app: { get: () => io }
+    };
+    const res = createMockRes();
+    const loyaltyServiceModule = require('../services/loyaltyService');
+
+    await withPatched(loyaltyServiceModule, {
+        updateLoyaltyConfigForAdmin: async (items) => items,
+        ensureLoyaltyConfigLoaded: async () => {},
+        reassessActiveCustomersForConfigChange: async () => ([{
+            id: 'cust_1',
+            loyaltyTier: 'gold',
+            loyaltyProfile: { label: 'Gold' }
+        }])
+    }, async () => {
+        const freshAdminController = requireFresh('../controllers/adminController');
+        await freshAdminController.updateLoyaltyConfig(req, res);
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(io.emitted.map((entry) => `${entry.scope}:${entry.event}`), [
+        'to:admin:loyalty:config_update',
+        'to:admin:user:update',
+        'to:user:cust_1:user:update'
+    ]);
+    assert.equal(Array.isArray(io.emitted[0].payload.config), true);
+    assert.equal(io.emitted[0].payload.config[0].tier, 'gold');
+    assert.equal(io.emitted[2].payload.loyaltyTier, 'gold');
+});
+
 test('client popup key rotates when popup content changes', async () => {
     let currentTitle = 'Flash Offer';
 

@@ -28,7 +28,7 @@ const adminNewOrderPopupSeen = new Map();
 
 export const SocketProvider = ({ children }) => {
     const [socket] = useState(globalSocket);
-    const { user } = useAuth();
+    const { user, logout } = useAuth();
     const toast = useToast();
 
     useEffect(() => {
@@ -51,6 +51,10 @@ export const SocketProvider = ({ children }) => {
 
         const authenticateSocket = () => {
             const token = localStorage.getItem('token');
+            if (user?.id && token && token !== 'undefined' && token !== 'null' && !socket.connected) {
+                socket.connect();
+                return;
+            }
             if (user?.id && token && token !== 'undefined' && token !== 'null') {
                 socket.emit('auth', { token });
             }
@@ -65,6 +69,25 @@ export const SocketProvider = ({ children }) => {
             socket.off('connect', authenticateSocket);
         };
     }, [socket, user]);
+
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleSocketAuthError = async (payload = {}) => {
+            const token = localStorage.getItem('token');
+            if (!token || token === 'undefined' || token === 'null') return;
+
+            const message = String(payload?.message || '').trim() || 'Realtime session expired';
+            socket.disconnect();
+            await logout();
+            toast.error(message);
+        };
+
+        socket.on('auth:error', handleSocketAuthError);
+        return () => {
+            socket.off('auth:error', handleSocketAuthError);
+        };
+    }, [logout, socket, toast]);
 
     useEffect(() => {
         if (!socket) return;

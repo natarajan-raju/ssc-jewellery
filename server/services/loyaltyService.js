@@ -977,6 +977,31 @@ const updateLoyaltyConfigForAdmin = async (items = []) => {
     return getLoyaltyConfigForAdmin();
 };
 
+const reassessActiveCustomersForConfigChange = async ({ reason = 'admin_config_update' } = {}) => {
+    await ensureLoyaltyConfigLoaded({ force: true });
+    const [rows] = await db.execute("SELECT id FROM users WHERE role = 'customer' AND COALESCE(is_active, 1) = 1");
+    const updates = [];
+    for (const row of rows) {
+        const userId = String(row?.id || '').trim();
+        if (!userId) continue;
+        const result = await reassessUserTier(userId, {
+            reason,
+            sendNotifications: false,
+            notificationMode: 'silent'
+        });
+        const user = await User.findById(userId);
+        if (!user) continue;
+        updates.push({
+            ...User.toSafePayload(user),
+            loyaltyTier: result?.status?.effectiveTier || result?.nextTier || 'regular',
+            loyaltyProfile: result?.status?.profile || getLoyaltyProfileByTier(result?.status?.effectiveTier || result?.nextTier || 'regular'),
+            earnedLoyaltyTier: result?.nextTier || 'regular',
+            earnedLoyaltyProfile: result?.status?.earnedProfile || getLoyaltyProfileByTier(result?.nextTier || 'regular')
+        });
+    }
+    return updates;
+};
+
 module.exports = {
     TIER_ORDER,
     LOYALTY_CONFIG: DEFAULT_LOYALTY_CONFIG,
@@ -987,6 +1012,7 @@ module.exports = {
     getUserLoyaltyStatus,
     calculateOrderLoyaltyAdjustments,
     reassessUserTier,
+    reassessActiveCustomersForConfigChange,
     runMonthlyLoyaltyReassessment,
     issueBirthdayCouponForUser,
     issueBirthdayCouponsForEligibleUsersToday,

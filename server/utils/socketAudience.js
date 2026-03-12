@@ -11,6 +11,13 @@ const getSocketRoomsForUser = ({ userId = null, role = '' } = {}) => {
     return rooms;
 };
 
+const canAuthenticateSocketUser = (user = null) => {
+    if (!user) return false;
+    if (user.isActive === false) return false;
+    const userId = String(user.id || '').trim();
+    return Boolean(userId);
+};
+
 const emitToOrderAudiences = (io, order = null, eventName = '', payload = {}) => {
     if (!io || !order || !eventName) return;
     io.to('admin').emit(eventName, payload);
@@ -35,6 +42,7 @@ const emitToUserAudiences = (io, user = null, eventName = '', payload = {}) => {
 };
 
 module.exports = {
+    canAuthenticateSocketUser,
     getSocketRoomsForUser,
     emitToOrderAudiences,
     emitToUserAudiences

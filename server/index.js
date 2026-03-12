@@ -3,7 +3,7 @@ const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
 const jwt = require('jsonwebtoken');
-const { getSocketRoomsForUser } = require('./utils/socketAudience');
+const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
@@ -95,8 +95,8 @@ io.on('connection', (socket) => {
                 return;
             }
             const user = await User.findById(userId);
-            if (!user) {
-                socket.emit('auth:error', { message: 'Socket user not found' });
+            if (!user || !canAuthenticateSocketUser(user)) {
+                socket.emit('auth:error', { message: user ? 'Socket user is inactive' : 'Socket user not found' });
                 return;
             }
 

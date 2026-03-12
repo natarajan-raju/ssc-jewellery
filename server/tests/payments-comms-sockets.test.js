@@ -52,6 +52,9 @@ const loadCommunicationService = (patches = {}) => {
 };
 
 test('socket auth only joins rooms allowed by JWT-backed role and user id', () => {
+    assert.equal(socketAudience.canAuthenticateSocketUser({ id: 'u1', role: 'customer', isActive: true }), true);
+    assert.equal(socketAudience.canAuthenticateSocketUser({ id: 'u1', role: 'customer', isActive: false }), false);
+    assert.equal(socketAudience.canAuthenticateSocketUser(null), false);
     assert.deepEqual(socketAudience.getSocketRoomsForUser({ userId: 'u1', role: 'customer' }), ['user:u1']);
     assert.deepEqual(socketAudience.getSocketRoomsForUser({ userId: 'u1', role: 'admin' }), ['user:u1', 'admin']);
     assert.deepEqual(socketAudience.getSocketRoomsForUser({ userId: 'u1', role: 'staff' }), ['user:u1', 'admin']);
