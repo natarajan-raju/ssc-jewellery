@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { Link } from 'react-router-dom';
 import { Gem, Sparkles } from 'lucide-react';
+import { buildAboutSeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
@@ -31,6 +33,8 @@ const resolveCompanyAddress = (company = {}) => {
 
 export default function About() {
     const [company, setCompany] = useState(DEFAULT_COMPANY);
+    const seoConfig = useMemo(() => buildAboutSeo({ company }), [company]);
+    useSeo(seoConfig);
 
     const applyCompanyInfo = (payload = {}) => {
         setCompany((prev) => ({

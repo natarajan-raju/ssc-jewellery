@@ -5,6 +5,8 @@ import ProductCard from '../components/ProductCard';
 import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
+import { buildCategorySeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 // import { io } from 'socket.io-client';
 
 const PAGE_LIMIT = 20;
@@ -44,6 +46,11 @@ export default function CategoryStore() {
     const [searchResults, setSearchResults] = useState([]);
     const [isSearchLoading, setIsSearchLoading] = useState(false);
     const normalizedCategoryName = useMemo(() => decodeURIComponent(category).toLowerCase(), [category]);
+    const seoConfig = useMemo(() => buildCategorySeo({
+        category: categoryInfo || { name: decodeURIComponent(category || '') },
+        products
+    }), [category, categoryInfo, products]);
+    useSeo(seoConfig);
     const normalizeCategoryList = useCallback((value) => {
         if (Array.isArray(value)) return value;
         if (typeof value === 'string') {

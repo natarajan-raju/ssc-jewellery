@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
 import { productService } from '../services/productService';
@@ -23,7 +23,7 @@ export default function Footer() {
     });
     const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
-    const loadCategories = async (force = false) => {
+    const loadCategories = useCallback(async (force = false) => {
         try {
             const [statsData, categoriesData] = await Promise.all([
                 productService.getCategoryStats(force).catch(() => []),
@@ -39,21 +39,23 @@ export default function Footer() {
         } catch {
             setCategories([]);
         }
-    };
-    const loadCompanyInfo = async () => {
+    }, []);
+    const loadCompanyInfo = useCallback(async () => {
         try {
             const res = await fetch(`${CMS_API_URL}/company-info`);
             const data = await res.json();
             if (!res.ok) throw new Error(data?.message || 'Failed to load company info');
             const nextCompany = data?.company || {};
             setCompany((prev) => ({ ...prev, ...nextCompany }));
-        } catch {}
-    };
+        } catch {
+            // Keep existing company defaults if CMS info is unavailable.
+        }
+    }, [CMS_API_URL]);
 
     useEffect(() => {
         loadCategories();
         loadCompanyInfo();
-    }, []);
+    }, [loadCategories, loadCompanyInfo]);
 
     useAdminCrudSync({
         'refresh:categories': () => loadCategories(true),
@@ -152,6 +154,7 @@ export default function Footer() {
                             <Link to="/about" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Info size={14} className="text-white/40" />About</Link>
                             <Link to="/contact" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><PhoneCall size={14} className="text-white/40" />Contact</Link>
                             <Link to="/faq" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><HelpCircle size={14} className="text-white/40" />FAQs</Link>
+                            <a href="/sitemap.xml" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><FileText size={14} className="text-white/40" />Sitemap</a>
                         </div>
                     </div>
 

@@ -1,0 +1,135 @@
+import { absoluteUrl, buildCanonical, firstCategoryName, getProductImageCandidates, normalizeText } from './helpers.js';
+import { SITE_DESCRIPTION, SITE_NAME } from './constants.js';
+
+export const buildOrganizationSchema = (company = {}) => {
+    const name = normalizeText(company.displayName) || SITE_NAME;
+    const logo = absoluteUrl(company.logoUrl || '/logo_light.webp');
+    const sameAs = [
+        company.instagramUrl,
+        company.youtubeUrl,
+        company.facebookUrl
+    ].map((value) => normalizeText(value)).filter(Boolean);
+    const contactPoint = [];
+    if (normalizeText(company.supportEmail)) {
+        contactPoint.push({
+            '@type': 'ContactPoint',
+            contactType: 'customer support',
+            email: normalizeText(company.supportEmail)
+        });
+    }
+    if (normalizeText(company.contactNumber)) {
+        contactPoint.push({
+            '@type': 'ContactPoint',
+            contactType: 'customer support',
+            telephone: normalizeText(company.contactNumber)
+        });
+    }
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name,
+        url: buildCanonical('/'),
+        logo,
+        ...(sameAs.length ? { sameAs } : {}),
+        ...(contactPoint.length ? { contactPoint } : {})
+    };
+};
+
+export const buildWebsiteSchema = () => ({
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: SITE_NAME,
+    url: buildCanonical('/'),
+    description: SITE_DESCRIPTION
+});
+
+export const buildBreadcrumbSchema = (items = []) => ({
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: (Array.isArray(items) ? items : [])
+        .filter((item) => item?.name && item?.url)
+        .map((item, index) => ({
+            '@type': 'ListItem',
+            position: index + 1,
+            name: item.name,
+            item: absoluteUrl(item.url)
+        }))
+});
+
+export const buildItemListSchema = (products = [], { name = '' } = {}) => ({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: normalizeText(name) || undefined,
+    itemListElement: (Array.isArray(products) ? products : []).slice(0, 10).map((product, index) => {
+        const image = getProductImageCandidates(product)[0];
+        return {
+            '@type': 'ListItem',
+            position: index + 1,
+            url: buildCanonical(`/product/${product.id}`),
+            name: normalizeText(product?.title) || undefined,
+            image: image ? absoluteUrl(image) : undefined
+        };
+    })
+});
+
+export const buildFaqSchema = (items = []) => ({
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: (Array.isArray(items) ? items : [])
+        .filter((item) => item?.question && item?.answer)
+        .map((item) => ({
+            '@type': 'Question',
+            name: item.question,
+            acceptedAnswer: {
+                '@type': 'Answer',
+                text: item.answer
+            }
+        }))
+});
+
+export const buildProductSchema = (product = null) => {
+    if (!product || !product.id) return null;
+    const title = normalizeText(product.title) || 'Product';
+    const description = normalizeText(product.description)
+        || `${title}${product.subtitle ? ` - ${normalizeText(product.subtitle)}` : ''} from ${SITE_NAME}.`;
+    const images = getProductImageCandidates(product).map((url) => absoluteUrl(url));
+    const category = firstCategoryName(product.categories);
+    const variantPrices = (Array.isArray(product.variants) ? product.variants : [])
+        .map((variant) => Number(variant.discount_price || variant.price || 0))
+        .filter((value) => Number.isFinite(value) && value > 0);
+    const displayPrice = variantPrices.length
+        ? Math.min(...variantPrices)
+        : Number(product.discount_price || product.mrp || 0);
+    const isAvailable = (() => {
+        const variants = Array.isArray(product.variants) ? product.variants : [];
+        if (variants.length > 0) {
+            return variants.some((variant) => {
+                const tracked = variant.track_quantity === 1 || variant.track_quantity === true || variant.track_quantity === '1' || variant.track_quantity === 'true';
+                return !tracked || Number(variant.available_quantity ?? variant.quantity ?? 0) > 0;
+            });
+        }
+        const tracked = product.track_quantity === 1 || product.track_quantity === true || product.track_quantity === '1' || product.track_quantity === 'true';
+        return !tracked || Number(product.available_quantity ?? product.quantity ?? 0) > 0;
+    })();
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        name: title,
+        description,
+        image: images.length ? images : [absoluteUrl('/placeholder_banner.jpg')],
+        brand: {
+            '@type': 'Brand',
+            name: SITE_NAME
+        },
+        sku: normalizeText(product.sku) || undefined,
+        category: category || undefined,
+        offers: {
+            '@type': 'Offer',
+            priceCurrency: 'INR',
+            price: Number.isFinite(displayPrice) ? displayPrice.toFixed(2) : '0.00',
+            availability: isAvailable ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+            url: buildCanonical(`/product/${product.id}`)
+        }
+    };
+};

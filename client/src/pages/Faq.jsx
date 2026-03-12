@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CircleHelp, Mail, Phone } from 'lucide-react';
+import { FAQ_ITEMS } from '../seo/faqContent';
+import { buildFaqSeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 
@@ -32,28 +35,9 @@ export default function Faq() {
         };
     }, []);
 
-    const faqs = useMemo(() => ([
-        {
-            q: 'Are the products real gold or silver?',
-            a: 'No. Unless explicitly stated, products are artificial/imitation/fashion jewellery.'
-        },
-        {
-            q: 'Do you provide Cash on Delivery (COD)?',
-            a: 'No. Only prepaid payment methods are accepted.'
-        },
-        {
-            q: 'Can I return a product?',
-            a: 'Returns are not accepted unless a verified manufacturing defect is proven with an open-box video within 24 hours.'
-        },
-        {
-            q: 'How long does shipping take?',
-            a: 'Orders are usually processed in 2-3 working days, and delivery depends on location and courier timelines.'
-        },
-        {
-            q: 'Do you offer polishing support?',
-            a: 'Yes. Polish service is available as per product-specific validity (6, 7, 8, 9, or 12 months) and Terms & Conditions.'
-        }
-    ]), []);
+    const faqs = useMemo(() => FAQ_ITEMS.map((item) => ({ q: item.question, a: item.answer })), []);
+    const seoConfig = useMemo(() => buildFaqSeo({ company }), [company]);
+    useSeo(seoConfig);
 
     return (
         <div className="min-h-screen bg-secondary py-10">

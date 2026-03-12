@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../hooks/useCms'; // [CHANGE] Import Hook
@@ -9,6 +9,8 @@ import ProductCard from '../components/ProductCard';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
 import logoLight from '../assets/logo_light.webp';
+import { buildHomeSeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
@@ -218,6 +220,18 @@ export default function Home() {
     const bottomCarouselAutoIndexRef = useRef(0);
     const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+    const seoConfig = useMemo(() => buildHomeSeo({
+        categories,
+        products: [
+            ...bestSellers,
+            ...newArrivals,
+            ...offersProducts,
+            ...featuredSectionProducts
+        ],
+        slides,
+        banners: [homeBanner, secondaryBanner, tertiaryBanner].filter(Boolean)
+    }), [bestSellers, categories, featuredSectionProducts, homeBanner, newArrivals, offersProducts, secondaryBanner, slides, tertiaryBanner]);
+    useSeo(seoConfig);
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [showBirthdayModal, setShowBirthdayModal] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);

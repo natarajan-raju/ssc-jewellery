@@ -3,6 +3,8 @@ import { Mail, Phone, MapPin, MessageCircle, Instagram, Send } from 'lucide-reac
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { useToast } from '../context/ToastContext';
 import fallbackContactImage from '../assets/contact.jpg';
+import { buildContactSeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 const DEFAULT_JUMBOTRON = fallbackContactImage;
@@ -19,14 +21,15 @@ const DEFAULT_COMPANY = {
 
 const cleanPhone = (value = '') => String(value || '').replace(/\D/g, '');
 
-const InfoCard = ({ title, value, href = '', Icon, iconTint = 'text-primary' }) => {
+const InfoCard = ({ title, value, href = '', icon, iconTint = 'text-primary' }) => {
     if (!value) return null;
+    const IconComponent = icon;
     return (
         <div className="emboss-card group relative overflow-hidden bg-white rounded-2xl border border-gray-200 p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-accent/40">
-            <Icon size={72} className="bg-emboss-icon absolute -bottom-2 -right-2 text-gray-100" />
+            <IconComponent size={72} className="bg-emboss-icon absolute -bottom-2 -right-2 text-gray-100" />
             <div className="relative z-10 flex items-start gap-4">
                 <div className={`w-11 h-11 rounded-xl bg-primary/10 ${iconTint} flex items-center justify-center`}>
-                    <Icon size={18} />
+                    <IconComponent size={18} />
                 </div>
                 <div>
                     <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{title}</p>
@@ -130,6 +133,8 @@ export default function Contact() {
         const number = cleanPhone(company.whatsappNumber);
         return number ? `https://wa.me/${number}` : '';
     }, [company.whatsappNumber]);
+    const seoConfig = useMemo(() => buildContactSeo({ company }), [company]);
+    useSeo(seoConfig);
 
     const jumbotronImage = String(company.contactJumbotronImageUrl || DEFAULT_JUMBOTRON);
 
@@ -163,10 +168,10 @@ export default function Contact() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
-                    <InfoCard title="Email" value={company.supportEmail} href={company.supportEmail ? `mailto:${company.supportEmail}` : ''} Icon={Mail} />
-                    <InfoCard title="WhatsApp" value={company.whatsappNumber} href={whatsappHref} Icon={MessageCircle} iconTint="text-green-600" />
-                    <InfoCard title="Instagram" value={company.instagramUrl ? '@Visit Profile' : ''} href={company.instagramUrl} Icon={Instagram} iconTint="text-pink-600" />
-                    <InfoCard title="Call" value={company.contactNumber} href={company.contactNumber ? `tel:${company.contactNumber}` : ''} Icon={Phone} iconTint="text-blue-600" />
+                    <InfoCard title="Email" value={company.supportEmail} href={company.supportEmail ? `mailto:${company.supportEmail}` : ''} icon={Mail} />
+                    <InfoCard title="WhatsApp" value={company.whatsappNumber} href={whatsappHref} icon={MessageCircle} iconTint="text-green-600" />
+                    <InfoCard title="Instagram" value={company.instagramUrl ? '@Visit Profile' : ''} href={company.instagramUrl} icon={Instagram} iconTint="text-pink-600" />
+                    <InfoCard title="Call" value={company.contactNumber} href={company.contactNumber ? `tel:${company.contactNumber}` : ''} icon={Phone} iconTint="text-blue-600" />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-8">
@@ -192,8 +197,8 @@ export default function Contact() {
                     </div>
 
                     <div className="space-y-6">
-                        <InfoCard title="Registered Address" value={company.address || 'Address not set'} Icon={MapPin} />
-                        <InfoCard title="Company" value={company.displayName || 'SSC Jewellery'} Icon={MapPin} />
+                        <InfoCard title="Registered Address" value={company.address || 'Address not set'} icon={MapPin} />
+                        <InfoCard title="Company" value={company.displayName || 'SSC Jewellery'} icon={MapPin} />
                     </div>
                 </div>
             </div>

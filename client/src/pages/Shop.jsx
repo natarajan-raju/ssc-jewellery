@@ -6,6 +6,8 @@ import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Filter, Share2, Messag
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { useCms } from '../hooks/useCms';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
+import { buildShopSeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 
 const PAGE_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 150;
@@ -74,6 +76,12 @@ export default function Shop() {
     const searchDebounceRef = useRef(null);
     const requestKeyRef = useRef('');
     const manualRefreshTimerRef = useRef(null);
+    const seoConfig = useMemo(() => buildShopSeo({
+        categories,
+        products,
+        selectedCategory
+    }), [categories, products, selectedCategory]);
+    useSeo(seoConfig);
 
     const normalizeCategoryList = useCallback((value) => {
         if (Array.isArray(value)) return value;

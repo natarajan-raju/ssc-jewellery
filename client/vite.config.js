@@ -17,8 +17,19 @@ export default defineConfig(({ mode }) => {
     dotenv.config({ path: sharedDevEnvPath });
   }
 
+  const publicBaseUrl = String(
+    process.env.APP_BASE_URL
+    || process.env.PUBLIC_BASE_URL
+    || process.env.APP_URL
+    || process.env.URL
+    || ''
+  ).trim().replace(/\/+$/, '');
+
   return {
     envDir: workspaceRoot,
+    define: {
+      __APP_BASE_URL__: JSON.stringify(publicBaseUrl)
+    },
     plugins: [
       react(),
       VitePWA({

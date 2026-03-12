@@ -17,9 +17,11 @@ import Shop from './pages/Shop';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import FloatingWhatsApp from './components/FloatingWhatsApp';
+import MobileBottomNav from './components/MobileBottomNav';
 import CustomerCouponPopup from './components/CustomerCouponPopup';
 import GuestGoogleOneTap from './components/GuestGoogleOneTap';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import AppSeoDefaults from './components/AppSeoDefaults';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -77,10 +79,11 @@ const PublicLayout = () => {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-secondary pt-[74px] tier-surface"> 
+      <main className="min-h-screen bg-secondary pt-[74px] pb-24 md:pb-0 tier-surface"> 
         <Outlet />
       </main>
       <FloatingWhatsApp />
+      <MobileBottomNav />
       <CustomerCouponPopup />
       <Footer />
     </>
@@ -101,6 +104,7 @@ function App() {
                     <CartProvider>
                   <GuestGoogleOneTap />
                   <PwaInstallPrompt />
+                  <AppSeoDefaults />
                   <Routes>
               
               {/* Public Routes */}

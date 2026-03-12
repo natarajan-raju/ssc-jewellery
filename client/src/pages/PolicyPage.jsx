@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Copyright, FileText, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
+import { buildPolicySeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 const WEBSITE_URL = 'https://sscjewels.com';
@@ -218,6 +220,12 @@ export default function PolicyPage() {
         supportEmail: String(company.supportEmail || '').trim()
     });
     const current = policies[policyKey];
+    const seoConfig = useMemo(() => buildPolicySeo({
+        company,
+        policyKey,
+        policyTitle: current?.title || 'Policy'
+    }), [company, current?.title, policyKey]);
+    useSeo(seoConfig);
     const theme = POLICY_THEME[policyKey] || POLICY_THEME.terms;
     const HeaderIcon = theme.Icon;
 

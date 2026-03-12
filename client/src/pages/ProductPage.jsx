@@ -14,6 +14,8 @@ import ProductCard from '../components/ProductCard';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import placeholderImg from '../assets/placeholder.jpg'
 import { vibrateTap } from '../utils/haptics';
+import { buildProductSeo } from '../seo/rules';
+import { useSeo } from '../seo/useSeo';
 
 const toBool = (value) => value === 1 || value === true || value === '1' || value === 'true';
 const toNumber = (value, fallback = 0) => {
@@ -229,6 +231,8 @@ export default function ProductPage() {
     const [justAddedToCart, setJustAddedToCart] = useState(false);
     const [cartPressed, setCartPressed] = useState(false);
     const [heartPressed, setHeartPressed] = useState(false);
+    const seoConfig = useMemo(() => buildProductSeo({ product }), [product]);
+    useSeo(seoConfig);
     const shareRef = useRef(null);
     const cartFeedbackTimerRef = useRef(null);
     const relatedReloadTimerRef = useRef(null);

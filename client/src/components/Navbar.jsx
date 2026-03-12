@@ -732,13 +732,6 @@ export default function Navbar() {
                     ))}
                     {effectiveUser ? (
                         <>
-                            <Link
-                                to="/profile"
-                                className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600"
-                                onClick={() => setIsOpen(false)}
-                            >
-                                My Profile
-                            </Link>
                             {showTierBadge && (
                                 <div className="text-xs text-gray-500 py-2 border-b border-gray-100">
                                     Tier:
@@ -748,13 +741,6 @@ export default function Navbar() {
                                     </span>
                                 </div>
                             )}
-                            <Link
-                                to="/wishlist"
-                                className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600 inline-flex items-center justify-center gap-2"
-                                onClick={() => setIsOpen(false)}
-                            >
-                                <Heart size={18} /> My Wishlist
-                            </Link>
                             <Link
                                 to="/track-order"
                                 className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600"
