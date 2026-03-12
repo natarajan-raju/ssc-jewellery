@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/db');
 const Cart = require('../models/Cart');
 const Order = require('../models/Order');
@@ -1089,6 +1091,25 @@ const getDashboardAlertSettings = async (_req, res) => {
     }
 };
 
+const CLIENT_PUBLIC_DIR = path.join(__dirname, '../../client/public');
+const resolveLocalUploadedAssetPath = (assetUrl = '') => {
+    const raw = String(assetUrl || '').trim();
+    if (!raw.startsWith('/uploads/')) return null;
+    const absolutePath = path.join(CLIENT_PUBLIC_DIR, raw.replace(/^\/+/, ''));
+    if (!absolutePath.startsWith(CLIENT_PUBLIC_DIR)) return null;
+    return absolutePath;
+};
+
+const removeUploadedAssetIfLocal = async (assetUrl = '') => {
+    const absolutePath = resolveLocalUploadedAssetPath(assetUrl);
+    if (!absolutePath) return;
+    try {
+        await fs.promises.unlink(absolutePath);
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+};
+
 const updateDashboardAlertSettings = async (req, res) => {
     try {
         const payload = req.body || {};
@@ -1908,6 +1929,7 @@ const isValidUrl = (value = '') => {
 const updateCompanyInfo = async (req, res) => {
     try {
         const payload = req.body || {};
+        const existingCompany = await CompanyProfile.get();
         const displayName = String(payload.displayName || '').trim();
         const contactNumber = String(payload.contactNumber || '').trim();
         const supportEmail = String(payload.supportEmail || '').trim();
@@ -1963,6 +1985,12 @@ const updateCompanyInfo = async (req, res) => {
         payload.emailChannelEnabled = true;
         payload.whatsappChannelEnabled = payload.whatsappChannelEnabled !== false;
         const company = await CompanyProfile.update(payload);
+        if (
+            existingCompany?.contactJumbotronImageUrl
+            && existingCompany.contactJumbotronImageUrl !== company?.contactJumbotronImageUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.contactJumbotronImageUrl);
+        }
         await emitCompanyTaxUpdate(req, { includeCompany: true });
         return res.json({ company });
     } catch (error) {
@@ -2040,7 +2068,14 @@ const getLoyaltyPopupConfig = async (_req, res) => {
 
 const updateLoyaltyPopupConfig = async (req, res) => {
     try {
+        const previousPopup = await LoyaltyPopupConfig.getAdminConfig();
         const popup = await LoyaltyPopupConfig.updateAdminConfig(req.body || {});
+        if (previousPopup?.imageUrl && previousPopup.imageUrl !== popup?.imageUrl) {
+            await removeUploadedAssetIfLocal(previousPopup.imageUrl);
+        }
+        if (previousPopup?.audioUrl && previousPopup.audioUrl !== popup?.audioUrl) {
+            await removeUploadedAssetIfLocal(previousPopup.audioUrl);
+        }
         await emitLoyaltyPopupUpdate(req, { action: 'config_update' });
         return res.json({ popup });
     } catch (error) {

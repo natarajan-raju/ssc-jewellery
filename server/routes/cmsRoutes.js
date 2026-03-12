@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
 const { protect, admin } = require('../middleware/authMiddleware');
+const {
+    createUploader,
+    DEFAULT_IMAGE_MIME_TYPES
+} = require('../utils/upload');
 const {
     getSlides,
     getHeroTexts,
@@ -33,32 +34,16 @@ const {
     updateSlide
 } = require('../controllers/cmsController');
 
-// --- MULTER STORAGE FOR HERO IMAGES ---
-const storage = multer.diskStorage({
-    destination(req, file, cb) {
-        const uploadPath = path.join(__dirname, '../../client/public/uploads/hero');
-        if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
-        cb(null, uploadPath);
-    },
-    filename(req, file, cb) {
-        cb(null, `hero-${Date.now()}${path.extname(file.originalname)}`);
-    }
+const uploadHero = createUploader('hero', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
 });
-const upload = multer({ storage });
-
-const bannerStorage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const uploadPath = path.join(__dirname, '../../client/public/uploads/banner');
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
-        cb(null, uploadPath);
-    },
-    filename: function (req, file, cb) {
-        cb(null, `banner-${Date.now()}${path.extname(file.originalname)}`);
-    }
+const uploadBanner = createUploader('banner', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
 });
-const uploadBanner = multer({ storage: bannerStorage });
 
 // --- ROUTES ---
 
@@ -75,7 +60,7 @@ router.get('/company-info', getCompanyInfo);
 router.post('/contact', submitContactForm);
 
 // Admin: Manage Slides
-router.post('/hero', protect, admin, upload.single('image'), createSlide);
+router.post('/hero', protect, admin, uploadHero.single('image'), createSlide);
 router.post('/hero-texts', protect, admin, createHeroText);
 router.put('/hero-texts/reorder', protect, admin, reorderHeroTexts);
 router.put('/hero-texts/:id', protect, admin, updateHeroText);

@@ -101,6 +101,8 @@ const removeCmsAssetIfUploaded = async (assetUrl = '') => {
     }
 };
 
+const isUploadedCarouselAsset = (assetUrl = '') => String(assetUrl || '').trim().startsWith('/uploads/carousel/');
+
 const buildContactRateLimitKey = (req, email = '') => {
     const ip = String(req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').trim();
     return `${ip}|${String(email || '').trim().toLowerCase()}`;
@@ -726,6 +728,7 @@ const updateCarouselCard = async (req, res) => {
         if (!existing) {
             return res.status(404).json({ message: 'Carousel card not found' });
         }
+        const previousImageUrl = String(existing.image_url || '').trim();
         const payload = normalizeCarouselCardPayload(req.body || {});
         await validateCarouselCardPayload(payload);
         const orderValue = payload.hasDisplayOrder ? payload.display_order : Number(existing.display_order || 0);
@@ -748,6 +751,9 @@ const updateCarouselCard = async (req, res) => {
                 cardId
             ]
         );
+        if (previousImageUrl && previousImageUrl !== payload.image_url && isUploadedCarouselAsset(previousImageUrl)) {
+            await removeCmsAssetIfUploaded(previousImageUrl);
+        }
         notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'update', id: cardId });
         res.json({ message: 'Carousel card updated', id: cardId });
     } catch (error) {
@@ -763,10 +769,16 @@ const deleteCarouselCard = async (req, res) => {
             return res.status(400).json({ message: 'Invalid card id' });
         }
         const [existingRows] = await db.execute('SELECT id FROM cms_carousel_cards WHERE id = ? LIMIT 1', [cardId]);
-        if (!existingRows.length) {
+        const existing = existingRows?.[0] || null;
+        if (!existing) {
             return res.status(404).json({ message: 'Carousel card not found' });
         }
+        const [imageRows] = await db.execute('SELECT image_url FROM cms_carousel_cards WHERE id = ? LIMIT 1', [cardId]);
+        const previousImageUrl = String(imageRows?.[0]?.image_url || '').trim();
         await db.execute('DELETE FROM cms_carousel_cards WHERE id = ?', [cardId]);
+        if (previousImageUrl && isUploadedCarouselAsset(previousImageUrl)) {
+            await removeCmsAssetIfUploaded(previousImageUrl);
+        }
         notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'delete', id: cardId });
         res.json({ message: 'Carousel card deleted' });
     } catch (error) {

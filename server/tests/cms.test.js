@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const db = require('../config/db');
+const fs = require('fs');
 const cmsController = require('../controllers/cmsController');
 const CompanyProfile = require('../models/CompanyProfile');
 const { createMockRes, requireFresh, withPatched } = require('./testUtils');
@@ -199,4 +200,70 @@ test('CMS notifications send one admin event and one public event', async () => 
     assert.equal(res.statusCode, 201);
     assert.deepEqual(io.emitted.map((entry) => entry.scope), ['to:admin', 'except:admin']);
     assert.deepEqual(io.emitted.map((entry) => entry.event), ['cms:carousel_cards_update', 'cms:carousel_cards_update']);
+});
+
+test('updateCarouselCard removes replaced uploaded carousel image', async () => {
+    const req = {
+        params: { id: '9' },
+        body: {
+            title: 'Promo',
+            description: 'Desc',
+            sourceType: 'manual',
+            imageUrl: '/uploads/carousel/new-image.jpg',
+            buttonLabel: 'Shop',
+            linkTargetType: 'store',
+            status: 'active'
+        },
+        app: { get: () => createMockIo() }
+    };
+    const res = createMockRes();
+    let removedPath = null;
+
+    await withPatched(db, {
+        execute: async (query, params = []) => {
+            const sql = String(query);
+            if (sql.includes('SELECT * FROM cms_carousel_cards')) {
+                return [[{ id: 9, image_url: '/uploads/carousel/old-image.jpg', display_order: 0 }]];
+            }
+            if (sql.includes('UPDATE cms_carousel_cards')) return [{ affectedRows: 1 }];
+            return [[]];
+        }
+    }, async () => withPatched(fs.promises, {
+        unlink: async (filePath) => {
+            removedPath = filePath;
+        }
+    }, async () => {
+        await cmsController.updateCarouselCard(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.match(String(removedPath || ''), /uploads\/carousel\/old-image\.jpg$/);
+});
+
+test('deleteCarouselCard removes uploaded carousel image', async () => {
+    const req = {
+        params: { id: '10' },
+        app: { get: () => createMockIo() }
+    };
+    const res = createMockRes();
+    let removedPath = null;
+
+    await withPatched(db, {
+        execute: async (query) => {
+            const sql = String(query);
+            if (sql.includes('SELECT id FROM cms_carousel_cards')) return [[{ id: 10 }]];
+            if (sql.includes('SELECT image_url FROM cms_carousel_cards')) return [[{ image_url: '/uploads/carousel/deleted-image.jpg' }]];
+            if (sql.includes('DELETE FROM cms_carousel_cards')) return [{ affectedRows: 1 }];
+            return [[]];
+        }
+    }, async () => withPatched(fs.promises, {
+        unlink: async (filePath) => {
+            removedPath = filePath;
+        }
+    }, async () => {
+        await cmsController.deleteCarouselCard(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.match(String(removedPath || ''), /uploads\/carousel\/deleted-image\.jpg$/);
 });
