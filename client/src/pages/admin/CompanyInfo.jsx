@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     Building2,
+    ChevronDown,
+    ChevronUp,
     CreditCard,
     Facebook,
     Instagram,
@@ -39,6 +41,18 @@ const DEFAULT_FORM = {
     contactJumbotronImageUrl: '/assets/contact.jpg',
     emailChannelEnabled: true,
     whatsappChannelEnabled: true,
+    whatsappModuleSettings: {
+        loginOtp: true,
+        order: true,
+        payment: true,
+        welcome: true,
+        loyaltyUpgrade: true,
+        loyaltyProgress: true,
+        birthday: true,
+        abandonedCartRecovery: true,
+        couponIssue: true,
+        dashboardAlert: true
+    },
     razorpayKeyId: '',
     razorpayKeySecret: '',
     razorpayWebhookSecret: '',
@@ -62,6 +76,18 @@ const isValidUrl = (value = '') => {
 };
 
 const isDevMode = import.meta.env.DEV;
+const WHATSAPP_MODULES = [
+    { key: 'loginOtp', label: 'Login OTP', template: 'WHATSAPP_TEMPLATE_LOGIN_OTP', note: 'Otp' },
+    { key: 'order', label: 'Order Updates', template: 'WHATSAPP_TEMPLATE_ORDER', note: 'Order_status' },
+    { key: 'welcome', label: 'Welcome', template: 'WHATSAPP_TEMPLATE_WELCOME', note: 'Welcome' },
+    { key: 'loyaltyUpgrade', label: 'Loyalty Upgrade', template: 'WHATSAPP_TEMPLATE_LOYALTY_UPGRADE', note: 'Loyalty_upgrade' },
+    { key: 'loyaltyProgress', label: 'Loyalty Progress', template: 'WHATSAPP_TEMPLATE_LOYALTY_PROGRESS', note: 'Loyalty_progress' },
+    { key: 'birthday', label: 'Birthday', template: 'WHATSAPP_TEMPLATE_BIRTHDAY', note: 'Birthday' },
+    { key: 'abandonedCartRecovery', label: 'Abandoned Cart', template: 'WHATSAPP_TEMPLATE_ABANDONED_CART_WITH_OFFER / WITHOUT_OFFER', note: 'Cart_with_offer / Cart_without_offer' },
+    { key: 'couponIssue', label: 'Coupon Issue', template: 'WHATSAPP_TEMPLATE_COUPON_ISSUE', note: 'Coupon_code' },
+    { key: 'dashboardAlert', label: 'Dashboard Alerts', template: 'WHATSAPP_TEMPLATE_DASHBOARD_ALERT', note: 'Optional ops template' },
+    { key: 'payment', label: 'Payment Updates', template: 'WHATSAPP_TEMPLATE_PAYMENT', note: 'Optional payment template' }
+];
 
 export default function CompanyInfo() {
     const toast = useToast();
@@ -96,6 +122,7 @@ export default function CompanyInfo() {
     const [whatsappTestResult, setWhatsappTestResult] = useState(null);
     const [communicationLogs, setCommunicationLogs] = useState([]);
     const [isCommunicationLogsLoading, setIsCommunicationLogsLoading] = useState(false);
+    const [isWhatsappModulesOpen, setIsWhatsappModulesOpen] = useState(false);
 
     const staffAndAdmins = useMemo(
         () => users.filter((u) => u.role === 'admin' || u.role === 'staff'),
@@ -215,6 +242,12 @@ export default function CompanyInfo() {
         }
     }, [hasGstNumber, form.taxEnabled]);
 
+    useEffect(() => {
+        if (!form.whatsappChannelEnabled) {
+            setIsWhatsappModulesOpen(false);
+        }
+    }, [form.whatsappChannelEnabled]);
+
     const canResetPassword = (targetUser) => {
         if (!currentUser) return false;
         if (currentUser.role === 'admin' && targetUser.role !== 'customer') return true;
@@ -230,6 +263,16 @@ export default function CompanyInfo() {
 
     const handleChange = (key, value) => {
         setForm((prev) => ({ ...prev, [key]: value }));
+    };
+
+    const handleWhatsappModuleToggle = (key, value) => {
+        setForm((prev) => ({
+            ...prev,
+            whatsappModuleSettings: {
+                ...(prev.whatsappModuleSettings || DEFAULT_FORM.whatsappModuleSettings),
+                [key]: value
+            }
+        }));
     };
 
     const handleContactJumbotronUpload = async (file) => {
@@ -525,15 +568,62 @@ export default function CompanyInfo() {
                                     <p className="text-sm font-semibold text-gray-800">WhatsApp channel</p>
                                     <p className="text-xs text-gray-500 mt-1">Disabling this stops WhatsApp sends across OTP, loyalty, order, abandoned cart, and dashboard alert flows.</p>
                                 </div>
-                                <input
-                                    type="checkbox"
-                                    checked={Boolean(form.whatsappChannelEnabled)}
-                                    onChange={(e) => handleChange('whatsappChannelEnabled', e.target.checked)}
-                                />
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsWhatsappModulesOpen((prev) => !prev)}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
+                                    >
+                                        Modules
+                                        {isWhatsappModulesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(form.whatsappChannelEnabled)}
+                                        onChange={(e) => handleChange('whatsappChannelEnabled', e.target.checked)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="mt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsWhatsappModulesOpen((prev) => !prev)}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-gray-700"
+                                >
+                                    {isWhatsappModulesOpen ? 'Hide module controls' : 'Show module controls'}
+                                    {isWhatsappModulesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </button>
                             </div>
                         </div>
                     </label>
                 </div>
+                {isWhatsappModulesOpen && (
+                    <div className="relative z-10 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-3">WhatsApp Modules</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {WHATSAPP_MODULES.map((module) => (
+                                <label key={module.key} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${form.whatsappChannelEnabled ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50 opacity-70'}`}>
+                                    <MessageCircle size={16} className="mt-0.5 text-green-600" />
+                                    <div className="flex-1">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-sm font-semibold text-gray-800">{module.label}</p>
+                                                <p className="text-[11px] text-gray-500 mt-1">Template: {module.note}</p>
+                                            </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(form.whatsappModuleSettings?.[module.key])}
+                                                disabled={!form.whatsappChannelEnabled}
+                                                onChange={(e) => handleWhatsappModuleToggle(module.key, e.target.checked)}
+                                            />
+                                        </div>
+                                        <p className="text-[11px] text-gray-400 mt-2">{module.template}</p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="emboss-card relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">

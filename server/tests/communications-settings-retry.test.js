@@ -18,6 +18,7 @@ test('company profile update keeps email enabled and applies WhatsApp toggle', a
                     display_name: 'SSC Jewellery',
                     email_channel_enabled: 1,
                     whatsapp_channel_enabled: 0,
+                    whatsapp_module_settings_json: JSON.stringify({ loginOtp: false, order: true }),
                     razorpay_key_secret: '',
                     razorpay_webhook_secret: ''
                 }]];
@@ -28,16 +29,24 @@ test('company profile update keeps email enabled and applies WhatsApp toggle', a
         const result = await CompanyProfile.update({
             displayName: 'SSC Jewellery',
             whatsappChannelEnabled: false,
-            emailChannelEnabled: false
+            emailChannelEnabled: false,
+            whatsappModuleSettings: {
+                loginOtp: false,
+                order: true
+            }
         });
         assert.equal(result.emailChannelEnabled, true);
         assert.equal(result.whatsappChannelEnabled, false);
+        assert.equal(result.whatsappModuleSettings.loginOtp, false);
+        assert.equal(result.whatsappModuleSettings.order, true);
+        assert.equal(result.whatsappModuleSettings.welcome, true);
     });
 
     const writeCall = calls.find((entry) => entry.sql.includes('INSERT INTO company_profile'));
     assert.ok(writeCall);
     assert.equal(writeCall.params[11], 1);
     assert.equal(writeCall.params[12], 0);
+    assert.match(String(writeCall.params[13]), /"loginOtp":false/);
 });
 
 test('sendEmailCommunication queues failed email attempts', async () => {

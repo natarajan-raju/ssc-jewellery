@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { DEFAULT_WHATSAPP_MODULE_SETTINGS, normalizeWhatsappModuleSettings } = require('../utils/whatsappModuleSettings');
 
 const DEFAULT_COMPANY_PROFILE = {
     displayName: 'SSC Jewellery',
@@ -14,6 +15,7 @@ const DEFAULT_COMPANY_PROFILE = {
     contactJumbotronImageUrl: '/assets/contact.jpg',
     emailChannelEnabled: true,
     whatsappChannelEnabled: true,
+    whatsappModuleSettings: { ...DEFAULT_WHATSAPP_MODULE_SETTINGS },
     razorpayKeyId: '',
     razorpayEmiMinAmount: 3000,
     razorpayStartingTenureMonths: 12
@@ -44,6 +46,7 @@ const normalizeRow = (row) => {
         contactJumbotronImageUrl: row.contact_jumbotron_image_url || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
         emailChannelEnabled: Number(row.email_channel_enabled ?? 1) === 1,
         whatsappChannelEnabled: Number(row.whatsapp_channel_enabled ?? 1) === 1,
+        whatsappModuleSettings: normalizeWhatsappModuleSettings(row.whatsapp_module_settings_json),
         razorpayKeyId: row.razorpay_key_id || '',
         razorpayEmiMinAmount: Math.max(1, Number(row.razorpay_emi_min_amount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
         razorpayStartingTenureMonths: Math.max(1, Number(row.razorpay_starting_tenure_months || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
@@ -59,8 +62,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -76,6 +79,7 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
                 DEFAULT_COMPANY_PROFILE.emailChannelEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.whatsappChannelEnabled ? 1 : 0,
+                JSON.stringify(DEFAULT_COMPANY_PROFILE.whatsappModuleSettings),
                 DEFAULT_COMPANY_PROFILE.razorpayKeyId,
                 '',
                 '',
@@ -96,6 +100,7 @@ class CompanyProfile {
         const existing = existingRows[0] || null;
         const existingRawKeySecret = String(existing?.razorpay_key_secret || '').trim();
         const existingRawWebhookSecret = String(existing?.razorpay_webhook_secret || '').trim();
+        const existingWhatsappModuleSettings = normalizeWhatsappModuleSettings(existing?.whatsapp_module_settings_json);
 
         const incomingKeySecret = typeof payload.razorpayKeySecret === 'string'
             ? String(payload.razorpayKeySecret || '').trim()
@@ -118,6 +123,9 @@ class CompanyProfile {
             contactJumbotronImageUrl: String(payload.contactJumbotronImageUrl || '').trim() || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
             emailChannelEnabled: true,
             whatsappChannelEnabled: payload.whatsappChannelEnabled !== false,
+            whatsappModuleSettings: typeof payload.whatsappModuleSettings === 'undefined'
+                ? existingWhatsappModuleSettings
+                : normalizeWhatsappModuleSettings(payload.whatsappModuleSettings),
             razorpayKeyId: String(payload.razorpayKeyId || '').trim(),
             razorpayKeySecret: incomingKeySecret !== null ? incomingKeySecret : existingRawKeySecret,
             razorpayWebhookSecret: incomingWebhookSecret !== null ? incomingWebhookSecret : existingRawWebhookSecret,
@@ -127,8 +135,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 contact_number = VALUES(contact_number),
@@ -143,6 +151,7 @@ class CompanyProfile {
                 contact_jumbotron_image_url = VALUES(contact_jumbotron_image_url),
                 email_channel_enabled = VALUES(email_channel_enabled),
                 whatsapp_channel_enabled = VALUES(whatsapp_channel_enabled),
+                whatsapp_module_settings_json = VALUES(whatsapp_module_settings_json),
                 razorpay_key_id = VALUES(razorpay_key_id),
                 razorpay_key_secret = VALUES(razorpay_key_secret),
                 razorpay_webhook_secret = VALUES(razorpay_webhook_secret),
@@ -163,6 +172,7 @@ class CompanyProfile {
                 next.contactJumbotronImageUrl,
                 next.emailChannelEnabled ? 1 : 0,
                 next.whatsappChannelEnabled ? 1 : 0,
+                JSON.stringify(next.whatsappModuleSettings),
                 next.razorpayKeyId,
                 next.razorpayKeySecret,
                 next.razorpayWebhookSecret,
@@ -214,6 +224,7 @@ class CompanyProfile {
             contactJumbotronImageUrl: String(source.contactJumbotronImageUrl || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl),
             emailChannelEnabled: true,
             whatsappChannelEnabled: source.whatsappChannelEnabled !== false,
+            whatsappModuleSettings: normalizeWhatsappModuleSettings(source.whatsappModuleSettings),
             razorpayKeyId: String(source.razorpayKeyId || ''),
             razorpayEmiMinAmount: Math.max(1, Number(source.razorpayEmiMinAmount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
             razorpayStartingTenureMonths: Math.max(1, Number(source.razorpayStartingTenureMonths || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),

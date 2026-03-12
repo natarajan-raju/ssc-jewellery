@@ -804,7 +804,7 @@ test('whatsapp channel respects admin global disable switch', async () => {
     const originalExecute = db.execute;
     db.execute = async (sql) => {
         if (String(sql).includes('company_profile')) {
-            return [[{ whatsapp_channel_enabled: 0 }]];
+            return [[{ whatsapp_channel_enabled: 0, whatsapp_module_settings_json: JSON.stringify({}) }]];
         }
         return [[]];
     };
@@ -818,6 +818,49 @@ test('whatsapp channel respects admin global disable switch', async () => {
         assert.equal(result.ok, false);
         assert.equal(result.skipped, true);
         assert.equal(result.reason, 'whatsapp_disabled_by_admin');
+    } finally {
+        db.execute = originalExecute;
+        whatsappChannel.__test.resetChannelCache();
+        if (originalEnabled === undefined) delete process.env.WHATSAPP_ENABLED;
+        else process.env.WHATSAPP_ENABLED = originalEnabled;
+        if (originalLicense === undefined) delete process.env.WHATSAPP_LICENSE_NUMBER;
+        else process.env.WHATSAPP_LICENSE_NUMBER = originalLicense;
+        if (originalApiKey === undefined) delete process.env.WHATSAPP_API_KEY;
+        else process.env.WHATSAPP_API_KEY = originalApiKey;
+    }
+});
+
+test('whatsapp channel respects admin module disable switch', async () => {
+    const originalEnabled = process.env.WHATSAPP_ENABLED;
+    const originalLicense = process.env.WHATSAPP_LICENSE_NUMBER;
+    const originalApiKey = process.env.WHATSAPP_API_KEY;
+    process.env.WHATSAPP_ENABLED = 'true';
+    process.env.WHATSAPP_LICENSE_NUMBER = 'license';
+    process.env.WHATSAPP_API_KEY = 'api-key';
+
+    const whatsappChannel = requireFresh('../services/communications/channels/whatsappChannel');
+    whatsappChannel.__test.resetChannelCache();
+    const originalExecute = db.execute;
+    db.execute = async (sql) => {
+        if (String(sql).includes('company_profile')) {
+            return [[{
+                whatsapp_channel_enabled: 1,
+                whatsapp_module_settings_json: JSON.stringify({ loginOtp: false })
+            }]];
+        }
+        return [[]];
+    };
+    try {
+        const result = await whatsappChannel.sendWhatsapp({
+            type: 'login_otp',
+            mobile: '9876543210',
+            params: ['123456'],
+            message: 'OTP'
+        });
+        assert.equal(result.ok, false);
+        assert.equal(result.skipped, true);
+        assert.equal(result.reason, 'whatsapp_module_disabled_by_admin');
+        assert.equal(result.module, 'loginOtp');
     } finally {
         db.execute = originalExecute;
         whatsappChannel.__test.resetChannelCache();

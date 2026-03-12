@@ -1112,6 +1112,7 @@ const initDB = async () => {
                 contact_jumbotron_image_url TEXT,
                 email_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
                 whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                whatsapp_module_settings_json JSON NULL,
                 razorpay_key_id VARCHAR(120),
                 razorpay_key_secret VARCHAR(160),
                 razorpay_webhook_secret VARCHAR(160),
@@ -1137,6 +1138,9 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN whatsapp_module_settings_json JSON NULL');
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_secret VARCHAR(160)');
@@ -1255,9 +1259,9 @@ const initDB = async () => {
         if (companyRows.length === 0) {
             await connection.execute(
                 `INSERT INTO company_profile
-                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '/assets/contact.jpg', 1, 1, '', '', '', 3000, 12]
+                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

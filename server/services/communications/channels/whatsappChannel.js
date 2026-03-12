@@ -1,6 +1,7 @@
 const https = require('https');
 const db = require('../../../config/db');
 const { resolveWorkflowContent } = require('./whatsappContentRepo');
+const { normalizeWhatsappModuleSettings } = require('../../../utils/whatsappModuleSettings');
 
 const PROVIDER_NAME = 'mydreamstechnology';
 const API_ENDPOINT = String(process.env.WHATSAPP_API_ENDPOINT || 'https://wa.mydreamstechnology.in/api/sendtemplate.php').trim();
@@ -10,7 +11,24 @@ const REQUEST_TIMEOUT_MS = Math.max(2000, Number(process.env.WHATSAPP_TIMEOUT_MS
 const ENABLED = ['1', 'true', 'yes', 'on'].includes(String(process.env.WHATSAPP_ENABLED || '').trim().toLowerCase())
     || Boolean(LICENSE_NUMBER && API_KEY);
 const DB_CHANNEL_CACHE_TTL_MS = 15 * 1000;
-let cachedDbChannelState = { value: true, ts: 0 };
+let cachedDbChannelState = {
+    masterEnabled: true,
+    moduleSettings: normalizeWhatsappModuleSettings(null),
+    ts: 0
+};
+const WORKFLOW_MODULE_MAP = {
+    otp: 'loginOtp',
+    login_otp: 'loginOtp',
+    order: 'order',
+    payment: 'payment',
+    welcome: 'welcome',
+    loyalty_upgrade: 'loyaltyUpgrade',
+    loyalty_progress: 'loyaltyProgress',
+    birthday: 'birthday',
+    abandoned_cart_recovery: 'abandonedCartRecovery',
+    coupon_issue: 'couponIssue',
+    dashboard_alert: 'dashboardAlert'
+};
 
 const WORKFLOW_TEMPLATES = {
     default: String(process.env.WHATSAPP_TEMPLATE_DEFAULT || '').trim(),
@@ -172,19 +190,24 @@ const hasMissingTemplateNameError = (body = '') => {
     return normalized.includes("template['name'] is required");
 };
 
-const isAdminWhatsappChannelEnabled = async () => {
+const getAdminWhatsappChannelState = async () => {
     const now = Date.now();
     if (now - cachedDbChannelState.ts < DB_CHANNEL_CACHE_TTL_MS) {
-        return cachedDbChannelState.value;
+        return cachedDbChannelState;
     }
     try {
-        const [rows] = await db.execute('SELECT whatsapp_channel_enabled FROM company_profile WHERE id = 1 LIMIT 1');
-        const enabled = Number(rows?.[0]?.whatsapp_channel_enabled ?? 1) === 1;
-        cachedDbChannelState = { value: enabled, ts: now };
-        return enabled;
+        const [rows] = await db.execute('SELECT whatsapp_channel_enabled, whatsapp_module_settings_json FROM company_profile WHERE id = 1 LIMIT 1');
+        const masterEnabled = Number(rows?.[0]?.whatsapp_channel_enabled ?? 1) === 1;
+        const moduleSettings = normalizeWhatsappModuleSettings(rows?.[0]?.whatsapp_module_settings_json);
+        cachedDbChannelState = { masterEnabled, moduleSettings, ts: now };
+        return cachedDbChannelState;
     } catch {
-        cachedDbChannelState = { value: true, ts: now };
-        return true;
+        cachedDbChannelState = {
+            masterEnabled: true,
+            moduleSettings: normalizeWhatsappModuleSettings(null),
+            ts: now
+        };
+        return cachedDbChannelState;
     }
 };
 
@@ -197,12 +220,24 @@ const sendWhatsapp = async (payload = {}) => {
             provider: PROVIDER_NAME
         };
     }
-    const channelEnabled = await isAdminWhatsappChannelEnabled();
-    if (!channelEnabled) {
+    const channelState = await getAdminWhatsappChannelState();
+    if (!channelState.masterEnabled) {
         return {
             ok: false,
             skipped: true,
             reason: 'whatsapp_disabled_by_admin',
+            provider: PROVIDER_NAME
+        };
+    }
+    const workflowKey = toText(payload.type || payload.template || 'generic').toLowerCase();
+    const moduleKey = WORKFLOW_MODULE_MAP[workflowKey] || null;
+    if (moduleKey && channelState.moduleSettings?.[moduleKey] === false) {
+        return {
+            ok: false,
+            skipped: true,
+            reason: 'whatsapp_module_disabled_by_admin',
+            module: moduleKey,
+            workflow: workflowKey,
             provider: PROVIDER_NAME
         };
     }
@@ -291,9 +326,13 @@ module.exports = {
     sendPaymentWhatsapp,
     sendAbandonedCartWhatsapp,
     __test: {
-        isAdminWhatsappChannelEnabled,
+        getAdminWhatsappChannelState,
         resetChannelCache() {
-            cachedDbChannelState = { value: true, ts: 0 };
+            cachedDbChannelState = {
+                masterEnabled: true,
+                moduleSettings: normalizeWhatsappModuleSettings(null),
+                ts: 0
+            };
         }
     }
 };
