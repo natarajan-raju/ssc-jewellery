@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { productService } from '../services/productService';
 import { useAuth } from './AuthContext';
@@ -7,7 +8,8 @@ const ProductContext = createContext(null);
 
 const CACHE_KEY = 'admin_all_products_cache_v1';
 const CACHE_STALE_MS = 5 * 60 * 1000; // 5 minutes
-const PAGE_LIMIT = 500;
+const PAGE_LIMIT = 200;
+const PREFETCH_BATCH_SIZE = 2;
 
 const readCache = () => {
     try {
@@ -39,9 +41,11 @@ export const ProductProvider = ({ children }) => {
     const [progress, setProgress] = useState(0);
     const [lastFetchedAt, setLastFetchedAt] = useState(null);
     const [error, setError] = useState(null);
+    const [hasLoadedAll, setHasLoadedAll] = useState(false);
 
     const inFlightRef = useRef(null);
     const allProductsRef = useRef([]);
+    const backgroundPrefetchRef = useRef(null);
 
     useEffect(() => {
         allProductsRef.current = allProducts;
@@ -52,6 +56,7 @@ export const ProductProvider = ({ children }) => {
         if (cached && cached.products.length > 0) {
             setAllProducts(cached.products);
             setLastFetchedAt(cached.timestamp);
+            setHasLoadedAll(true);
         }
         return cached;
     }, []);
@@ -68,6 +73,7 @@ export const ProductProvider = ({ children }) => {
             }
             setStatus('ready');
             setProgress(100);
+            setHasLoadedAll(true);
             return cached.products;
         }
 
@@ -76,26 +82,46 @@ export const ProductProvider = ({ children }) => {
         setStatus('loading');
         setProgress(0);
         setError(null);
+        setHasLoadedAll(false);
 
         const task = (async () => {
             try {
-                const first = await productService.getProducts(1, 'all', 'all', 'newest', PAGE_LIMIT);
+                if (backgroundPrefetchRef.current) {
+                    clearTimeout(backgroundPrefetchRef.current);
+                    backgroundPrefetchRef.current = null;
+                }
+
+                const first = await productService.getProducts(1, 'all', 'all', 'newest', PAGE_LIMIT, null, { forceRefresh: force });
                 const totalPages = Math.max(1, Number(first.totalPages || 1));
                 let combined = Array.isArray(first.products) ? [...first.products] : [];
-                setProgress(Math.round((1 / totalPages) * 100));
+                const firstProgress = totalPages <= 1 ? 100 : Math.max(10, Math.round((1 / totalPages) * 100));
+                setAllProducts(combined);
+                setLastFetchedAt(Date.now());
+                setProgress(firstProgress);
 
-                for (let page = 2; page <= totalPages; page += 1) {
-                    const res = await productService.getProducts(page, 'all', 'all', 'newest', PAGE_LIMIT);
-                    if (Array.isArray(res.products)) {
-                        combined = combined.concat(res.products);
+                for (let startPage = 2; startPage <= totalPages; startPage += PREFETCH_BATCH_SIZE) {
+                    const pageNumbers = [];
+                    for (let page = startPage; page < startPage + PREFETCH_BATCH_SIZE && page <= totalPages; page += 1) {
+                        pageNumbers.push(page);
                     }
-                    setProgress(Math.round((page / totalPages) * 100));
+                    const batch = await Promise.all(
+                        pageNumbers.map((pageNo) => productService.getProducts(pageNo, 'all', 'all', 'newest', PAGE_LIMIT, null, { forceRefresh: force }))
+                    );
+                    batch.forEach((res) => {
+                        if (Array.isArray(res?.products)) {
+                            combined = combined.concat(res.products);
+                        }
+                    });
+                    setAllProducts([...combined]);
+                    setLastFetchedAt(Date.now());
+                    setProgress(Math.round((Math.min(totalPages, startPage + PREFETCH_BATCH_SIZE - 1) / totalPages) * 100));
                 }
 
                 setAllProducts(combined);
                 setLastFetchedAt(Date.now());
                 writeCache(combined);
                 setStatus('ready');
+                setHasLoadedAll(true);
                 return combined;
             } catch (err) {
                 setStatus('error');
@@ -123,8 +149,16 @@ export const ProductProvider = ({ children }) => {
         const cached = hydrateFromCache();
         const isStale = !cached || (Date.now() - cached.timestamp >= CACHE_STALE_MS);
         if (isStale) {
-            ensureAllProducts();
+            backgroundPrefetchRef.current = setTimeout(() => {
+                ensureAllProducts();
+            }, 0);
         }
+        return () => {
+            if (backgroundPrefetchRef.current) {
+                clearTimeout(backgroundPrefetchRef.current);
+                backgroundPrefetchRef.current = null;
+            }
+        };
     }, [ensureAllProducts, hydrateFromCache, isAdmin]);
 
     useEffect(() => {
@@ -188,10 +222,11 @@ export const ProductProvider = ({ children }) => {
         lastFetchedAt,
         error,
         isDownloading: status === 'loading',
+        hasLoadedAll,
         ensureAllProducts,
         refreshAllProducts,
         setAllProducts,
-    }), [allProducts, status, progress, lastFetchedAt, error, ensureAllProducts, refreshAllProducts]);
+    }), [allProducts, status, progress, lastFetchedAt, error, hasLoadedAll, ensureAllProducts, refreshAllProducts]);
 
     return (
         <ProductContext.Provider value={value}>

@@ -52,6 +52,7 @@ const TIER_ICON_CONFIG = {
 
 const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
 const MAX_SEARCH_RESULTS = 8;
+const SEARCH_SEED_LIMIT = 60;
 
 const readSeedCache = () => {
     try {
@@ -264,11 +265,21 @@ export default function Navbar() {
         if (seeded.length > 0) {
             setSeedProducts(seeded);
         }
+    }, []);
+
+    useEffect(() => {
+        seedProductsRef.current = Array.isArray(seedProducts) ? seedProducts : [];
+    }, [seedProducts]);
+
+    useEffect(() => {
+        if (!isSearchOpen && !String(searchQuery || '').trim()) return;
+        if (seedProductsRef.current.length > 0) return;
+        let cancelled = false;
         const warmSeed = async () => {
             try {
-                const data = await productService.getProducts(1, 'all', 'active', 'newest', 160);
+                const data = await productService.getProducts(1, 'all', 'active', 'newest', SEARCH_SEED_LIMIT);
                 const list = Array.isArray(data?.products) ? data.products : [];
-                if (list.length > 0) {
+                if (!cancelled && list.length > 0) {
                     setSeedProducts(list);
                     writeSeedCache(list);
                 }
@@ -277,11 +288,10 @@ export default function Navbar() {
             }
         };
         warmSeed();
-    }, []);
-
-    useEffect(() => {
-        seedProductsRef.current = Array.isArray(seedProducts) ? seedProducts : [];
-    }, [seedProducts]);
+        return () => {
+            cancelled = true;
+        };
+    }, [isSearchOpen, searchQuery]);
 
     useEffect(() => {
         const q = String(searchQuery || '').trim();

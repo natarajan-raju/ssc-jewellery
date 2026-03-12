@@ -114,12 +114,12 @@ export const productService = {
         try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch { /* ignore storage errors */ }
     },
     // --- GET PRODUCTS (With Caching) ---
-    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10, categoryId = null) => {
+    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10, categoryId = null, { forceRefresh = false } = {}) => {
         // [NEW] Include sort + limit in cache key
         const cacheKey = buildProductsCacheKey(page, category, status, sort, limit, categoryId || '');
 
         const cached = productCache[cacheKey];
-        if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+        if (!forceRefresh && cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
             return cached.data;
         }
 
@@ -129,9 +129,9 @@ export const productService = {
             limit: String(limit),
             category: String(category || 'all'),
             status: String(status || 'all'),
-            sort: String(sort || 'newest'),
-            _t: String(Date.now())
+            sort: String(sort || 'newest')
         });
+        if (forceRefresh) params.set('force', '1');
         if (categoryId) params.set('categoryId', String(categoryId));
         const res = await fetch(`${API_URL}?${params.toString()}`, {
             headers: { 

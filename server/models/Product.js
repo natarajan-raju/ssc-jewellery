@@ -113,6 +113,65 @@ class Product {
         }
     }
 
+    static parseProductRow(row = {}) {
+        return {
+            ...row,
+            media: typeof row.media === 'string' ? JSON.parse(row.media) : (row.media || []),
+            categories: typeof row.categories === 'string' ? JSON.parse(row.categories) : (row.categories || []),
+            related_products: typeof row.related_products === 'string' ? JSON.parse(row.related_products) : (row.related_products || {}),
+            additional_info: typeof row.additional_info === 'string' ? JSON.parse(row.additional_info) : (row.additional_info || []),
+            options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
+            variants: Array.isArray(row.variants) ? row.variants : []
+        };
+    }
+
+    static async hydrateProductsByIds(rows = [], { connection = db } = {}) {
+        const baseRows = Array.isArray(rows) ? rows : [];
+        if (!baseRows.length) return [];
+
+        const ids = baseRows.map((row) => String(row.id || '').trim()).filter(Boolean);
+        if (!ids.length) return [];
+
+        const placeholders = ids.map(() => '?').join(',');
+        const [categoryRows, variantRows] = await Promise.all([
+            connection.execute(
+                `SELECT pc.product_id, c.name
+                 FROM product_categories pc
+                 JOIN categories c ON pc.category_id = c.id
+                 WHERE pc.product_id IN (${placeholders})
+                 ORDER BY pc.display_order ASC, c.name ASC`,
+                ids
+            ),
+            connection.execute(
+                `SELECT *
+                 FROM product_variants
+                 WHERE product_id IN (${placeholders})
+                 ORDER BY product_id ASC, variant_title ASC, id ASC`,
+                ids
+            )
+        ]);
+
+        const categoriesByProduct = new Map(ids.map((id) => [id, []]));
+        (categoryRows?.[0] || []).forEach((row) => {
+            const key = String(row.product_id || '').trim();
+            if (!categoriesByProduct.has(key)) categoriesByProduct.set(key, []);
+            categoriesByProduct.get(key).push(String(row.name || '').trim());
+        });
+
+        const variantsByProduct = new Map(ids.map((id) => [id, []]));
+        (variantRows?.[0] || []).forEach((row) => {
+            const key = String(row.product_id || '').trim();
+            if (!variantsByProduct.has(key)) variantsByProduct.set(key, []);
+            variantsByProduct.get(key).push(row);
+        });
+
+        return baseRows.map((row) => Product.parseProductRow({
+            ...row,
+            categories: categoriesByProduct.get(String(row.id || '').trim()) || [],
+            variants: variantsByProduct.get(String(row.id || '').trim()) || []
+        }));
+    }
+
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest', categoryId = null) {
@@ -121,40 +180,34 @@ class Product {
         const conditions = [];
         const numericCategoryId = Number(categoryId);
         const hasCategoryId = Number.isFinite(numericCategoryId) && numericCategoryId > 0;
+        const variantStatsJoin = `
+            LEFT JOIN (
+                SELECT
+                    pv.product_id,
+                    COUNT(*) AS variant_count,
+                    MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) AS min_effective_price,
+                    MAX(CASE
+                        WHEN COALESCE(pv.track_quantity, 0) = 0 OR COALESCE(pv.quantity, 0) > 0 THEN 1
+                        ELSE 0
+                    END) AS has_in_stock_variant
+                FROM product_variants pv
+                GROUP BY pv.product_id
+            ) pv_stats ON pv_stats.product_id = p.id
+        `;
+        const effectivePrice = `
+            COALESCE(
+                pv_stats.min_effective_price,
+                NULLIF(p.discount_price, 0),
+                p.mrp
+            )
+        `;
 
         // 1. Define Select Clauses
-        const selectClause = `
-            SELECT p.*,
-            (
-                SELECT JSON_ARRAYAGG(c.name)
-                FROM product_categories pc
-                JOIN categories c ON pc.category_id = c.id
-                WHERE pc.product_id = p.id
-            ) as categories_list, 
-            (
-                SELECT JSON_ARRAYAGG(
-                    JSON_OBJECT(
-                        'id', pv.id,
-                        'variant_title', pv.variant_title,
-                        'price', pv.price,
-                        'discount_price', pv.discount_price,
-                        'sku', pv.sku,
-                        'weight_kg', pv.weight_kg,
-                        'quantity', pv.quantity,
-                        'track_quantity', pv.track_quantity,
-                        'track_low_stock', pv.track_low_stock,
-                        'low_stock_threshold', pv.low_stock_threshold,
-                        'image_url', pv.image_url
-                    )
-                )
-                FROM product_variants pv 
-                WHERE pv.product_id = p.id
-            ) as variants
-        `;
+        const selectClause = 'SELECT DISTINCT p.*';
         const countSelectClause = 'SELECT COUNT(*) as total';
 
         // 2. Build FROM Clause & Category Logic
-        let fromClause = ' FROM products p';
+        let fromClause = ` FROM products p ${variantStatsJoin}`;
         
         // [FIX] If Sorting Manually, we MUST use JOIN to access 'display_order'
         // This also handles the category filtering more efficiently for this case.
@@ -200,13 +253,6 @@ class Product {
             orderByClause = 'ORDER BY pc_sort.display_order ASC';
         } 
         else if (sort === 'low' || sort === 'high') {
-            const effectivePrice = `
-                COALESCE(
-                    (SELECT MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) FROM product_variants pv WHERE pv.product_id = p.id),
-                    NULLIF(p.discount_price, 0),
-                    p.mrp
-                )
-            `;
             orderByClause = `ORDER BY ${effectivePrice} ${sort === 'low' ? 'ASC' : 'DESC'}`;
         }
 
@@ -220,16 +266,7 @@ class Product {
         const countQuery = countSelectClause + fromClause + whereClause;
         const [countResult] = await db.execute(countQuery, params);
 
-        // 7. Parse JSON Fields
-        const products = rows.map(p => ({
-            ...p,
-            media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || []),
-            categories: typeof p.categories_list === 'string' ? JSON.parse(p.categories_list) : (p.categories_list || []),
-            related_products: typeof p.related_products === 'string' ? JSON.parse(p.related_products) : (p.related_products || {}),
-            additional_info: typeof p.additional_info === 'string' ? JSON.parse(p.additional_info) : (p.additional_info || []),
-            options: typeof p.options === 'string' ? JSON.parse(p.options) : (p.options || []),
-            variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || [])
-        }));
+        const products = await Product.hydrateProductsByIds(rows);
 
         return {
             products,
@@ -256,11 +293,25 @@ class Product {
 
         const params = [];
         const conditions = [];
-        let fromClause = ' FROM products p';
+        const variantStatsJoin = `
+            LEFT JOIN (
+                SELECT
+                    pv.product_id,
+                    COUNT(*) AS variant_count,
+                    MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) AS min_effective_price,
+                    MAX(CASE
+                        WHEN COALESCE(pv.track_quantity, 0) = 0 OR COALESCE(pv.quantity, 0) > 0 THEN 1
+                        ELSE 0
+                    END) AS has_in_stock_variant
+                FROM product_variants pv
+                GROUP BY pv.product_id
+            ) pv_stats ON pv_stats.product_id = p.id
+        `;
+        let fromClause = ` FROM products p ${variantStatsJoin}`;
 
         const effectivePrice = `
             COALESCE(
-                (SELECT MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) FROM product_variants pv WHERE pv.product_id = p.id),
+                pv_stats.min_effective_price,
                 NULLIF(p.discount_price, 0),
                 p.mrp
             )
@@ -304,15 +355,13 @@ class Product {
         if (inStockOnly) {
             conditions.push(`(
                 (
-                    (SELECT COUNT(*) FROM product_variants pv_all WHERE pv_all.product_id = p.id) = 0
+                    COALESCE(pv_stats.variant_count, 0) = 0
                     AND (COALESCE(p.track_quantity, 0) = 0 OR COALESCE(p.quantity, 0) > 0)
                 )
                 OR
                 (
-                    (SELECT COUNT(*) FROM product_variants pv_stock
-                     WHERE pv_stock.product_id = p.id
-                       AND (COALESCE(pv_stock.track_quantity, 0) = 0 OR COALESCE(pv_stock.quantity, 0) > 0)
-                    ) > 0
+                    COALESCE(pv_stats.variant_count, 0) > 0
+                    AND COALESCE(pv_stats.has_in_stock_variant, 0) = 1
                 )
             )`);
         }
@@ -357,34 +406,7 @@ class Product {
             orderParams.push(prefix, anywhere, anywhere, anywhere, anywhere);
         }
 
-        const selectClause = `
-            SELECT p.*,
-            (
-                SELECT JSON_ARRAYAGG(c.name)
-                FROM product_categories pc
-                JOIN categories c ON pc.category_id = c.id
-                WHERE pc.product_id = p.id
-            ) AS categories_list,
-            (
-                SELECT JSON_ARRAYAGG(
-                    JSON_OBJECT(
-                        'id', pv.id,
-                        'variant_title', pv.variant_title,
-                        'price', pv.price,
-                        'discount_price', pv.discount_price,
-                        'sku', pv.sku,
-                        'weight_kg', pv.weight_kg,
-                        'quantity', pv.quantity,
-                        'track_quantity', pv.track_quantity,
-                        'track_low_stock', pv.track_low_stock,
-                        'low_stock_threshold', pv.low_stock_threshold,
-                        'image_url', pv.image_url
-                    )
-                )
-                FROM product_variants pv
-                WHERE pv.product_id = p.id
-            ) AS variants
-        `;
+        const selectClause = 'SELECT DISTINCT p.*';
 
         const mainQuery = `${selectClause}${fromClause}${whereClause}${orderByClause} LIMIT ? OFFSET ?`;
         const mainParams = [...params, ...orderParams, safeLimit, offset];
@@ -394,15 +416,7 @@ class Product {
         const [countRows] = await db.execute(countQuery, params);
         const total = Number(countRows?.[0]?.total || 0);
 
-        const products = rows.map((p) => ({
-            ...p,
-            media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || []),
-            categories: typeof p.categories_list === 'string' ? JSON.parse(p.categories_list) : (p.categories_list || []),
-            related_products: typeof p.related_products === 'string' ? JSON.parse(p.related_products) : (p.related_products || {}),
-            additional_info: typeof p.additional_info === 'string' ? JSON.parse(p.additional_info) : (p.additional_info || []),
-            options: typeof p.options === 'string' ? JSON.parse(p.options) : (p.options || []),
-            variants: typeof p.variants === 'string' ? JSON.parse(p.variants) : (p.variants || [])
-        }));
+        const products = await Product.hydrateProductsByIds(rows);
 
         return {
             products,
