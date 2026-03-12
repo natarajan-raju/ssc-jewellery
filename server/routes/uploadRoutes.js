@@ -1,12 +1,37 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { createUploader } = require('../utils/upload');
+const {
+    createUploader,
+    DEFAULT_IMAGE_MIME_TYPES,
+    DEFAULT_AUDIO_MIME_TYPES
+} = require('../utils/upload');
 
 const router = express.Router();
-const uploadProfile = createUploader('profile');
-const uploadPopup = createUploader('popup');
-const uploadContact = createUploader('contact');
-const uploadCarousel = createUploader('carousel');
+const uploadProfile = createUploader('profile', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
+});
+const uploadPopupImage = createUploader('popup', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
+});
+const uploadPopupAudio = createUploader('popup', {
+    allowedMimeTypes: DEFAULT_AUDIO_MIME_TYPES,
+    allowedExtensions: ['.mp3', '.wav', '.ogg', '.webm'],
+    maxFileSizeBytes: 10 * 1024 * 1024
+});
+const uploadContact = createUploader('contact', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
+});
+const uploadCarousel = createUploader('carousel', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
+});
 
 router.post('/profile-image', protect, uploadProfile.single('image'), (req, res) => {
     if (!req.file) {
@@ -16,7 +41,7 @@ router.post('/profile-image', protect, uploadProfile.single('image'), (req, res)
     res.json({ url });
 });
 
-router.post('/popup-image', protect, uploadPopup.single('image'), (req, res) => {
+router.post('/popup-image', protect, authorize('admin', 'staff'), uploadPopupImage.single('image'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: 'No image uploaded' });
     }
@@ -24,7 +49,7 @@ router.post('/popup-image', protect, uploadPopup.single('image'), (req, res) => 
     return res.json({ url });
 });
 
-router.post('/popup-audio', protect, uploadPopup.single('audio'), (req, res) => {
+router.post('/popup-audio', protect, authorize('admin', 'staff'), uploadPopupAudio.single('audio'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: 'No audio uploaded' });
     }

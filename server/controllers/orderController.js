@@ -10,12 +10,14 @@ const Coupon = require('../models/Coupon');
 const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
 const User = require('../models/User');
 const CompanyProfile = require('../models/CompanyProfile');
+const Product = require('../models/Product');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
 const { verifyInvoiceShareToken } = require('../services/invoiceShareService');
 const { reassessUserTier } = require('../services/loyaltyService');
 const { emitToOrderAudiences } = require('../utils/socketAudience');
+const { emitProductEvent } = require('./productController');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -57,6 +59,39 @@ const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
     const stamp = Date.now().toString(36);
     return `ssc_${uid}_${stamp}`.slice(0, 40);
+};
+
+const collectOrderProductIds = (order = null) => (
+    [...new Set((Array.isArray(order?.items) ? order.items : [])
+        .map((item) => String(item?.product_id || item?.productId || '').trim())
+        .filter(Boolean))]
+);
+
+const emitProductUpdatesForIds = async (req, productIds = []) => {
+    const ids = [...new Set((productIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+    for (const productId of ids) {
+        const product = await Product.findById(productId);
+        if (!product) continue;
+        emitProductEvent(req, 'product:update', product);
+    }
+};
+
+const releaseAttemptInventoryAndEmit = async (req, { attemptId, reason }) => {
+    const released = await PaymentAttempt.releaseInventoryForAttempt({ attemptId, reason });
+    await emitProductUpdatesForIds(req, released?.productIds || []);
+    return released;
+};
+
+const reserveAttemptInventoryAndEmit = async (req, { attemptId, userId, expiresAt }) => {
+    const reserved = await PaymentAttempt.reserveInventoryForAttempt({ attemptId, userId, expiresAt });
+    await emitProductUpdatesForIds(req, reserved?.productIds || []);
+    return reserved;
+};
+
+const consumeAttemptInventoryAndEmit = async (req, { attemptId }) => {
+    const consumed = await PaymentAttempt.consumeInventoryForAttempt({ attemptId });
+    await emitProductUpdatesForIds(req, consumed?.productIds || []);
+    return consumed;
 };
 
 const emitOrderAndPaymentUpdate = (req, { order, payment = null, silent = false } = {}) => {
@@ -229,6 +264,7 @@ const createOrderFromRecoveryPayment = async (req, {
     }
 
     if (createdOrder) {
+        await emitProductUpdatesForIds(req, collectOrderProductIds(createdOrder));
         try {
             await markRecoveredByOrder({ order: createdOrder, reason: 'payment_paid_webhook' });
             emitAbandonedRecoveryUpdate(req, {
@@ -517,7 +553,7 @@ const createRazorpayOrder = async (req, res) => {
         });
 
         try {
-            await PaymentAttempt.reserveInventoryForAttempt({
+            await reserveAttemptInventoryAndEmit(req, {
                 attemptId: attempt.id,
                 userId,
                 expiresAt
@@ -648,7 +684,7 @@ const verifyRazorpayPayment = async (req, res) => {
         const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
 
         if (!paymentDetails || String(paymentDetails.order_id) !== String(attempt.razorpay_order_id)) {
-            await PaymentAttempt.releaseInventoryForAttempt({ attemptId: attempt.id, reason: 'verify_mismatch' });
+            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'verify_mismatch' });
             await PaymentAttempt.markFailed({
                 id: attempt.id,
                 paymentId: razorpayPaymentId,
@@ -659,7 +695,7 @@ const verifyRazorpayPayment = async (req, res) => {
         }
 
         if (Number(paymentDetails.amount || 0) !== Number(attempt.amount_subunits || 0)) {
-            await PaymentAttempt.releaseInventoryForAttempt({ attemptId: attempt.id, reason: 'verify_amount_mismatch' });
+            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'verify_amount_mismatch' });
             await PaymentAttempt.markFailed({
                 id: attempt.id,
                 paymentId: razorpayPaymentId,
@@ -670,7 +706,7 @@ const verifyRazorpayPayment = async (req, res) => {
         }
 
         if (String(paymentDetails.currency || '').toUpperCase() !== String(attempt.currency || 'INR').toUpperCase()) {
-            await PaymentAttempt.releaseInventoryForAttempt({ attemptId: attempt.id, reason: 'verify_currency_mismatch' });
+            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'verify_currency_mismatch' });
             await PaymentAttempt.markFailed({
                 id: attempt.id,
                 paymentId: razorpayPaymentId,
@@ -691,7 +727,7 @@ const verifyRazorpayPayment = async (req, res) => {
         });
         const currentAmountSubunits = toSubunit(cartSummary.total);
         if (Number(currentAmountSubunits) !== Number(attempt.amount_subunits || 0)) {
-            await PaymentAttempt.releaseInventoryForAttempt({ attemptId: attempt.id, reason: 'cart_changed' });
+            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'cart_changed' });
             await PaymentAttempt.markFailed({
                 id: attempt.id,
                 paymentId: razorpayPaymentId,
@@ -719,7 +755,7 @@ const verifyRazorpayPayment = async (req, res) => {
         });
         createdOrder = order;
 
-        await PaymentAttempt.consumeInventoryForAttempt({ attemptId: attempt.id });
+        await consumeAttemptInventoryAndEmit(req, { attemptId: attempt.id });
         try {
             await markRecoveredByOrder({ order, reason: 'order_paid_checkout' });
         } catch {}
@@ -803,7 +839,7 @@ const verifyRazorpayPayment = async (req, res) => {
         }
         if (lockedAttemptId) {
             try {
-                await PaymentAttempt.releaseInventoryForAttempt({
+                await releaseAttemptInventoryAndEmit(req, {
                     attemptId: lockedAttemptId,
                     reason: 'verify_failed'
                 });
@@ -893,6 +929,9 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
         settlementSnapshot: settlementSnapshot || null,
         sourceChannel: 'checkout_webhook_recovery'
     });
+    if (order) {
+        await emitProductUpdatesForIds(req, collectOrderProductIds(order));
+    }
     if (order) emitCouponChangedForOrder(req, order);
     return order;
 };
@@ -1080,7 +1119,7 @@ const handleRazorpayWebhook = async (req, res) => {
         } else if (paymentStatus === PAYMENT_STATUS.FAILED && razorpayOrderId) {
             const attempt = await PaymentAttempt.getByRazorpayOrderIdAny(razorpayOrderId);
             if (attempt) {
-                await PaymentAttempt.releaseInventoryForAttempt({
+                await releaseAttemptInventoryAndEmit(req, {
                     attemptId: attempt.id,
                     reason: 'payment_failed'
                 });
@@ -2081,7 +2120,7 @@ const deleteAdminPaymentAttempt = async (req, res) => {
             return res.status(400).json({ message: 'Paid attempts cannot be deleted' });
         }
 
-        await PaymentAttempt.releaseInventoryForAttempt({
+        await releaseAttemptInventoryAndEmit(req, {
             attemptId,
             reason: 'admin_delete'
         });
@@ -2218,6 +2257,7 @@ const createAdminManualOrder = async (req, res) => {
         if (io && persisted) {
             emitToOrderAudiences(io, persisted, 'order:update', { orderId: persisted.id, status: persisted.status, order: persisted });
         }
+        await emitProductUpdatesForIds(req, collectOrderProductIds(persisted || order));
         emitCouponChangedForOrder(req, persisted || order);
         void triggerOrderLifecycleEmail({
             order: persisted || order,
@@ -2348,7 +2388,7 @@ const fetchAdminPaymentStatus = async (req, res) => {
             } else if (paymentStatus === PAYMENT_STATUS.FAILED) {
                 const existingAttempt = await PaymentAttempt.getByRazorpayOrderIdAny(razorpayOrderId);
                 if (existingAttempt) {
-                    await PaymentAttempt.releaseInventoryForAttempt({
+                    await releaseAttemptInventoryAndEmit(req, {
                         attemptId: existingAttempt.id,
                         reason: 'payment_failed'
                     });

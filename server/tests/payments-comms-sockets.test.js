@@ -527,6 +527,68 @@ test('retryRazorpayPayment resolves the retryable attempt for the selected order
     assert.equal(createdAttemptPayload.notes.retryOfAttemptId, 77);
 });
 
+test('deleteAdminPaymentAttempt emits product updates when reserved inventory is released', async () => {
+    const controller = loadOrderController();
+    const emitted = [];
+    const io = {
+        except(room) {
+            return {
+                emit(event, payload) {
+                    emitted.push({ scope: `except:${room}`, event, payload });
+                }
+            };
+        },
+        to(room) {
+            return {
+                emit(event, payload) {
+                    emitted.push({ scope: `to:${room}`, event, payload });
+                }
+            };
+        }
+    };
+    const req = {
+        params: { id: '88' },
+        app: { get: (key) => (key === 'io' ? io : null) }
+    };
+    const res = createMockRes();
+
+    await withPatched(PaymentAttempt, {
+        getById: async () => ({
+            id: 88,
+            local_order_id: null,
+            status: PAYMENT_STATUS.FAILED
+        }),
+        releaseInventoryForAttempt: async () => ({ released: 1, productIds: ['prod_1'] }),
+        deleteById: async () => true
+    }, async () => withPatched(require('../models/Product'), {
+        findById: async () => ({
+            id: 'prod_1',
+            title: 'Chain',
+            status: 'active',
+            mrp: 1000,
+            discount_price: 900,
+            track_quantity: 1,
+            quantity: 4,
+            track_low_stock: 1,
+            low_stock_threshold: 5,
+            media: [],
+            categories: [],
+            related_products: {},
+            additional_info: [],
+            options: [],
+            variants: []
+        })
+    }, async () => {
+        await controller.deleteAdminPaymentAttempt(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(emitted.map((entry) => `${entry.scope}:${entry.event}`), [
+        'except:admin:product:update',
+        'to:admin:product:update'
+    ]);
+});
+
 test('admin attempt conversion rejects paid attempts', async () => {
     const controller = loadOrderController();
     const req = {

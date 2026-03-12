@@ -1,8 +1,14 @@
 const crypto = require('crypto');
 
 const INVOICE_SHARE_TTL_DAYS = Number(process.env.INVOICE_SHARE_TTL_DAYS || 15);
+const isNonProductionLike = () => ['development', 'dev', 'test'].includes(String(process.env.NODE_ENV || '').trim().toLowerCase());
 
-const getSecret = () => String(process.env.INVOICE_SHARE_SECRET || process.env.JWT_SECRET || 'ssc-invoice-share-secret');
+const getSecret = () => {
+    const secret = String(process.env.INVOICE_SHARE_SECRET || process.env.JWT_SECRET || '').trim();
+    if (secret) return secret;
+    if (isNonProductionLike()) return 'ssc-invoice-share-secret';
+    throw new Error('INVOICE_SHARE_SECRET or JWT_SECRET must be configured');
+};
 
 const resolveBaseUrl = (baseUrl = '') => {
     const explicit = String(baseUrl || '').trim().replace(/\/+$/, '');

@@ -278,6 +278,7 @@ class PaymentAttempt {
             }
 
             let reservedItems = 0;
+            const touchedProductIds = new Set();
             for (const row of cartRows) {
                 const quantity = Number(row.quantity || 0);
                 if (quantity <= 0) continue;
@@ -337,6 +338,7 @@ class PaymentAttempt {
                     ]
                 );
                 reservedItems += 1;
+                touchedProductIds.add(String(row.product_id || '').trim());
             }
 
             if (!reservedItems) {
@@ -344,7 +346,7 @@ class PaymentAttempt {
             }
 
             await connection.commit();
-            return { reservedItems, reused: false };
+            return { reservedItems, reused: false, productIds: [...touchedProductIds] };
         } catch (error) {
             await connection.rollback();
             throw error;
@@ -365,9 +367,10 @@ class PaymentAttempt {
             );
             if (!rows.length) {
                 await connection.commit();
-                return { released: 0 };
+                return { released: 0, productIds: [] };
             }
 
+            const touchedProductIds = new Set();
             for (const row of rows) {
                 const qty = Number(row.quantity || 0);
                 if (qty <= 0) continue;
@@ -382,6 +385,7 @@ class PaymentAttempt {
                         [qty, row.product_id]
                     );
                 }
+                touchedProductIds.add(String(row.product_id || '').trim());
             }
 
             await connection.execute(
@@ -393,7 +397,7 @@ class PaymentAttempt {
                 [String(reason).slice(0, 100), attemptId]
             );
             await connection.commit();
-            return { released: rows.length };
+            return { released: rows.length, productIds: [...touchedProductIds] };
         } catch (error) {
             await connection.rollback();
             throw error;
@@ -403,12 +407,21 @@ class PaymentAttempt {
     }
 
     static async consumeInventoryForAttempt({ attemptId }) {
+        const [rows] = await db.execute(
+            `SELECT product_id
+             FROM payment_item_reservations
+             WHERE attempt_id = ? AND status = 'reserved'`,
+            [attemptId]
+        );
         await db.execute(
             `UPDATE payment_item_reservations
              SET status = 'consumed', updated_at = CURRENT_TIMESTAMP
              WHERE attempt_id = ? AND status = 'reserved'`,
             [attemptId]
         );
+        return {
+            productIds: [...new Set((rows || []).map((row) => String(row.product_id || '').trim()).filter(Boolean))]
+        };
     }
 
     static async expireStaleAttempts({ ttlMinutes = 30 } = {}) {

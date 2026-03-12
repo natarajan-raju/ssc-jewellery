@@ -204,6 +204,26 @@ const buildWelcomeEmailTemplate = ({ user = {} } = {}) => {
     return { subject, text, html };
 };
 
+const recordDeliveryAttempt = async (promiseFactory, channel, delivery) => {
+    delivery.attempted.push(channel);
+    try {
+        const result = await promiseFactory();
+        if (result?.ok || result?.queued) {
+            delivery.sent.push(channel);
+            return;
+        }
+        delivery.failed.push({
+            channel,
+            reason: result?.reason || result?.message || 'delivery_failed'
+        });
+    } catch (error) {
+        delivery.failed.push({
+            channel,
+            reason: error?.message || 'delivery_failed'
+        });
+    }
+};
+
 const dispatchWelcomeCommunication = (user = {}) => {
     const email = String(user?.email || '').trim().toLowerCase();
     const mobile = String(user?.mobile || '').trim();
@@ -313,22 +333,17 @@ exports.sendOtp = async (req, res) => {
             const userEmail = String(user.email || '').trim();
             const whatsappMobile = String(user.whatsapp || user.mobile || '').trim();
             const isWhatsappMobileValid = /^[0-9]{10,12}$/.test(whatsappMobile);
+            const canSendEmail = Boolean(userEmail && isEmail(userEmail));
 
-            if (!userEmail) {
+            if (!canSendEmail) {
                 delivery.missing.push('email');
-            } else {
-                delivery.attempted.push('email');
-                delivery.sent.push('email');
             }
 
             if (!isWhatsappMobileValid) {
                 delivery.missing.push('whatsapp');
-            } else {
-                delivery.attempted.push('whatsapp');
-                delivery.sent.push('whatsapp');
             }
 
-            if (!delivery.sent.length) {
+            if (!canSendEmail && !isWhatsappMobileValid) {
                 return res.status(400).json({
                     message: 'OTP not sent. No active delivery channel found for this account.',
                     delivery
@@ -340,46 +355,59 @@ exports.sendOtp = async (req, res) => {
                 whatsapp: isWhatsappMobileValid ? maskMobile(whatsappMobile) : ''
             };
 
-            // Fire-and-forget delivery so API response is instant for UI.
-            void (async () => {
-                if (userEmail) {
-                    try {
-                        const template = buildLoginOtpEmailTemplate({
-                            user,
-                            otp,
-                            maskedWhatsapp: isWhatsappMobileValid ? maskMobile(whatsappMobile) : ''
-                        });
-                        await sendEmailCommunication({
-                            to: userEmail,
-                            subject: template.subject,
-                            text: template.text,
-                            html: template.html
-                        });
-                    } catch (error) {
-                        console.error('OTP email delivery failed:', error?.message || error);
-                    }
-                }
-                if (isWhatsappMobileValid) {
-                    try {
-                        await sendWhatsapp({
-                            to: whatsappMobile,
-                            message: `Your SSC Jewellery OTP is ${otp}. Valid for 5 minutes.`,
-                            template: 'login_otp',
-                            data: { otp }
-                        });
-                    } catch (error) {
-                        console.error('OTP WhatsApp delivery failed:', error?.message || error);
-                    }
-                }
-            })();
+            if (canSendEmail) {
+                const template = buildLoginOtpEmailTemplate({
+                    user,
+                    otp,
+                    maskedWhatsapp: isWhatsappMobileValid ? maskMobile(whatsappMobile) : ''
+                });
+                await recordDeliveryAttempt(() => sendEmailCommunication({
+                    to: userEmail,
+                    subject: template.subject,
+                    text: template.text,
+                    html: template.html
+                }), 'email', delivery);
+            }
+            if (isWhatsappMobileValid) {
+                await recordDeliveryAttempt(() => sendWhatsapp({
+                    to: whatsappMobile,
+                    message: `Your SSC Jewellery OTP is ${otp}. Valid for 5 minutes.`,
+                    template: 'login_otp',
+                    data: { otp }
+                }), 'whatsapp', delivery);
+            }
+        } else {
+            if (!/^[0-9]{10,12}$/.test(mobile)) {
+                delivery.missing.push('whatsapp');
+            } else {
+                delivery.contacts = {
+                    whatsapp: maskMobile(mobile)
+                };
+                await recordDeliveryAttempt(() => sendWhatsapp({
+                    to: mobile,
+                    message: `Your SSC Jewellery OTP is ${otp}. Valid for 5 minutes.`,
+                    template: 'login_otp',
+                    data: { otp }
+                }), 'whatsapp', delivery);
+            }
         }
 
-        // 3. Send OTP to Frontend
-        res.json({ 
-            message: 'OTP generated', 
-            debug_otp: otp,  // <--- This is how you retrieve it in Prod!
+        if (!delivery.sent.length) {
+            return res.status(502).json({
+                message: 'OTP could not be delivered right now. Please retry.',
+                delivery
+            });
+        }
+
+        const payload = {
+            message: 'OTP generated',
             delivery
-        });
+        };
+        if (String(process.env.NODE_ENV || '').trim().toLowerCase() === 'test') {
+            payload.debug_otp = otp;
+        }
+
+        res.json(payload);
 
     } catch (error) {
         console.error("❌ OTP Error:", error);
