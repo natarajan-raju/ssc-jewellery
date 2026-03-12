@@ -33,6 +33,10 @@ const toNumber = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
 };
+const getAvailableQuantity = (item = {}) => toNumber(
+    item.available_quantity ?? item.availableQuantity ?? item.quantity,
+    0
+);
 
 const parseMedia = (media) => {
     try {
@@ -52,7 +56,7 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
     const weightKg = Number(variant?.weight_kg || product.weight_kg || 0);
     const trackQuantity = variant ? toBool(variant.track_quantity) : toBool(product.track_quantity);
     const trackLowStock = variant ? toBool(variant.track_low_stock) : toBool(product.track_low_stock);
-    const availableQuantity = variant ? toNumber(variant.quantity, 0) : toNumber(product.quantity, 0);
+    const availableQuantity = variant ? getAvailableQuantity(variant) : getAvailableQuantity(product);
     const lowStockThreshold = variant ? toNumber(variant.low_stock_threshold, 0) : toNumber(product.low_stock_threshold, 0);
     const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
     const isLowStock = Boolean(trackQuantity && trackLowStock && availableQuantity > 0 && availableQuantity <= lowStockThreshold);
@@ -318,7 +322,7 @@ export const CartProvider = ({ children }) => {
             const compareAt = toNumber(variant?.price || product?.mrp || item.compareAt, 0);
             const trackQuantity = variant ? toBool(variant.track_quantity) : toBool(product?.track_quantity);
             const trackLowStock = variant ? toBool(variant.track_low_stock) : toBool(product?.track_low_stock);
-            const availableQuantity = variant ? toNumber(variant.quantity, 0) : toNumber(product?.quantity, 0);
+            const availableQuantity = variant ? getAvailableQuantity(variant) : getAvailableQuantity(product);
             const lowStockThreshold = variant ? toNumber(variant.low_stock_threshold, 0) : toNumber(product?.low_stock_threshold, 0);
             const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
             const isLowStock = Boolean(trackQuantity && trackLowStock && availableQuantity > 0 && availableQuantity <= lowStockThreshold);

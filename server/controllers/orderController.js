@@ -1977,7 +1977,11 @@ const updateOrderStatus = async (req, res) => {
                 refundStatus: resolvedRefundStatus,
                 refundCouponCode: resolvedRefundCouponCode || null
             } : null,
-            actorUserId: req.user?.id || null
+            actorUserId: req.user?.id || null,
+            restoreInventory: (
+                String(existingOrder?.status || '').toLowerCase() !== 'cancelled'
+                && String(nextStatus || '').toLowerCase() === 'cancelled'
+            )
         });
         const order = await Order.getById(req.params.id);
         const io = req.app.get('io');

@@ -5,7 +5,7 @@ import { X, Check } from 'lucide-react';
 const isVariantInStock = (variant) => {
     const tracked = String(variant.track_quantity) === '1' || String(variant.track_quantity) === 'true' || variant.track_quantity === true;
     if (!tracked) return true;
-    return Number(variant.quantity || 0) > 0;
+    return Number((variant.available_quantity ?? variant.quantity) || 0) > 0;
 };
 
 export default function QuickAddModal({ product, onClose, onConfirm }) {

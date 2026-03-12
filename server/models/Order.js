@@ -2709,7 +2709,8 @@ class Order {
             manualRefundUtr = null,
             refundCouponCode = null,
             refundNotes = null,
-            actorUserId = null
+            actorUserId = null,
+            restoreInventory = false
         } = options || {};
         const normalizedCourier = String(courierPartner || '').trim();
         const normalizedAwb = String(awbNumber || '').trim();
@@ -2723,55 +2724,107 @@ class Order {
         const normalizedRefundReference = String(refundReference || '').trim();
         const setShippedAt = status === 'shipped';
         const setCompletedAt = status === 'completed';
+        const connection = await db.getConnection();
+        try {
+            await connection.beginTransaction();
 
-        await db.execute(
-            `UPDATE orders
-             SET status = ?,
-                 payment_status = COALESCE(?, payment_status),
-                 refund_reference = COALESCE(?, refund_reference),
-                 refund_amount = COALESCE(?, refund_amount),
-                 refund_status = COALESCE(?, refund_status),
-                 courier_partner = COALESCE(?, courier_partner),
-                 awb_number = COALESCE(?, awb_number),
-                 refund_mode = COALESCE(?, refund_mode),
-                 refund_method = COALESCE(?, refund_method),
-                 manual_refund_ref = COALESCE(?, manual_refund_ref),
-                 manual_refund_utr = COALESCE(?, manual_refund_utr),
-                 refund_coupon_code = COALESCE(?, refund_coupon_code),
-                 refund_notes = COALESCE(?, refund_notes),
-                 shipped_at = CASE
-                    WHEN ? THEN COALESCE(shipped_at, NOW())
-                    ELSE shipped_at
-                 END,
-                 completed_at = CASE
-                    WHEN ? THEN COALESCE(completed_at, NOW())
-                    ELSE completed_at
-                 END
-             WHERE id = ?`,
-            [
-                status,
-                paymentStatusValue,
-                normalizedRefundReference || null,
-                refundAmount != null ? Number(refundAmount) : null,
-                String(refundStatus || '').trim() || null,
-                normalizedCourier || null,
-                normalizedAwb || null,
-                normalizedRefundMode || null,
-                normalizedRefundMethod || null,
-                normalizedManualRefundRef || null,
-                normalizedManualRefundUtr || null,
-                normalizedRefundCouponCode || null,
-                refundNotes ? JSON.stringify(refundNotes) : null,
-                setShippedAt ? 1 : 0,
-                setCompletedAt ? 1 : 0,
-                orderId
-            ]
-        );
-        await db.execute(
-            'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
-            [orderId, status, actorUserId || null]
-        );
-        return true;
+            const [orderRows] = await connection.execute(
+                'SELECT id, inventory_restored_at FROM orders WHERE id = ? FOR UPDATE',
+                [orderId]
+            );
+            if (!orderRows.length) {
+                throw new Error('Order not found');
+            }
+            const lockedOrder = orderRows[0];
+
+            await connection.execute(
+                `UPDATE orders
+                 SET status = ?,
+                     payment_status = COALESCE(?, payment_status),
+                     refund_reference = COALESCE(?, refund_reference),
+                     refund_amount = COALESCE(?, refund_amount),
+                     refund_status = COALESCE(?, refund_status),
+                     courier_partner = COALESCE(?, courier_partner),
+                     awb_number = COALESCE(?, awb_number),
+                     refund_mode = COALESCE(?, refund_mode),
+                     refund_method = COALESCE(?, refund_method),
+                     manual_refund_ref = COALESCE(?, manual_refund_ref),
+                     manual_refund_utr = COALESCE(?, manual_refund_utr),
+                     refund_coupon_code = COALESCE(?, refund_coupon_code),
+                     refund_notes = COALESCE(?, refund_notes),
+                     shipped_at = CASE
+                        WHEN ? THEN COALESCE(shipped_at, NOW())
+                        ELSE shipped_at
+                     END,
+                     completed_at = CASE
+                        WHEN ? THEN COALESCE(completed_at, NOW())
+                        ELSE completed_at
+                     END
+                 WHERE id = ?`,
+                [
+                    status,
+                    paymentStatusValue,
+                    normalizedRefundReference || null,
+                    refundAmount != null ? Number(refundAmount) : null,
+                    String(refundStatus || '').trim() || null,
+                    normalizedCourier || null,
+                    normalizedAwb || null,
+                    normalizedRefundMode || null,
+                    normalizedRefundMethod || null,
+                    normalizedManualRefundRef || null,
+                    normalizedManualRefundUtr || null,
+                    normalizedRefundCouponCode || null,
+                    refundNotes ? JSON.stringify(refundNotes) : null,
+                    setShippedAt ? 1 : 0,
+                    setCompletedAt ? 1 : 0,
+                    orderId
+                ]
+            );
+
+            if (restoreInventory && !lockedOrder.inventory_restored_at) {
+                const [items] = await connection.execute(
+                    'SELECT product_id, variant_id, quantity FROM order_items WHERE order_id = ? ORDER BY id ASC',
+                    [orderId]
+                );
+                const affectedProductIds = new Set();
+                for (const item of items || []) {
+                    const productId = Number(item?.product_id || 0);
+                    const variantId = Number(item?.variant_id || 0);
+                    const quantity = Math.max(0, Number(item?.quantity || 0));
+                    if (!Number.isFinite(productId) || productId <= 0 || quantity <= 0) continue;
+                    affectedProductIds.add(String(productId));
+                    if (variantId > 0) {
+                        await connection.execute('SELECT id FROM product_variants WHERE id = ? FOR UPDATE', [variantId]);
+                        await connection.execute(
+                            'UPDATE product_variants SET quantity = quantity + ? WHERE id = ?',
+                            [quantity, variantId]
+                        );
+                    } else {
+                        await connection.execute('SELECT id FROM products WHERE id = ? FOR UPDATE', [productId]);
+                        await connection.execute(
+                            'UPDATE products SET quantity = quantity + ? WHERE id = ?',
+                            [quantity, productId]
+                        );
+                    }
+                }
+                await connection.execute(
+                    'UPDATE orders SET inventory_restored_at = NOW() WHERE id = ? AND inventory_restored_at IS NULL',
+                    [orderId]
+                );
+            }
+
+            await connection.execute(
+                'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
+                [orderId, status, actorUserId || null]
+            );
+            await connection.commit();
+            return true;
+        } catch (error) {
+            try { await connection.rollback(); } catch {}
+            throw error;
+        } finally {
+            connection.release();
+        }
     }
 
     static async markDeliveryConfirmationReminderSent(orderId) {

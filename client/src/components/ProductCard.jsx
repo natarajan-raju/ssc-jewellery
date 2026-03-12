@@ -100,18 +100,19 @@ export default function ProductCard({ product, displayCategory = '' }) {
     }, [product.variants, productCartItems]);
     const canAdjustInlineQty = Boolean(inlineCartItem);
     const isInactive = String(product?.status || '').toLowerCase() !== 'active';
+    const getAvailableQuantity = (item = {}) => Number((item?.available_quantity ?? item?.quantity) || 0);
     const isOutOfStock = useMemo(() => {
         const variants = Array.isArray(product?.variants) ? product.variants : [];
         if (variants.length > 0) {
             return variants.every((variant) => {
                 const tracked = String(variant?.track_quantity) === '1' || String(variant?.track_quantity) === 'true' || variant?.track_quantity === true;
                 if (!tracked) return false;
-                return Number(variant?.quantity || 0) <= 0;
+                return getAvailableQuantity(variant) <= 0;
             });
         }
         const tracked = String(product?.track_quantity) === '1' || String(product?.track_quantity) === 'true' || product?.track_quantity === true;
         if (!tracked) return false;
-        return Number(product?.quantity || 0) <= 0;
+        return getAvailableQuantity(product) <= 0;
     }, [product]);
     const isUnavailable = isInactive || isOutOfStock;
     const lowStockCopy = useMemo(() => {
@@ -120,7 +121,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
             const hasUrgencyVariant = variants.some((variant) => {
                 const tracked = String(variant?.track_quantity) === '1' || String(variant?.track_quantity) === 'true' || variant?.track_quantity === true;
                 const trackLowStock = String(variant?.track_low_stock) === '1' || String(variant?.track_low_stock) === 'true' || variant?.track_low_stock === true;
-                const qty = Number(variant?.quantity || 0);
+                const qty = getAvailableQuantity(variant);
                 const threshold = Number(variant?.low_stock_threshold || 0);
                 return tracked && trackLowStock && qty > 0 && qty <= threshold;
             });
@@ -130,7 +131,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
         const source = variants[0] || product;
         const tracked = String(source?.track_quantity) === '1' || String(source?.track_quantity) === 'true' || source?.track_quantity === true;
         const trackLowStock = String(source?.track_low_stock) === '1' || String(source?.track_low_stock) === 'true' || source?.track_low_stock === true;
-        const qty = Number(source?.quantity || 0);
+        const qty = getAvailableQuantity(source);
         const threshold = Number(source?.low_stock_threshold || 0);
         if (tracked && trackLowStock && qty > 0 && qty <= threshold) {
             return `Only ${qty} left`;

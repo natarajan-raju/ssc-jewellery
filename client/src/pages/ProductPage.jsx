@@ -20,10 +20,11 @@ const toNumber = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
 };
+const getAvailableQuantity = (item = {}) => toNumber(item.available_quantity ?? item.quantity, 0);
 const effectivePrice = (item = {}) => toNumber(item.discount_price || item.price || item.mrp || 0, 0);
 const isVariantOutOfStock = (variant = {}, parent = {}) => {
     const tracked = variant.track_quantity ?? parent.track_quantity;
-    const qty = variant.quantity ?? 0;
+    const qty = getAvailableQuantity(variant);
     return Boolean(toBool(tracked) && toNumber(qty, 0) <= 0);
 };
 const isProductOutOfStock = (product = {}, activeVariantId = null) => {
@@ -34,7 +35,7 @@ const isProductOutOfStock = (product = {}, activeVariantId = null) => {
         if (selected) return isVariantOutOfStock(selected, product);
         return variants.every((v) => isVariantOutOfStock(v, product));
     }
-    return Boolean(toBool(product.track_quantity) && toNumber(product.quantity, 0) <= 0);
+    return Boolean(toBool(product.track_quantity) && getAvailableQuantity(product) <= 0);
 };
 const parseYoutubeInfo = (input = '') => {
     const raw = String(input || '').trim();
@@ -397,7 +398,7 @@ export default function ProductPage() {
                 const validProducts = related.products.filter(p => {
                     const isCurrent = String(p.id) === String(data.id);
                     const isActive = p.status === 'active';
-                    const isStocked = !p.track_quantity || p.quantity > 0;
+                    const isStocked = !p.track_quantity || getAvailableQuantity(p) > 0;
                     return !isCurrent && isActive && isStocked;
                 });
 
@@ -573,8 +574,8 @@ export default function ProductPage() {
                             shouldCheckPrice = true;
                             oldOutOfStock = isVariantOutOfStock(oldVar, oldData);
                             newOutOfStock = isVariantOutOfStock(newVar, updatedProduct);
-                            oldQty = toNumber(oldVar.quantity, 0);
-                            newQty = toNumber(newVar.quantity, 0);
+                            oldQty = getAvailableQuantity(oldVar);
+                            newQty = getAvailableQuantity(newVar);
                         }
                     }
                 } 
@@ -584,8 +585,8 @@ export default function ProductPage() {
                     shouldCheckPrice = true;
                     oldOutOfStock = isProductOutOfStock(oldData, null);
                     newOutOfStock = isProductOutOfStock(updatedProduct, null);
-                    oldQty = toNumber(oldData.quantity, 0);
-                    newQty = toNumber(updatedProduct.quantity, 0);
+                    oldQty = getAvailableQuantity(oldData);
+                    newQty = getAvailableQuantity(updatedProduct);
                 }
                 oldStatus = String(oldData?.status || 'active').toLowerCase();
 
@@ -630,7 +631,7 @@ export default function ProductPage() {
                 const hasVariants = Array.isArray(updatedProduct.variants) && updatedProduct.variants.length > 0;
                 const isOOS = hasVariants
                     ? updatedProduct.variants.every((variant) => isVariantOutOfStock(variant, updatedProduct))
-                    : (toBool(updatedProduct.track_quantity) && toNumber(updatedProduct.quantity, 0) <= 0);
+                    : (toBool(updatedProduct.track_quantity) && getAvailableQuantity(updatedProduct) <= 0);
 
                 if (isInactive || isOOS) {
                     console.log("🚫 Related product became invalid (OOS/Inactive). Refreshing list...");
@@ -827,7 +828,7 @@ export default function ProductPage() {
 
     // 2. Stock & SKU
     const currentSKU = isVariant ? activeVariant.sku : product.sku;
-    const currentQty = isVariant ? activeVariant.quantity : product.quantity;
+    const currentQty = isVariant ? getAvailableQuantity(activeVariant) : getAvailableQuantity(product);
     
     // 3. Stock Status Logic
     // Use variant's tracking setting if available, otherwise default to product's setting

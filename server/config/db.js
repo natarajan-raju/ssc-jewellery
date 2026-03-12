@@ -250,6 +250,7 @@ const initDB = async () => {
                 company_snapshot JSON,
                 settlement_id VARCHAR(64),
                 settlement_snapshot JSON,
+                inventory_restored_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -338,6 +339,9 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN settlement_snapshot JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN inventory_restored_at DATETIME NULL');
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0');

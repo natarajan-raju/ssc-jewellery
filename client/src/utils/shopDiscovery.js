@@ -11,12 +11,12 @@ export const isDiscoveryItemInStock = (product = {}) => {
                 || String(variant?.track_quantity) === 'true'
                 || variant?.track_quantity === true;
             if (!tracked) return true;
-            return Number(variant?.quantity || 0) > 0;
+            return Number((variant?.available_quantity ?? variant?.quantity) || 0) > 0;
         });
     }
     const tracked = String(product?.track_quantity) === '1'
         || String(product?.track_quantity) === 'true'
         || product?.track_quantity === true;
     if (!tracked) return true;
-    return Number(product?.quantity || 0) > 0;
+    return Number((product?.available_quantity ?? product?.quantity) || 0) > 0;
 };

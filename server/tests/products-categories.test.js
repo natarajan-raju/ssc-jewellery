@@ -52,8 +52,10 @@ test('public product API returns storefront-safe payload only', async () => {
     assert.equal(res.body.tax_config_id, undefined);
     assert.equal(res.body.track_low_stock, 1);
     assert.equal(res.body.low_stock_threshold, 3);
+    assert.equal(res.body.available_quantity, 12);
     assert.equal(res.body.variants[0].track_low_stock, 1);
     assert.equal(res.body.variants[0].low_stock_threshold, 3);
+    assert.equal(res.body.variants[0].available_quantity, 12);
     assert.equal(res.body.variants[0].quantity, 1);
 });
 

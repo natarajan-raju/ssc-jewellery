@@ -746,12 +746,21 @@ const getDashboardInsightsPayload = async (query = {}) => {
     if (topSellerIds.length) {
         const placeholders = topSellerIds.map(() => '?').join(',');
         const [lowStockMatches] = await db.execute(
-            `SELECT id
-             FROM products
-             WHERE id IN (${placeholders})
-               AND COALESCE(track_quantity, 0) = 1
-               AND COALESCE(quantity, 0) <= ?`,
-            [...topSellerIds, scope.lowStockThreshold]
+            `SELECT DISTINCT p.id
+             FROM products p
+             WHERE p.id IN (${placeholders})
+               AND (
+                    (COALESCE(p.track_quantity, 0) = 1 AND COALESCE(p.quantity, 0) <= ?)
+                    OR
+                    EXISTS (
+                        SELECT 1
+                        FROM product_variants pv_match
+                        WHERE pv_match.product_id = p.id
+                          AND COALESCE(pv_match.track_quantity, 0) = 1
+                          AND COALESCE(pv_match.quantity, 0) <= ?
+                    )
+               )`,
+            [...topSellerIds, scope.lowStockThreshold, scope.lowStockThreshold]
         );
         (lowStockMatches || []).forEach((row) => lowStockTopSellerIds.add(String(row.id)));
     }
