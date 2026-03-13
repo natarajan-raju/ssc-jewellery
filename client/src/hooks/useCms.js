@@ -1,6 +1,7 @@
 import { useAuth } from '../context/AuthContext';
 import { useCallback } from 'react';
 import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
+import { fetchWithRetry } from '../utils/fetchRetry';
 
 const API_URL = import.meta.env.PROD 
   ? '/api/cms' 
@@ -8,6 +9,7 @@ const API_URL = import.meta.env.PROD
 
 export const useCms = () => {
     useAuth();
+    const getWithRetry = useCallback((url, options = {}) => fetchWithRetry(url, options), []);
 
     // Helper to handle Fetch with Auth
     const authFetch = useCallback(async (endpoint, options = {}) => {
@@ -37,18 +39,18 @@ export const useCms = () => {
         // Public requests don't need the authFetch wrapper if strict, 
         // but using it is fine as public endpoints ignore the header.
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/hero?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/hero?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
 
     // 1.0 Get Hero Texts
     const getHeroTexts = useCallback(async (isAdmin = false) => {
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/hero-texts?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/hero-texts?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
@@ -58,11 +60,11 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
     // 1.1 Get Home Banner (Public or Admin)
     const getBanner = useCallback(async (isAdmin = false) => {
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/banner?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/banner?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
@@ -72,11 +74,11 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
 
     const getSecondaryBanner = useCallback(async (isAdmin = false) => {
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/banner-secondary?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/banner-secondary?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
@@ -86,11 +88,11 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
 
     const getFeaturedCategory = useCallback(async (isAdmin = false) => {
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/featured-category?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/featured-category?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
@@ -100,11 +102,11 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
 
     const getCarouselCards = useCallback(async (isAdmin = false) => {
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/carousel-cards?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/carousel-cards?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
@@ -114,11 +116,11 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
 
     const getTertiaryBanner = useCallback(async (isAdmin = false) => {
         const headers = isAdmin ? getAuthHeaders({ includeJsonContentType: false }) : {};
-        const res = await fetch(`${API_URL}/banner-tertiary?admin=${isAdmin}`, { headers });
+        const res = await getWithRetry(`${API_URL}/banner-tertiary?admin=${isAdmin}`, { headers });
         if (res.status === 401 && isAdmin) {
             dispatchSessionExpired("Session expired");
             throw new Error("Session expired");
@@ -128,7 +130,7 @@ export const useCms = () => {
             throw new Error(error.message || 'API Error');
         }
         return res.json();
-    }, []);
+    }, [getWithRetry]);
 
     const getAutopilotConfig = useCallback(async () => {
         return authFetch('/autopilot');

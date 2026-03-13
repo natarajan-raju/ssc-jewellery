@@ -1,10 +1,12 @@
 import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
+import { fetchWithRetry } from '../utils/fetchRetry';
 
 const API_URL = import.meta.env.PROD
   ? '/api'
   : 'http://localhost:5000/api';
 
 const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
+const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
 
 const handleResponse = async (res) => {
   const parseJsonSafely = async () => {
@@ -24,11 +26,11 @@ const handleResponse = async (res) => {
 
 export const shippingService = {
   getZones: async () => {
-    const res = await fetch(`${API_URL}/shipping/zones`);
+    const res = await getWithRetry(`${API_URL}/shipping/zones`);
     return handleResponse(res);
   },
   getAdminZones: async () => {
-    const res = await fetch(`${API_URL}/admin/shipping/zones`, { headers: getAuthHeader() });
+    const res = await getWithRetry(`${API_URL}/admin/shipping/zones`, { headers: getAuthHeader() });
     return handleResponse(res);
   },
   createZone: async (payload) => {

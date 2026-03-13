@@ -1,4 +1,5 @@
 import { dispatchSessionExpired, getAuthHeaders, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
+import { fetchWithRetry } from '../utils/fetchRetry';
 
 const API_URL = import.meta.env.PROD 
   ? '/api/admin' 
@@ -9,6 +10,7 @@ const UPLOAD_API_URL = import.meta.env.PROD
 
 // 1. Get Token Securely
 const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
+const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
 
 // --- SIMPLE IN-MEMORY CACHE ---
 let userCache = {};
@@ -52,7 +54,7 @@ export const adminService = {
 
         // 3. Fetch from Network
         const query = `?page=${page}&limit=${limit}&role=${encodeURIComponent(role)}&search=${encodeURIComponent(String(search || '').trim())}`;
-        const res = await fetch(`${API_URL}/users${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/users${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
 
         // 4. Save to Cache
@@ -100,7 +102,7 @@ export const adminService = {
     },
 
     getUserCart: async (userId) => {
-        const res = await fetch(`${API_URL}/users/${userId}/cart`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/users/${userId}/cart`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     addUserCartItem: async (userId, payload = {}) => {
@@ -143,11 +145,11 @@ export const adminService = {
         return handleResponse(res);
     },
     getUserAvailableCoupons: async (userId) => {
-        const res = await fetch(`${API_URL}/users/${userId}/coupons/available`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/users/${userId}/coupons/available`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     getUserActiveCoupons: async (userId) => {
-        const res = await fetch(`${API_URL}/users/${userId}/coupons/active`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/users/${userId}/coupons/active`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     issueCouponToUser: async (userId, payload = {}) => {
@@ -186,7 +188,7 @@ export const adminService = {
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await fetch(`${API_URL}/communications/abandoned-carts/campaign`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/campaign`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         abandonedCache.campaign = { ts: Date.now(), data };
         return data;
@@ -225,7 +227,7 @@ export const adminService = {
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await fetch(`${API_URL}/communications/abandoned-carts/insights?rangeDays=${encodeURIComponent(safeRangeDays)}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/insights?rangeDays=${encodeURIComponent(safeRangeDays)}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         abandonedCache.insights[cacheKey] = { ts: Date.now(), data };
         return data;
@@ -238,7 +240,7 @@ export const adminService = {
             return cached.data;
         }
         const query = `?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&sortBy=${encodeURIComponent(sortBy)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
-        const res = await fetch(`${API_URL}/communications/abandoned-carts/journeys${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/journeys${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         abandonedCache.journeys[cacheKey] = { ts: Date.now(), data };
         return data;
@@ -250,13 +252,13 @@ export const adminService = {
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await fetch(`${API_URL}/communications/abandoned-carts/journeys/${journeyId}/timeline`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/journeys/${journeyId}/timeline`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         abandonedCache.timelines[cacheKey] = { ts: Date.now(), data };
         return data;
     },
     getCompanyInfo: async () => {
-        const res = await fetch(`${API_URL}/company-info`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/company-info`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     updateCompanyInfo: async (payload = {}) => {
@@ -277,11 +279,11 @@ export const adminService = {
     },
     getCommunicationDeliveryLogs: async ({ status = 'all', limit = 30 } = {}) => {
         const query = `?status=${encodeURIComponent(status)}&limit=${encodeURIComponent(limit)}`;
-        const res = await fetch(`${API_URL}/communications/delivery-logs${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/communications/delivery-logs${query}`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     getTaxConfigs: async () => {
-        const res = await fetch(`${API_URL}/taxes`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/taxes`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     createTaxConfig: async (payload = {}) => {
@@ -308,7 +310,7 @@ export const adminService = {
         return handleResponse(res);
     },
     getLoyaltyConfig: async () => {
-        const res = await fetch(`${API_URL}/loyalty/config`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/loyalty/config`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     updateLoyaltyConfig: async (config = []) => {
@@ -320,7 +322,7 @@ export const adminService = {
         return handleResponse(res);
     },
     getLoyaltyPopupConfig: async () => {
-        const res = await fetch(`${API_URL}/loyalty/popup`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/loyalty/popup`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     updateLoyaltyPopupConfig: async (payload = {}) => {
@@ -332,7 +334,7 @@ export const adminService = {
         return handleResponse(res);
     },
     listLoyaltyPopupTemplates: async () => {
-        const res = await fetch(`${API_URL}/loyalty/popup/templates`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/loyalty/popup/templates`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     createLoyaltyPopupTemplate: async (payload = {}) => {
@@ -409,7 +411,7 @@ export const adminService = {
             return cached.data;
         }
         const query = `?page=${encodeURIComponent(page)}&limit=${encodeURIComponent(limit)}&search=${encodeURIComponent(search)}&sourceType=${encodeURIComponent(sourceType)}`;
-        const res = await fetch(`${API_URL}/loyalty/coupons${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/loyalty/coupons${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         loyaltyCouponCache[cacheKey] = { ts: Date.now(), data };
         return data;
@@ -453,7 +455,7 @@ export const adminService = {
             return cached.data;
         }
         const query = `?quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&comparisonMode=${encodeURIComponent(comparisonMode)}&status=${encodeURIComponent(status)}&paymentMode=${encodeURIComponent(paymentMode)}&sourceChannel=${encodeURIComponent(sourceChannel)}&force=${forceRefresh ? '1' : '0'}`;
-        const res = await fetch(`${API_URL}/dashboard/insights${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/dashboard/insights${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         dashboardCache[cacheKey] = { ts: Date.now(), data };
         return data;
@@ -491,7 +493,7 @@ export const adminService = {
         lastUpdatedAt: data?.lastUpdatedAt || null
     })),
     getDashboardGoals: async () => {
-        const res = await fetch(`${API_URL}/dashboard/goals`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/dashboard/goals`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     saveDashboardGoal: async (goal = {}) => {
@@ -513,7 +515,7 @@ export const adminService = {
         return handleResponse(res);
     },
     getDashboardAlertSettings: async () => {
-        const res = await fetch(`${API_URL}/dashboard/alerts`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/dashboard/alerts`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     updateDashboardAlertSettings: async (settings = {}) => {

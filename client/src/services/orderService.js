@@ -1,10 +1,12 @@
 import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
+import { fetchWithRetry } from '../utils/fetchRetry';
 
 const API_URL = import.meta.env.PROD
   ? '/api/orders'
   : 'http://localhost:5000/api/orders';
 
 const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
+const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
 
 const handleResponse = async (res) => {
     const parseJsonSafely = async () => {
@@ -499,7 +501,7 @@ export const orderService = {
             return cached.data;
         }
         const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(quickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
-        const res = await fetch(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         data.orders = sortAdminOrders(Array.isArray(data?.orders) ? data.orders : [], {
             page,
@@ -520,7 +522,7 @@ export const orderService = {
         return data;
     },
     getAdminPaymentHealth: async () => {
-        const res = await fetch(`${API_URL}/admin/payment/health`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/admin/payment/health`, { headers: getAuthHeader() });
         return handleResponse(res);
     },
     getAdminOrder: async (id) => {
@@ -529,7 +531,7 @@ export const orderService = {
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {
             return cached.data;
         }
-        const res = await fetch(`${API_URL}/admin/${id}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(`${API_URL}/admin/${id}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         adminOrderDetailCache[key] = { ts: Date.now(), data };
         return data;
@@ -639,7 +641,7 @@ export const orderService = {
     getAdminOverdueShippedSummary: async ({ days = 30, limit = 5 } = {}) => {
         const safeDays = Math.max(1, Number(days) || 30);
         const safeLimit = Math.max(1, Math.min(10, Number(limit) || 5));
-        const res = await fetch(`${API_URL}/admin/shipped/overdue-summary?days=${encodeURIComponent(safeDays)}&limit=${encodeURIComponent(safeLimit)}`, {
+        const res = await getWithRetry(`${API_URL}/admin/shipped/overdue-summary?days=${encodeURIComponent(safeDays)}&limit=${encodeURIComponent(safeLimit)}`, {
             headers: getAuthHeader()
         });
         return handleResponse(res);

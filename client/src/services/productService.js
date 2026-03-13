@@ -1,4 +1,5 @@
 import { dispatchSessionExpired, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
+import { fetchWithRetry } from '../utils/fetchRetry';
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 const SEARCH_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
@@ -6,6 +7,7 @@ const CATEGORY_STATS_CACHE_KEY = 'category_stats_cache_v1';
 const API_URL = import.meta.env.PROD 
   ? '/api/products' 
   : 'http://localhost:5000/api/products';
+const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
 
 // --- CACHE STORAGE ---
 let productCache = {};
@@ -131,7 +133,7 @@ export const productService = {
         });
         if (forceRefresh) params.set('force', '1');
         if (categoryId) params.set('categoryId', String(categoryId));
-        const res = await fetch(`${API_URL}?${params.toString()}`, {
+        const res = await getWithRetry(`${API_URL}?${params.toString()}`, {
             headers: { 
                 ...getAuthHeader(),
                 'Content-Type': 'application/json' 
@@ -185,7 +187,7 @@ export const productService = {
         if (minPrice !== '' && minPrice != null) params.set('minPrice', String(minPrice));
         if (maxPrice !== '' && maxPrice != null) params.set('maxPrice', String(maxPrice));
 
-        const res = await fetch(`${API_URL}/search?${params.toString()}`, {
+        const res = await getWithRetry(`${API_URL}/search?${params.toString()}`, {
             headers: {
                 ...getAuthHeader(),
                 'Content-Type': 'application/json'
@@ -312,7 +314,7 @@ export const productService = {
             if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
                 return cached.data;
             }
-            const res = await fetch(`${API_URL}/${id}`, {
+            const res = await getWithRetry(`${API_URL}/${id}`, {
                 headers: getAuthHeader()
             });
             const data = await handleResponse(res);
@@ -340,7 +342,7 @@ export const productService = {
         }
 
         // 2. Fetch if missing
-        const res = await fetch(`${API_URL}/categories`);
+        const res = await getWithRetry(`${API_URL}/categories`);
         const data = await handleResponse(res);
 
         // 3. Store in Cache
@@ -409,7 +411,7 @@ export const productService = {
             // Ignore corrupt or unavailable local storage cache.
         }
 
-        const res = await fetch(`${API_URL}/categories/stats`);
+        const res = await getWithRetry(`${API_URL}/categories/stats`);
         const data = await handleResponse(res);
         const payload = { data, timestamp: Date.now() };
         productCache['category_stats'] = payload;
@@ -431,7 +433,7 @@ export const productService = {
     },
 
     getCategoryDetails: async (id) => {
-        const res = await fetch(`${API_URL}/categories/${id}`, {
+        const res = await getWithRetry(`${API_URL}/categories/${id}`, {
             headers: getAuthHeader()
         });
         return handleResponse(res);

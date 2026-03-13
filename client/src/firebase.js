@@ -5,7 +5,7 @@ import { getAnalytics } from "firebase/analytics";
 
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAV4JSY_ArHlddGqS-4H7UMzTeYF1wRM4s",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: "ssc-impon-jewellery.firebaseapp.com",
   projectId: "ssc-impon-jewellery",
   storageBucket: "ssc-impon-jewellery.firebasestorage.app",
