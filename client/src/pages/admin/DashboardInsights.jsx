@@ -8,6 +8,7 @@ import successIllustration from '../../assets/success.svg';
 import successDingAudio from '../../assets/success_ding.mp3';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { burstConfetti } from '../../utils/celebration';
+import EmptyState from '../../components/EmptyState';
 
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
@@ -828,7 +829,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         </div>
                                     );
                                 })}
-                                {!trendVisibleSeries.length && <p className="text-sm text-gray-500">No trend data available.</p>}
+                                {!trendVisibleSeries.length && (
+                                    <EmptyState
+                                        image={dashboardIllustration}
+                                        alt="No trend data available"
+                                        title="No trend data available"
+                                        description="Trend charts will appear once sales data is available for the selected period."
+                                        compact
+                                    />
+                                )}
                                 {trendGranularity === 'daily' && trendDailyPages.length > 1 && (
                                     <div className="pt-2 flex items-center justify-between">
                                         <button
@@ -929,7 +938,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <p className="text-sm font-semibold text-gray-900">{formatCurrency(item.revenue)}</p>
                                     </button>
                                 ))}
-                                {!(products.topSellers || []).length && <p className="text-sm text-gray-500">No product sales in this period.</p>}
+                                {!(products.topSellers || []).length && (
+                                    <EmptyState
+                                        image={dashboardIllustration}
+                                        alt="No product sales in this period"
+                                        title="No product sales in this period"
+                                        description="Top products will appear here once orders are recorded in the selected range."
+                                        compact
+                                    />
+                                )}
                             </div>
                             <Boxes size={58} className="absolute right-3 bottom-3 text-gray-300 opacity-15" />
                         </div>
@@ -956,7 +973,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <p className="text-sm font-semibold text-gray-900">{formatCurrency(item.revenue)}</p>
                                     </button>
                                 ))}
-                                {!(customers.topCustomers || []).length && <p className="text-sm text-gray-500">No customer activity in this period.</p>}
+                                {!(customers.topCustomers || []).length && (
+                                    <EmptyState
+                                        image={dashboardIllustration}
+                                        alt="No customer activity in this period"
+                                        title="No customer activity in this period"
+                                        description="Top customer activity will appear here once orders are recorded in the selected range."
+                                        compact
+                                    />
+                                )}
                             </div>
                             <UsersRound size={58} className="absolute right-3 bottom-3 text-gray-300 opacity-15" />
                         </div>
@@ -986,7 +1011,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <p className="text-sm font-semibold text-gray-900">{formatCurrency(item.revenue)}</p>
                                     </button>
                                 ))}
-                                {!(growth.channelRevenue || []).length && <p className="text-sm text-gray-500">No channel data in this period.</p>}
+                                {!(growth.channelRevenue || []).length && (
+                                    <EmptyState
+                                        image={dashboardIllustration}
+                                        alt="No channel data in this period"
+                                        title="No channel data in this period"
+                                        description="Revenue by channel will appear here once matching orders are available."
+                                        compact
+                                    />
+                                )}
                             </div>
                             <Route size={58} className="absolute right-3 bottom-3 text-gray-300 opacity-15" />
                         </div>
@@ -1030,7 +1063,13 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         );
                                     })}
                                     {!paymentModeBreakdown.length && (
-                                        <p className="text-gray-500">No UPI/EMI/Net Banking mode data available yet.</p>
+                                        <EmptyState
+                                            image={dashboardIllustration}
+                                            alt="No payment mode data available"
+                                            title="No payment mode data available yet"
+                                            description="Payment mode usage will appear here once matching transactions are recorded."
+                                            compact
+                                        />
                                     )}
                                 </div>
                             </div>
@@ -1057,7 +1096,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     <p className="text-xs text-gray-500 mt-1">{Number(goal.currentValue || 0).toLocaleString('en-IN')} / {Number(goal.targetValue || 0).toLocaleString('en-IN')}</p>
                                 </div>
                             ))}
-                            {!trackerGoals.length && !isGoalsLoading && <p className="text-sm text-gray-500">No active goals. Completed goals are hidden from tracker.</p>}
+                            {!trackerGoals.length && !isGoalsLoading && (
+                                <EmptyState
+                                    image={dashboardIllustration}
+                                    alt="No active goals"
+                                    title="No active goals"
+                                    description="Completed goals are hidden from the tracker. Add or reopen a goal to monitor progress here."
+                                    compact
+                                />
+                            )}
                         </div>
                         <Target size={58} className="absolute right-3 bottom-3 text-gray-300 opacity-15" />
                     </div>
@@ -1099,7 +1146,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     </div>
                                 </div>
                             ))}
-                            {!visibleActions.length && <p className="text-sm text-gray-500">No high-priority actions right now.</p>}
+                            {!visibleActions.length && (
+                                <EmptyState
+                                    image={successIllustration}
+                                    alt="No high-priority actions right now"
+                                    title="No high-priority actions right now"
+                                    description="The action center is clear for the selected period."
+                                    compact
+                                />
+                            )}
                         </div>
                         <AlertTriangle size={58} className="absolute right-3 bottom-3 text-gray-300 opacity-15" />
                     </div>
@@ -1170,7 +1225,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             <p className="text-[11px] text-gray-400 mt-1">Started on {formatPrettyDate(goal.periodStart)}</p>
                                         </div>
                                     ))}
-                                    {!goals.length && !isGoalsLoading && <p className="text-sm text-gray-500">No goals configured yet.</p>}
+                                    {!goals.length && !isGoalsLoading && (
+                                        <EmptyState
+                                            image={dashboardIllustration}
+                                            alt="No goals configured yet"
+                                            title="No goals configured yet"
+                                            description="Add a goal to start tracking revenue, orders, or operational milestones."
+                                            compact
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </div>,
@@ -1238,7 +1301,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                                 </div>
                                             </div>
                                         ))}
-                                        {!(operators.scorecards || []).length && <p className="text-sm text-gray-500">No operator activity in selected range.</p>}
+                                        {!(operators.scorecards || []).length && (
+                                            <EmptyState
+                                                image={dashboardIllustration}
+                                                alt="No operator activity in selected range"
+                                                title="No operator activity in selected range"
+                                                description="Operator scorecards will appear once relevant dashboard actions are recorded."
+                                                compact
+                                            />
+                                        )}
                                     </div>
                                 </div>
                             </div>

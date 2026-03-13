@@ -24,8 +24,10 @@ import logo from '../../assets/logo.webp';
 import logoLight from '../../assets/logo_light.webp';
 import { burstConfetti } from '../../utils/celebration';
 import { orderService } from '../../services/orderService';
+import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { getGstDisplayDetails } from '../../utils/gst';
+import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const ADMIN_MURUGAR_POPUP_DATE_KEY = 'admin_murugar_popup_date_v1';
@@ -77,6 +79,8 @@ export default function AdminDashboard() {
     const [activeShippingSummary, setActiveShippingSummary] = useState(null);
     const [shippingPopupQueue, setShippingPopupQueue] = useState([]);
     const [shippingCooldownUntilTs, setShippingCooldownUntilTs] = useState(0);
+    const [storefrontOpen, setStorefrontOpen] = useState(true);
+    const [isStorefrontSaving, setIsStorefrontSaving] = useState(false);
     const playedOrderSoundRef = useRef(false);
     const playedShippingSoundRef = useRef('');
     const shippingCooldownTimerRef = useRef(null);
@@ -84,19 +88,62 @@ export default function AdminDashboard() {
     const toast = useToast();
     const { logout, user } = useAuth();
     const { isDownloading, progress } = useProducts();
-    
-    
+
+    const loadStorefrontState = useCallback(async () => {
+        try {
+            const data = await adminService.getCompanyInfo();
+            setStorefrontOpen(data?.company?.storefrontOpen !== false);
+        } catch {
+            // Keep the last known state if the top-level toggle refresh fails.
+        }
+    }, []);
+
+    useEffect(() => {
+        loadStorefrontState();
+    }, [loadStorefrontState]);
+
+    useAdminCrudSync({
+        'company:info_update': ({ company } = {}) => {
+            if (company && typeof company === 'object' && Object.prototype.hasOwnProperty.call(company, 'storefrontOpen')) {
+                setStorefrontOpen(company.storefrontOpen !== false);
+                return;
+            }
+            loadStorefrontState().catch(() => {});
+        }
+    });
+
+    const handleStorefrontToggle = useCallback(async (nextOpen) => {
+        if (isStorefrontSaving) return;
+        setIsStorefrontSaving(true);
+        try {
+            const data = await adminService.updateCompanyInfo({ storefrontOpen: nextOpen });
+            setStorefrontOpen(data?.company?.storefrontOpen !== false);
+            toast.success(nextOpen ? 'Storefront reopened for new orders' : 'Storefront closed for new orders');
+        } catch (error) {
+            toast.error(error.message || 'Failed to update storefront status');
+        } finally {
+            setIsStorefrontSaving(false);
+        }
+    }, [isStorefrontSaving, toast]);
+
     const handleLogout = async () => {
         await logout(); // [FIX] Uses AuthContext to clear session & Firebase
         navigate('/admin/login');
     };
    
 
-    const NavItem = ({ icon: Icon, label, id }) => (
+    const NavItem = ({ icon: Icon, label, id, disabled = false }) => (
         <button 
-            onClick={() => setActiveTab(id)}
+            type="button"
+            onClick={() => {
+                if (disabled) return;
+                setActiveTab(id);
+            }}
+            disabled={disabled}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 
-            ${(activeTab === id || (id === 'customers' && activeTab === 'loyalty'))
+            ${disabled
+                ? 'text-gray-500 bg-white/5 grayscale cursor-not-allowed opacity-80'
+                : (activeTab === id || (id === 'customers' && activeTab === 'loyalty'))
                 ? 'bg-accent text-primary font-bold shadow-lg shadow-accent/20' 
                 : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
         >
@@ -444,7 +491,7 @@ export default function AdminDashboard() {
                     <NavItem icon={Users} label="Customers" id="customers" />
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
                     <NavItem icon={Truck} label="Shipping" id="shipping" />
-                    <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" />
+                    <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" disabled={!storefrontOpen} />
                     <NavItem icon={Settings} label="Settings" id="companyInfo" />
                     <div className="pt-2 mt-2 border-t border-white/10">
                         <NavItem icon={Images} label="CMS" id="cms" />
@@ -485,6 +532,46 @@ export default function AdminDashboard() {
                 )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
+                    <div className="mb-6 flex items-center justify-end">
+                        <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                    </div>
+                    {activeTab === 'companyInfo' && (
+                        <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-4 shadow-sm md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Storefront Availability</p>
+                                <h2 className="mt-1 text-lg font-semibold text-gray-900">
+                                    {storefrontOpen ? 'Store is open for new orders' : 'Store is closed for new orders'}
+                                </h2>
+                                <p className="mt-1 text-sm text-gray-500">
+                                    Browsing remains available. Checkout, payment-order creation, and abandoned-cart recovery pause while the store is closed.
+                                </p>
+                            </div>
+                            <div className="flex flex-col items-stretch gap-3 md:items-end">
+                                <button
+                                    type="button"
+                                    onClick={() => handleStorefrontToggle(!storefrontOpen)}
+                                    disabled={isStorefrontSaving || user?.role !== 'admin'}
+                                    className={`inline-flex items-center justify-between gap-3 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                                        storefrontOpen
+                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                            : 'border-gray-300 bg-gray-100 text-gray-800'
+                                    } disabled:cursor-not-allowed disabled:opacity-60`}
+                                >
+                                    <span>{isStorefrontSaving ? 'Saving...' : storefrontOpen ? 'Open' : 'Closed'}</span>
+                                    <span className={`relative h-6 w-11 rounded-full transition ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-400'}`}>
+                                        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${storefrontOpen ? 'left-[22px]' : 'left-0.5'}`} />
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {activeTab === 'products' && (
                         <Products
                             onNavigate={setActiveTab}
@@ -529,7 +616,7 @@ export default function AdminDashboard() {
                             onInitialManualCustomerApplied={() => setOrdersInitialManualCustomerId('')}
                         />
                     )}
-                    {activeTab === 'abandoned' && <AbandonedCarts />}
+                    {activeTab === 'abandoned' && <AbandonedCarts storefrontOpen={storefrontOpen} />}
                     {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('customers')} />}
                     {activeTab === 'companyInfo' && <CompanyInfo />}
                 </div>
@@ -551,7 +638,7 @@ export default function AdminDashboard() {
                 <MobileNavBtn icon={Package} label="Products" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
                 <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers' || activeTab === 'loyalty'} onClick={() => setActiveTab('customers')} />
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
-                <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} onClick={() => setActiveTab('abandoned')} />
+                <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} disabled={!storefrontOpen} onClick={() => storefrontOpen && setActiveTab('abandoned')} />
             </div>
 
             {activePopupType === 'order' && incomingSummary.count > 0 && createPortal(
@@ -752,16 +839,17 @@ export default function AdminDashboard() {
     );
 }
 
-function MobileNavBtn({ icon: Icon, label, active, onClick }) {
+function MobileNavBtn({ icon: Icon, label, active, onClick, disabled = false }) {
     return (
         <button 
             onClick={onClick}
-            className={`flex flex-col items-center gap-1 p-2 transition-all ${active ? 'text-primary -translate-y-1' : 'text-gray-400'}`}
+            disabled={disabled}
+            className={`flex flex-col items-center gap-1 p-2 transition-all ${disabled ? 'text-gray-300 grayscale opacity-70' : active ? 'text-primary -translate-y-1' : 'text-gray-400'}`}
         >
-            <div className={`p-2 rounded-xl ${active ? 'bg-accent text-primary shadow-lg shadow-accent/20' : ''}`}>
+            <div className={`p-2 rounded-xl ${disabled ? 'bg-gray-100 text-gray-400' : active ? 'bg-accent text-primary shadow-lg shadow-accent/20' : ''}`}>
                 <Icon size={active ? 22 : 22} strokeWidth={2} />
             </div>
-            {active && <span className="text-[10px] font-bold">{label}</span>}
+            {(active || disabled) && <span className="text-[10px] font-bold">{label}</span>}
         </button>
     );
 }

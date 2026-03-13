@@ -2,11 +2,13 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
+import EmptyState from '../components/EmptyState';
 import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 import { buildCategorySeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import emptyIllustration from '../assets/closed.svg';
 // import { io } from 'socket.io-client';
 
 const PAGE_LIMIT = 20;
@@ -760,17 +762,20 @@ export default function CategoryStore() {
                     </>
                 ) : (
                     !isLoading && !isSearchLoading && (
-                        <div className="text-center py-24">
-                            <SlidersHorizontal size={32} className="mx-auto text-gray-400 mb-4" />
-                            <h3 className="text-xl font-bold text-gray-800 mb-2">No products found</h3>
-                            <p className="text-gray-500 mb-4">Try adjusting your filters</p>
-                            <button 
-                                onClick={() => { setInStockOnly(false); setPriceRange({ min: '', max: '' }); }}
-                                className="text-primary font-bold hover:underline"
-                            >
-                                Clear Filters
-                            </button>
-                        </div>
+                        <EmptyState
+                            image={emptyIllustration}
+                            alt="No products found"
+                            title="No products found"
+                            description="Try adjusting your filters or browse another category."
+                            action={(
+                                <button
+                                    onClick={() => { setInStockOnly(false); setPriceRange({ min: '', max: '' }); }}
+                                    className="text-primary font-bold hover:underline"
+                                >
+                                    Clear Filters
+                                </button>
+                            )}
+                        />
                     )
                 )}
                 

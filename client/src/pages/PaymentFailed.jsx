@@ -37,7 +37,7 @@ export default function PaymentFailed() {
                     <h1 className="text-2xl font-serif text-primary">Payment Failed</h1>
                     <p className="text-sm text-red-600 mt-3">{reason}</p>
                     <p className="text-xs text-gray-500 mt-4">
-                        If your payment session expired, create a fresh payment and retry checkout.
+                        If your payment session expired and ordering is open, create a fresh payment session and continue checkout.
                     </p>
                     <div className="mt-6 flex items-center justify-center gap-3">
                         <button

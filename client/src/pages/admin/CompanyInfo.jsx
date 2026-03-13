@@ -5,10 +5,12 @@ import {
     ChevronUp,
     CreditCard,
     Facebook,
+    LocateFixed,
     Instagram,
     Key,
     Mail,
     MessageCircle,
+    Printer,
     Plus,
     Save,
     ShieldCheck,
@@ -23,6 +25,13 @@ import { useAuth } from '../../context/AuthContext';
 import { useCustomers } from '../../context/CustomerContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { getGstRateSplit } from '../../utils/gst';
+import {
+    clearStoredPrinterPreference,
+    configurePreferredPrinter,
+    getPreferredPrinterTransport,
+    getPrinterSupportState,
+    getStoredPrinterPreference
+} from '../../utils/thermalLabelPrint';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import Modal from '../../components/Modal';
 import fallbackContactImage from '../../assets/contact.jpg';
@@ -32,6 +41,13 @@ const DEFAULT_FORM = {
     contactNumber: '',
     supportEmail: '',
     address: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: '',
+    openingHours: '',
+    latitude: '',
+    longitude: '',
     gstNumber: '',
     taxEnabled: false,
     instagramUrl: '',
@@ -64,6 +80,7 @@ const isValidEmail = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(va
 const isValidContact = (value = '') => /^[0-9+\-\s()]{7,20}$/.test(String(value || '').trim());
 const isValidWhatsApp = (value = '') => /^\d{10,14}$/.test(String(value || '').trim());
 const isValidGst = (value = '') => /^[0-9A-Za-z]{15}$/.test(String(value || '').trim());
+const isValidPostalCode = (value = '') => /^[0-9A-Za-z\-\s]{3,12}$/.test(String(value || '').trim());
 const isValidUrl = (value = '') => {
     const raw = String(value || '').trim();
     if (!raw) return true;
@@ -123,6 +140,12 @@ export default function CompanyInfo() {
     const [communicationLogs, setCommunicationLogs] = useState([]);
     const [isCommunicationLogsLoading, setIsCommunicationLogsLoading] = useState(false);
     const [isWhatsappModulesOpen, setIsWhatsappModulesOpen] = useState(false);
+    const [preferredPrinter, setPreferredPrinter] = useState(() => getStoredPrinterPreference());
+    const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
+    const [isCapturingLocation, setIsCapturingLocation] = useState(false);
+
+    const printerSupport = useMemo(() => getPrinterSupportState(), []);
+    const preferredPrinterTransport = useMemo(() => getPreferredPrinterTransport(), []);
 
     const staffAndAdmins = useMemo(
         () => users.filter((u) => u.role === 'admin' || u.role === 'staff'),
@@ -156,6 +179,7 @@ export default function CompanyInfo() {
     }, [toast]);
 
     useEffect(() => {
+        if (!isDevMode) return undefined;
         const loadLogs = async () => {
             setIsCommunicationLogsLoading(true);
             try {
@@ -168,6 +192,7 @@ export default function CompanyInfo() {
             }
         };
         loadLogs();
+        return undefined;
     }, [toast]);
 
     useAdminCrudSync({
@@ -197,6 +222,18 @@ export default function CompanyInfo() {
             errors.supportEmail = 'Support email is required';
         } else if (!isValidEmail(form.supportEmail)) {
             errors.supportEmail = 'Support email is invalid';
+        }
+        if (String(form.postalCode || '').trim() && !isValidPostalCode(form.postalCode)) {
+            errors.postalCode = 'Postal code format is invalid';
+        }
+        if (String(form.latitude || '').trim() && !Number.isFinite(Number(form.latitude))) {
+            errors.latitude = 'Latitude must be a valid number';
+        }
+        if (String(form.longitude || '').trim() && !Number.isFinite(Number(form.longitude))) {
+            errors.longitude = 'Longitude must be a valid number';
+        }
+        if ((String(form.latitude || '').trim() && !String(form.longitude || '').trim()) || (!String(form.latitude || '').trim() && String(form.longitude || '').trim())) {
+            errors.longitude = 'Both latitude and longitude are required together';
         }
         const gstRaw = String(form.gstNumber || '').trim();
         if (gstRaw && !isValidGst(gstRaw)) {
@@ -303,6 +340,9 @@ export default function CompanyInfo() {
             const data = await adminService.updateCompanyInfo({
                 ...form,
                 gstNumber: String(form.gstNumber || '').trim().toUpperCase(),
+                postalCode: String(form.postalCode || '').trim(),
+                latitude: String(form.latitude || '').trim(),
+                longitude: String(form.longitude || '').trim(),
                 razorpayEmiMinAmount: Number(form.razorpayEmiMinAmount || 0),
                 razorpayStartingTenureMonths: Number(form.razorpayStartingTenureMonths || 0)
             });
@@ -318,6 +358,30 @@ export default function CompanyInfo() {
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleCaptureLocation = async () => {
+        if (!navigator.geolocation) {
+            toast.error('Geolocation is not supported in this browser');
+            return;
+        }
+        setIsCapturingLocation(true);
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setForm((prev) => ({
+                    ...prev,
+                    latitude: String(Number(position.coords.latitude).toFixed(7)),
+                    longitude: String(Number(position.coords.longitude).toFixed(7))
+                }));
+                setIsCapturingLocation(false);
+                toast.success('Coordinates captured');
+            },
+            (error) => {
+                setIsCapturingLocation(false);
+                toast.error(error?.message || 'Unable to capture location');
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
     };
 
     const normalizeTaxRates = (rows = []) => {
@@ -513,6 +577,25 @@ export default function CompanyInfo() {
         });
     };
 
+    const handleConnectPrinter = async () => {
+        setIsPrinterConnecting(true);
+        try {
+            const printer = await configurePreferredPrinter({ transport: preferredPrinterTransport });
+            setPreferredPrinter(getStoredPrinterPreference());
+            toast.success(`${printer?.name || 'Printer'} connected as preferred printer`);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to connect printer');
+        } finally {
+            setIsPrinterConnecting(false);
+        }
+    };
+
+    const handleForgetPrinter = () => {
+        clearStoredPrinterPreference();
+        setPreferredPrinter(null);
+        toast.success('Preferred printer cleared');
+    };
+
     if (isLoading) {
         return <div className="py-16 text-center text-gray-400">Loading settings...</div>;
     }
@@ -538,14 +621,14 @@ export default function CompanyInfo() {
 
             <div className="mb-6">
                 <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Settings</h1>
-                <p className="text-gray-500 text-sm mt-1">Manage company profile and payment gateway configuration.</p>
+                <p className="text-gray-500 text-sm mt-1">Manage company profile, channels, and payment configuration.</p>
             </div>
 
             <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden mb-6">
                 <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                 <div className="relative z-10">
                     <h3 className="text-sm font-semibold text-gray-800">Communication Channels</h3>
-                    <p className="text-xs text-gray-500 mt-1">Global channel controls live here. Workflow-specific recipients remain under dashboard alerts.</p>
+                    <p className="text-xs text-gray-500 mt-1">Global channel controls for customer communications.</p>
                 </div>
                 <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex items-start gap-3">
@@ -596,6 +679,46 @@ export default function CompanyInfo() {
                             </div>
                         </div>
                     </label>
+                    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-start gap-3">
+                        <Printer size={18} className="mt-0.5 text-violet-600" />
+                        <div className="flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">Shipping Label Printer</p>
+                                    <p className="text-xs text-gray-500 mt-1">Select the preferred thermal printer once and reuse it from order print actions.</p>
+                                    <p className="text-[11px] text-gray-400 mt-2">
+                                        {preferredPrinter
+                                            ? `Preferred: ${preferredPrinter.deviceName || preferredPrinter.productName || 'Saved printer'} (${preferredPrinter.transport === 'usb' ? 'USB' : 'Bluetooth'})`
+                                            : printerSupport.supported
+                                                ? (preferredPrinterTransport === 'bluetooth'
+                                                    ? 'No preferred printer saved. Mobile will use Bluetooth only.'
+                                                    : 'No preferred printer saved. Desktop can use Bluetooth or USB if supported.')
+                                                : printerSupport.reason}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={handleConnectPrinter}
+                                        disabled={!printerSupport.supported || isPrinterConnecting}
+                                        className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        <Printer size={14} />
+                                        {isPrinterConnecting ? 'Connecting...' : preferredPrinter ? 'Change Printer' : 'Connect Printer'}
+                                    </button>
+                                    {preferredPrinter && (
+                                        <button
+                                            type="button"
+                                            onClick={handleForgetPrinter}
+                                            className="inline-flex items-center rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                                        >
+                                            Forget
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 {isWhatsappModulesOpen && (
                     <div className="relative z-10 rounded-2xl border border-gray-200 bg-gray-50 p-4">
@@ -755,6 +878,73 @@ export default function CompanyInfo() {
                             className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
                         />
                     </label>
+
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Field
+                            label="City"
+                            value={form.city}
+                            onChange={(value) => handleChange('city', value)}
+                            placeholder="City"
+                        />
+                        <Field
+                            label="State"
+                            value={form.state}
+                            onChange={(value) => handleChange('state', value)}
+                            placeholder="State"
+                        />
+                        <Field
+                            label="Postal Code"
+                            value={form.postalCode}
+                            onChange={(value) => handleChange('postalCode', value)}
+                            placeholder="Postal code"
+                            error={formErrors.postalCode}
+                        />
+                        <Field
+                            label="Country"
+                            value={form.country}
+                            onChange={(value) => handleChange('country', value)}
+                            placeholder="Country"
+                        />
+                    </div>
+
+                    <label className="relative z-10 block">
+                        <span className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Opening Hours</span>
+                        <textarea
+                            value={form.openingHours}
+                            onChange={(e) => handleChange('openingHours', e.target.value)}
+                            placeholder="Mon-Sat 10:00-19:00"
+                            rows={2}
+                            className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm text-gray-700 focus:border-accent outline-none"
+                        />
+                    </label>
+
+                    <div className="relative z-10 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-4">
+                        <Field
+                            label="Latitude"
+                            value={form.latitude}
+                            onChange={(value) => handleChange('latitude', value)}
+                            placeholder="13.0826802"
+                            error={formErrors.latitude}
+                        />
+                        <Field
+                            label="Longitude"
+                            value={form.longitude}
+                            onChange={(value) => handleChange('longitude', value)}
+                            placeholder="80.2707184"
+                            error={formErrors.longitude}
+                        />
+                        <div className="flex items-end">
+                            <button
+                                type="button"
+                                onClick={handleCaptureLocation}
+                                disabled={isCapturingLocation}
+                                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-60"
+                            >
+                                <LocateFixed size={16} />
+                                {isCapturingLocation ? 'Locating...' : 'Use GPS'}
+                            </button>
+                        </div>
+                    </div>
 
                     <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field
@@ -1118,6 +1308,7 @@ export default function CompanyInfo() {
                     </div>
                 </div>
 
+                {isDevMode && (
                 <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
                     <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                     <div className="relative z-10 flex items-start justify-between gap-3">
@@ -1173,6 +1364,7 @@ export default function CompanyInfo() {
                         </div>
                     </div>
                 </div>
+                )}
 
                 {isDevMode && (
                     <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">

@@ -23,6 +23,7 @@ import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate } from '../../utils/dateFormat';
 import { formatTierLabel } from '../../utils/tierFormat';
 import customerIllustration from '../../assets/customer.svg';
+import EmptyState from '../../components/EmptyState';
 
 const CUSTOMER_PAGE_SIZE = 20;
 const MAX_COUPON_RANGE_DAYS = 90;
@@ -600,7 +601,15 @@ export default function Customers({
                         </div>
                         <div className="max-h-80 overflow-y-auto space-y-3">
                             {isCartLoading && <div className="flex items-center justify-center text-xs text-gray-400 py-6"><Loader2 className="animate-spin mr-2" size={14} />Loading cart...</div>}
-                            {!isCartLoading && cartItems.length === 0 && <div className="text-center text-xs text-gray-400 py-6">Cart is empty.</div>}
+                            {!isCartLoading && cartItems.length === 0 && (
+                                <EmptyState
+                                    image={customerIllustration}
+                                    alt="Cart is empty"
+                                    title="Cart is empty"
+                                    description="This customer has no saved items in cart right now."
+                                    compact
+                                />
+                            )}
                             {cartItems.map((item) => (
                                 <div key={`${item.productId}_${item.variantId}`} className="flex items-center gap-3">
                                     <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">{item.imageUrl && <img src={item.imageUrl} className="w-full h-full object-cover" />}</div>
@@ -732,7 +741,15 @@ export default function Customers({
                                             )}
                                         </div>
                                     ))}
-                                    {!activeCouponsLoading && activeCoupons.length === 0 && <p className="text-xs text-gray-400">No active coupons.</p>}
+                                    {!activeCouponsLoading && activeCoupons.length === 0 && (
+                                        <EmptyState
+                                            image={customerIllustration}
+                                            alt="No active coupons"
+                                            title="No active coupons"
+                                            description="Issue a coupon to this customer to see it listed here."
+                                            compact
+                                        />
+                                    )}
                                 </div>
                             </div>
                         </div>

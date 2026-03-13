@@ -1887,7 +1887,9 @@ const sendTestEmail = async (req, res) => {
             to,
             subject,
             text: safeMessage,
-            html: `<p>${safeMessage}</p>`
+            html: `<p>${safeMessage}</p>`,
+            workflow: 'admin_test_email',
+            disableRetry: true
         });
 
         return res.json({
@@ -1987,25 +1989,33 @@ const updateCompanyInfo = async (req, res) => {
     try {
         const payload = req.body || {};
         const existingCompany = await CompanyProfile.get();
-        const displayName = String(payload.displayName || '').trim();
-        const contactNumber = String(payload.contactNumber || '').trim();
-        const supportEmail = String(payload.supportEmail || '').trim();
-        const whatsappNumber = String(payload.whatsappNumber || '').trim();
-        const contactJumbotronImageUrl = String(payload.contactJumbotronImageUrl || '').trim();
-        const razorpayKeyId = String(payload.razorpayKeyId || '').trim();
-        const razorpayKeySecret = typeof payload.razorpayKeySecret === 'string'
-            ? String(payload.razorpayKeySecret || '').trim()
+        const mergedPayload = {
+            ...existingCompany,
+            ...payload
+        };
+        const displayName = String(mergedPayload.displayName || '').trim();
+        const contactNumber = String(mergedPayload.contactNumber || '').trim();
+        const supportEmail = String(mergedPayload.supportEmail || '').trim();
+        const whatsappNumber = String(mergedPayload.whatsappNumber || '').trim();
+        const postalCode = String(mergedPayload.postalCode || '').trim();
+        const openingHours = String(mergedPayload.openingHours || '').trim();
+        const latitude = String(mergedPayload.latitude ?? '').trim();
+        const longitude = String(mergedPayload.longitude ?? '').trim();
+        const contactJumbotronImageUrl = String(mergedPayload.contactJumbotronImageUrl || '').trim();
+        const razorpayKeyId = String(mergedPayload.razorpayKeyId || '').trim();
+        const razorpayKeySecret = typeof mergedPayload.razorpayKeySecret === 'string'
+            ? String(mergedPayload.razorpayKeySecret || '').trim()
             : null;
-        const razorpayWebhookSecret = typeof payload.razorpayWebhookSecret === 'string'
-            ? String(payload.razorpayWebhookSecret || '').trim()
+        const razorpayWebhookSecret = typeof mergedPayload.razorpayWebhookSecret === 'string'
+            ? String(mergedPayload.razorpayWebhookSecret || '').trim()
             : null;
-        const emiMinAmount = Number(payload.razorpayEmiMinAmount || 0);
-        const startingTenure = Number(payload.razorpayStartingTenureMonths || 0);
+        const emiMinAmount = Number(mergedPayload.razorpayEmiMinAmount || 0);
+        const startingTenure = Number(mergedPayload.razorpayStartingTenureMonths || 0);
 
         if (!displayName) {
             return res.status(400).json({ message: 'Company display name is required' });
         }
-        if (payload.gstNumber && !/^[0-9A-Za-z]{15}$/.test(String(payload.gstNumber || '').trim())) {
+        if (mergedPayload.gstNumber && !/^[0-9A-Za-z]{15}$/.test(String(mergedPayload.gstNumber || '').trim())) {
             return res.status(400).json({ message: 'GST number must be 15 alphanumeric characters' });
         }
         if (supportEmail && !isValidEmail(supportEmail)) {
@@ -2017,7 +2027,22 @@ const updateCompanyInfo = async (req, res) => {
         if (whatsappNumber && !/^\d{10,14}$/.test(whatsappNumber)) {
             return res.status(400).json({ message: 'WhatsApp number must be 10-14 digits' });
         }
-        if (!isValidUrl(payload.instagramUrl) || !isValidUrl(payload.youtubeUrl) || !isValidUrl(payload.facebookUrl)) {
+        if (postalCode && !/^[0-9A-Za-z\-\s]{3,12}$/.test(postalCode)) {
+            return res.status(400).json({ message: 'Postal code format is invalid' });
+        }
+        if (latitude && !Number.isFinite(Number(latitude))) {
+            return res.status(400).json({ message: 'Latitude must be a valid number' });
+        }
+        if (longitude && !Number.isFinite(Number(longitude))) {
+            return res.status(400).json({ message: 'Longitude must be a valid number' });
+        }
+        if ((latitude && !longitude) || (!latitude && longitude)) {
+            return res.status(400).json({ message: 'Both latitude and longitude are required together' });
+        }
+        if (openingHours && openingHours.length > 500) {
+            return res.status(400).json({ message: 'Opening hours must be 500 characters or less' });
+        }
+        if (!isValidUrl(mergedPayload.instagramUrl) || !isValidUrl(mergedPayload.youtubeUrl) || !isValidUrl(mergedPayload.facebookUrl)) {
             return res.status(400).json({ message: 'One or more social links are invalid URLs' });
         }
         if (contactJumbotronImageUrl && !isValidUrl(contactJumbotronImageUrl) && !contactJumbotronImageUrl.startsWith('/')) {
@@ -2039,9 +2064,9 @@ const updateCompanyInfo = async (req, res) => {
             return res.status(400).json({ message: 'Starting tenure must be between 1 and 120 months' });
         }
 
-        payload.emailChannelEnabled = true;
-        payload.whatsappChannelEnabled = payload.whatsappChannelEnabled !== false;
-        const company = await CompanyProfile.update(payload);
+        mergedPayload.emailChannelEnabled = true;
+        mergedPayload.whatsappChannelEnabled = mergedPayload.whatsappChannelEnabled !== false;
+        const company = await CompanyProfile.update(mergedPayload);
         if (
             existingCompany?.contactJumbotronImageUrl
             && existingCompany.contactJumbotronImageUrl !== company?.contactJumbotronImageUrl

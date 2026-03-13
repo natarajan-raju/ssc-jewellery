@@ -76,6 +76,15 @@ const emitProductUpdatesForIds = async (req, productIds = []) => {
     }
 };
 
+const assertStorefrontOpenForCheckout = async () => {
+    const company = await CompanyProfile.get();
+    if (company?.storefrontOpen === false) {
+        const error = new Error('Storefront is temporarily closed for new orders. Existing orders will still be fulfilled.');
+        error.statusCode = 423;
+        throw error;
+    }
+};
+
 const releaseAttemptInventoryAndEmit = async (req, { attemptId, reason }) => {
     const released = await PaymentAttempt.releaseInventoryForAttempt({ attemptId, reason });
     await emitProductUpdatesForIds(req, released?.productIds || []);
@@ -497,6 +506,7 @@ const fetchSettlementSnapshotSafe = async (razorpay, settlementId) => {
 
 const createRazorpayOrder = async (req, res) => {
     try {
+        await assertStorefrontOpenForCheckout();
         const userId = req.user.id;
         const { billingAddress, shippingAddress, notes, couponCode } = req.body || {};
         const safeShippingAddress = normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
@@ -577,6 +587,9 @@ const createRazorpayOrder = async (req, res) => {
             }
         });
     } catch (error) {
+        if (Number(error?.statusCode || 0) === 423) {
+            return res.status(423).json({ message: error.message });
+        }
         const statusCode = Number(error?.statusCode || 0);
         const gatewayMessage = error?.error?.description || error?.description;
         const message = gatewayMessage || error?.message || 'Failed to create payment order';
@@ -857,6 +870,7 @@ const verifyRazorpayPayment = async (req, res) => {
 
 const retryRazorpayPayment = async (req, res) => {
     try {
+        await assertStorefrontOpenForCheckout();
         const userId = req.user.id;
         const { attemptId, orderId } = req.body || {};
         let sourceAttempt = null;
@@ -898,6 +912,9 @@ const retryRazorpayPayment = async (req, res) => {
             }
         }, res);
     } catch (error) {
+        if (Number(error?.statusCode || 0) === 423) {
+            return res.status(423).json({ message: error.message });
+        }
         return res.status(400).json({ message: error.message || 'Failed to retry payment' });
     }
 };

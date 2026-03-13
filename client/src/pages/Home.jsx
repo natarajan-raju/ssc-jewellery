@@ -6,8 +6,10 @@ import { productService } from '../services/productService';
 import { ArrowRight, ChevronLeft, ChevronRight, Folder, Truck, PenTool, ShieldCheck, Gem, Headphones, Check, ArrowUp, Sparkles, Gift } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import ProductCard from '../components/ProductCard';
+import EmptyState from '../components/EmptyState';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
+import emptyIllustration from '../assets/closed.svg';
 import logoLight from '../assets/logo_light.webp';
 import { buildHomeSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
@@ -998,8 +1000,14 @@ export default function Home() {
                         
                         {/* Fallback if no categories */}
                         {categories.length === 0 && (
-                            <div className="col-span-full py-10 text-center text-gray-400">
-                                No categories available yet.
+                            <div className="col-span-full">
+                                <EmptyState
+                                    image={emptyIllustration}
+                                    alt="No categories available"
+                                    title="No categories available yet"
+                                    description="Collections will appear here once products are ready to browse."
+                                    compact
+                                />
                             </div>
                         )}
                     </div>
@@ -1157,8 +1165,14 @@ export default function Home() {
                             <ProductCard key={product.id} product={product} displayCategory="Best Sellers" />
                         ))}
                         {bestSellers.length === 0 && (
-                            <div className="col-span-full py-10 text-center text-gray-400">
-                                No best sellers available yet.
+                            <div className="col-span-full">
+                                <EmptyState
+                                    image={emptyIllustration}
+                                    alt="No best sellers available"
+                                    title="No best sellers available yet"
+                                    description="Best-selling products will appear here once sales history builds up."
+                                    compact
+                                />
                             </div>
                         )}
                     </div>
@@ -1233,8 +1247,14 @@ export default function Home() {
                             <ProductCard key={product.id} product={product} displayCategory="New Arrivals" />
                         ))}
                         {newArrivals.length === 0 && (
-                            <div className="col-span-full py-10 text-center text-gray-400">
-                                No new arrivals available yet.
+                            <div className="col-span-full">
+                                <EmptyState
+                                    image={emptyIllustration}
+                                    alt="No new arrivals available"
+                                    title="No new arrivals available yet"
+                                    description="Fresh products will appear here as soon as they are added to the storefront."
+                                    compact
+                                />
                             </div>
                         )}
                     </div>
@@ -1299,9 +1319,13 @@ export default function Home() {
 
                         if (!categoryName) {
                             return (
-                                <div className="py-10 text-center text-gray-400">
-                                    Featured category not set yet.
-                                </div>
+                                <EmptyState
+                                    image={emptyIllustration}
+                                    alt="Featured category not set"
+                                    title="Featured category not set yet"
+                                    description="Choose a featured category in CMS to highlight products here."
+                                    compact
+                                />
                             );
                         }
 
@@ -1325,8 +1349,14 @@ export default function Home() {
                                         <ProductCard key={product.id} product={product} displayCategory={categoryName} />
                                     ))}
                                     {featuredSectionProducts.length === 0 && (
-                                        <div className="col-span-full py-10 text-center text-gray-400">
-                                            No products available in this category.
+                                        <div className="col-span-full">
+                                            <EmptyState
+                                                image={emptyIllustration}
+                                                alt="No products available in this category"
+                                                title="No products available in this category"
+                                                description="Add active products to this category to feature them here."
+                                                compact
+                                            />
                                         </div>
                                     )}
                                 </div>
@@ -1404,8 +1434,14 @@ export default function Home() {
                             <ProductCard key={product.id} product={product} displayCategory="Offers" />
                         ))}
                         {offersProducts.length === 0 && (
-                            <div className="col-span-full py-10 text-center text-gray-400">
-                                No offers available at the moment.
+                            <div className="col-span-full">
+                                <EmptyState
+                                    image={emptyIllustration}
+                                    alt="No offers available"
+                                    title="No offers available at the moment"
+                                    description="Discounted products will appear here whenever active offers are available."
+                                    compact
+                                />
                             </div>
                         )}
                     </div>

@@ -5,6 +5,7 @@ import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { useShipping } from '../context/ShippingContext';
 import { useWishlist } from '../context/WishlistContext';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { vibrateTap } from '../utils/haptics';
@@ -25,6 +26,7 @@ export default function CartPage() {
     const { user } = useAuth();
     const { zones } = useShipping();
     const { addToWishlist, wishlist } = useWishlist();
+    const { companyInfo } = usePublicCompanyInfo();
     const [showFreeShippingFx, setShowFreeShippingFx] = useState(false);
     const [struckShippingFee, setStruckShippingFee] = useState(null);
     const confettiLayerRef = useRef(null);
@@ -95,6 +97,7 @@ export default function CartPage() {
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
     const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
+    const storefrontOpen = companyInfo?.storefrontOpen !== false;
 
     useEffect(() => {
         const layer = confettiLayerRef.current;
@@ -414,14 +417,20 @@ export default function CartPage() {
                                 </p>
                             )}
                             <RazorpayAffordability amountRupees={cartTotal} className="mt-4" />
-                            <Link
-                                to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
-                                className="mt-6 w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
-                            >
-                                Continue to Checkout
-                            </Link>
+                            {storefrontOpen ? (
+                                <Link
+                                    to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
+                                    className="mt-6 w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
+                                >
+                                    Continue to Checkout
+                                </Link>
+                            ) : (
+                                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                    Storefront is temporarily closed for new orders. Existing orders will still be fulfilled.
+                                </div>
+                            )}
                             <p className="text-[11px] text-gray-400 text-center mt-2">
-                                Checkout requires login. We’ll guide you to sign in if needed.
+                                {storefrontOpen ? 'Checkout requires login. We’ll guide you to sign in if needed.' : 'You can keep items in cart and return when ordering reopens.'}
                             </p>
                         </div>
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

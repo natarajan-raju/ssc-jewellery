@@ -7,6 +7,7 @@ import { formatAdminDateTime } from '../../utils/dateFormat';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import cartIllustration from '../../assets/cart.svg';
+import EmptyState from '../../components/EmptyState';
 
 const journeyStatusOptions = [
     { value: 'all', label: 'All' },
@@ -91,7 +92,7 @@ const isJourneyReadyForList = (journey, inactivityMinutes) => {
     return (Date.now() - lastActivity.getTime()) >= minutes * 60 * 1000;
 };
 
-export default function AbandonedCarts() {
+export default function AbandonedCarts({ storefrontOpen = true }) {
     const toast = useToast();
     const {
         abandonedInsightsByKey,
@@ -648,6 +649,34 @@ export default function AbandonedCarts() {
         )
     );
 
+    if (!storefrontOpen) {
+        return (
+            <div className="animate-fade-in space-y-6 grayscale">
+                <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">Module Inactive</p>
+                            <h1 className="mt-2 text-2xl md:text-3xl font-serif font-bold text-gray-900">Abandoned Cart Recovery</h1>
+                            <p className="mt-2 max-w-2xl text-sm text-gray-600">
+                                Storefront ordering is currently closed, so abandoned-cart capture, recovery messages, and manual recovery runs are paused. Existing orders continue to be fulfilled.
+                            </p>
+                        </div>
+                        <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+                            Reopen the storefront from <span className="font-semibold">Settings</span> to reactivate this module.
+                        </div>
+                    </div>
+                </div>
+                <div className="rounded-3xl border border-dashed border-gray-300 bg-white p-10 text-center shadow-sm">
+                    <img src={cartIllustration} alt="Abandoned cart module inactive" className="mx-auto h-32 w-32 object-contain opacity-70" />
+                    <p className="mt-4 text-lg font-semibold text-gray-800">Recovery automation is paused</p>
+                    <p className="mt-2 text-sm text-gray-500">
+                        Campaign settings, exports, and manual recovery actions are unavailable while new orders are paused.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="animate-fade-in space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -949,7 +978,13 @@ export default function AbandonedCarts() {
                                             </div>
                                         ))}
                                         {(selectedTimeline?.attempts || []).length === 0 && (
-                                            <p className="text-sm text-gray-400">No attempts yet.</p>
+                                            <EmptyState
+                                                image={cartIllustration}
+                                                alt="No attempts yet"
+                                                title="No attempts yet"
+                                                description="Recovery attempts will appear here once this journey starts processing."
+                                                compact
+                                            />
                                         )}
                                     </div>
                                 </div>
@@ -964,7 +999,13 @@ export default function AbandonedCarts() {
                                             </div>
                                         ))}
                                         {(selectedTimeline?.discounts || []).length === 0 && (
-                                            <p className="text-sm text-gray-400">No discounts issued.</p>
+                                            <EmptyState
+                                                image={cartIllustration}
+                                                alt="No discounts issued"
+                                                title="No discounts issued"
+                                                description="Any recovery discount codes created for this journey will appear here."
+                                                compact
+                                            />
                                         )}
                                     </div>
                                 </div>

@@ -17,6 +17,7 @@ import {
     buildBreadcrumbSchema,
     buildFaqSchema,
     buildItemListSchema,
+    buildLocalBusinessSchema,
     buildOrganizationSchema,
     buildProductSchema,
     buildWebsiteSchema
@@ -40,7 +41,7 @@ export const buildDefaultSeo = (pathname = '/') => {
         canonical: buildCanonical(pathname),
         robots: noindex ? robotsNoindex : robotsIndex,
         image: pickSocialImage({ fallbackImage: DEFAULT_SOCIAL_IMAGE }),
-        structuredData: noindex ? [] : [buildOrganizationSchema(), buildWebsiteSchema()]
+        structuredData: noindex ? [] : [buildOrganizationSchema(), buildLocalBusinessSchema(), buildWebsiteSchema({ includeSearchAction: true })]
     };
 };
 
@@ -76,7 +77,8 @@ export const buildHomeSeo = ({
         image: pickSocialImage({ preferredImages, categoryImages, productImages }),
         structuredData: [
             buildOrganizationSchema(company),
-            buildWebsiteSchema(),
+            buildLocalBusinessSchema(company),
+            buildWebsiteSchema({ includeSearchAction: true }),
             buildItemListSchema(products, { name: `${brand} featured products` })
         ]
     };
@@ -110,11 +112,13 @@ export const buildShopSeo = ({
         image: pickSocialImage({ categoryImages, productImages }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema([
                 { name: 'Home', url: '/' },
                 { name: 'Shop', url: '/shop' }
             ]),
-            buildItemListSchema(products, { name: title })
+            buildItemListSchema(products, { name: title }),
+            buildWebsiteSchema({ includeSearchAction: true })
         ]
     };
 };
@@ -146,6 +150,7 @@ export const buildCategorySeo = ({
         image: pickSocialImage({ preferredImages: [categoryImage], productImages }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema([
                 { name: 'Home', url: '/' },
                 { name: 'Shop', url: '/shop' },
@@ -210,6 +215,7 @@ export const buildProductSeo = ({
         image: pickSocialImage({ preferredImages: productImages }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema(breadcrumbItems),
             buildProductSchema(product)
         ].filter(Boolean)
@@ -227,6 +233,7 @@ export const buildFaqSeo = ({ company = {} } = {}) => {
         image: pickSocialImage({ preferredImages: [company.contactJumbotronImageUrl] }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema([
                 { name: 'Home', url: '/' },
                 { name: 'FAQ', url: '/faq' }
@@ -254,6 +261,7 @@ export const buildAboutSeo = ({ company = {}, products = [], categories = [] } =
         }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema([
                 { name: 'Home', url: '/' },
                 { name: 'About', url: '/about' }
@@ -276,6 +284,7 @@ export const buildContactSeo = ({ company = {} } = {}) => {
         image: pickSocialImage({ preferredImages: [company.contactJumbotronImageUrl] }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema([
                 { name: 'Home', url: '/' },
                 { name: 'Contact', url: '/contact' }
@@ -295,6 +304,7 @@ export const buildPolicySeo = ({ company = {}, policyKey = 'terms', policyTitle 
         image: pickSocialImage({ preferredImages: [company.contactJumbotronImageUrl] }),
         structuredData: [
             buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
             buildBreadcrumbSchema([
                 { name: 'Home', url: '/' },
                 { name: policyTitle, url: `/${policyKey === 'terms' ? 'terms' : policyKey}` }

@@ -44,6 +44,36 @@ test('faq seo includes faq structured data and fallback image', async () => {
     assert.ok(String(seo.image || '').length > 0);
 });
 
+test('home seo includes local business and website search action schema', async () => {
+    const { buildHomeSeo } = await importSeoModule('rules.js');
+    const seo = buildHomeSeo({
+        company: {
+            displayName: 'SSC Jewellery',
+            supportEmail: 'support@example.com',
+            contactNumber: '9876543210',
+            address: '12 Temple Road, Chennai',
+            city: 'Chennai',
+            state: 'Tamil Nadu',
+            postalCode: '600001',
+            country: 'IN',
+            openingHours: 'Mon-Sat 10:00-19:00',
+            latitude: '13.0826802',
+            longitude: '80.2707184',
+            instagramUrl: 'https://instagram.com/ssc',
+            facebookUrl: 'https://facebook.com/ssc'
+        }
+    });
+    assert.equal(seo.structuredData.some((item) => item?.['@type'] === 'JewelryStore'), true);
+    const websiteSchema = seo.structuredData.find((item) => item?.['@type'] === 'WebSite');
+    assert.equal(Boolean(websiteSchema?.potentialAction), true);
+    assert.match(String(websiteSchema?.potentialAction?.target || ''), /\/shop\?q=\{search_term_string\}$/);
+    const businessSchema = seo.structuredData.find((item) => item?.['@type'] === 'JewelryStore');
+    assert.equal(businessSchema?.address?.addressLocality, 'Chennai');
+    assert.equal(businessSchema?.address?.addressRegion, 'Tamil Nadu');
+    assert.equal(businessSchema?.openingHours, 'Mon-Sat 10:00-19:00');
+    assert.equal(businessSchema?.geo?.latitude, 13.0826802);
+});
+
 test('seo uses absolute canonicals and richer schema when app base url is configured', async () => {
     const previousBaseUrl = process.env.APP_BASE_URL;
     process.env.APP_BASE_URL = 'https://sscjewellery.example';

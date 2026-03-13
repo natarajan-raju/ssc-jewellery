@@ -10,6 +10,7 @@ import { orderService } from '../services/orderService';
 import { useShipping } from '../context/ShippingContext';
 import { useSocket } from '../context/SocketContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import logo from '../assets/logo.webp';
 import amexLogo from '../assets/amex.png';
 import cartIllustration from '../assets/cart.svg';
@@ -23,6 +24,7 @@ import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
 import { normalizePaymentFailureReason } from '../utils/paymentFailure';
 import { computeShippingPreview } from '../utils/shippingPreview';
+import StorefrontClosed from './StorefrontClosed';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
@@ -124,6 +126,7 @@ export default function Checkout() {
     const { items, subtotal, itemCount, clearCart } = useCart();
     const { zones } = useShipping();
     const { socket } = useSocket();
+    const { companyInfo } = usePublicCompanyInfo();
     const toast = useToast();
     const navigate = useNavigate();
     const location = useLocation();
@@ -163,6 +166,7 @@ export default function Checkout() {
         () => (hasCompleteAddress(form.address) ? form.address : null),
         [form.address]
     );
+    const storefrontOpen = companyInfo?.storefrontOpen !== false;
 
     const refreshAvailableCoupons = useCallback(async () => {
         const cartSubtotal = Number(subtotal || 0);
@@ -818,6 +822,7 @@ export default function Checkout() {
     };
 
     if (!user) return null;
+    if (!storefrontOpen) return <StorefrontClosed />;
     const tier = String(loyaltyStatus?.tier || checkoutSummary?.loyaltyTier || user?.loyaltyTier || 'regular').toLowerCase();
     const membershipEligibility = loyaltyStatus?.eligibility || null;
     const isMembershipEligible = Boolean(membershipEligibility?.isEligible ?? true);

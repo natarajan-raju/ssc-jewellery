@@ -1,6 +1,23 @@
 import { absoluteUrl, buildCanonical, firstCategoryName, getProductImageCandidates, normalizeText } from './helpers.js';
 import { SITE_DESCRIPTION, SITE_NAME } from './constants.js';
 
+const buildPostalAddress = (company = {}) => {
+    const address = normalizeText(company.address);
+    const city = normalizeText(company.city);
+    const state = normalizeText(company.state);
+    const postalCode = normalizeText(company.postalCode);
+    const country = normalizeText(company.country);
+    if (!address && !city && !state && !postalCode && !country) return null;
+    return {
+        '@type': 'PostalAddress',
+        ...(address ? { streetAddress: address } : {}),
+        ...(city ? { addressLocality: city } : {}),
+        ...(state ? { addressRegion: state } : {}),
+        ...(postalCode ? { postalCode } : {}),
+        ...(country ? { addressCountry: country } : {})
+    };
+};
+
 export const buildOrganizationSchema = (company = {}) => {
     const name = normalizeText(company.displayName) || SITE_NAME;
     const logo = absoluteUrl(company.logoUrl || '/logo_light.webp');
@@ -35,12 +52,56 @@ export const buildOrganizationSchema = (company = {}) => {
     };
 };
 
-export const buildWebsiteSchema = () => ({
+export const buildLocalBusinessSchema = (company = {}) => {
+    const name = normalizeText(company.displayName) || SITE_NAME;
+    const logo = absoluteUrl(company.logoUrl || '/logo_light.webp');
+    const image = absoluteUrl(company.contactJumbotronImageUrl || company.logoUrl || '/contact.jpg');
+    const sameAs = [
+        company.instagramUrl,
+        company.youtubeUrl,
+        company.facebookUrl
+    ].map((value) => normalizeText(value)).filter(Boolean);
+    const postalAddress = buildPostalAddress(company);
+    const latitude = Number(company.latitude);
+    const longitude = Number(company.longitude);
+
+    return {
+        '@context': 'https://schema.org',
+        '@type': 'JewelryStore',
+        name,
+        url: buildCanonical('/'),
+        logo,
+        image,
+        ...(normalizeText(company.contactNumber) ? { telephone: normalizeText(company.contactNumber) } : {}),
+        ...(normalizeText(company.supportEmail) ? { email: normalizeText(company.supportEmail) } : {}),
+        ...(postalAddress ? { address: postalAddress } : {}),
+        ...(normalizeText(company.openingHours) ? { openingHours: normalizeText(company.openingHours) } : {}),
+        ...(Number.isFinite(latitude) && Number.isFinite(longitude) ? {
+            geo: {
+                '@type': 'GeoCoordinates',
+                latitude,
+                longitude
+            }
+        } : {}),
+        ...(sameAs.length ? { sameAs } : {})
+    };
+};
+
+export const buildWebsiteSchema = ({ includeSearchAction = false } = {}) => ({
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: SITE_NAME,
     url: buildCanonical('/'),
-    description: SITE_DESCRIPTION
+    description: SITE_DESCRIPTION,
+    ...(includeSearchAction
+        ? {
+            potentialAction: {
+                '@type': 'SearchAction',
+                target: `${buildCanonical('/shop')}?q={search_term_string}`,
+                'query-input': 'required name=search_term_string'
+            }
+        }
+        : {})
 });
 
 export const buildBreadcrumbSchema = (items = []) => ({

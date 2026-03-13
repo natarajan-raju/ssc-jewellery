@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, Link } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
@@ -22,6 +22,8 @@ import PwaInstallPrompt from './components/PwaInstallPrompt';
 import AppSeoDefaults from './components/AppSeoDefaults';
 import ScrollToTop from './components/ScrollToTop';
 import Home from './pages/Home';
+import { usePublicCompanyInfo } from './hooks/usePublicSiteShell';
+import ComingSoon from './pages/ComingSoon';
 import { canAccessAdminDashboard, shouldRedirectAdminToDashboard } from './utils/authRoutePolicy';
 
 const Shop = lazy(() => import('./pages/Shop'));
@@ -44,6 +46,15 @@ const TrackOrder = lazy(() => import('./pages/TrackOrder'));
 const PolicyPage = lazy(() => import('./pages/PolicyPage'));
 const About = lazy(() => import('./pages/About'));
 const Faq = lazy(() => import('./pages/Faq'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+const StorefrontClosed = lazy(() => import('./pages/StorefrontClosed'));
+
+const isStorefrontLaunchEnabled = () => {
+  if (!import.meta.env.PROD) return true;
+  const raw = String(import.meta.env.VITE_STOREFRONT_ENABLED || '').trim().toLowerCase();
+  if (!raw) return false;
+  return ['1', 'true', 'yes', 'on'].includes(raw);
+};
 
 const RouteFallback = () => (
   <div className="min-h-[40vh] bg-secondary flex items-center justify-center px-4">
@@ -69,12 +80,18 @@ const ClientRoute = ({ children, redirectTo = '/track-order' }) => {
   return user ? children : <Navigate to={`/login?redirect=${encodeURIComponent(redirectTo)}`} replace />;
 };
 
+const StorefrontGate = ({ children }) => {
+  return isStorefrontLaunchEnabled() ? children : <ComingSoon />;
+};
+
 // [UPDATED] Public Layout
 // Changed 'pt-20 md:pt-24' to 'pt-[74px]'
 // This perfectly matches the initial height of the Navbar (72px + border)
 const PublicLayout = () => {
   const { user } = useAuth();
+  const { companyInfo } = usePublicCompanyInfo();
   const tier = String(user?.loyaltyTier || 'regular').toLowerCase();
+  const storefrontOpen = companyInfo?.storefrontOpen !== false;
 
   useEffect(() => {
     const tiers = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
@@ -90,6 +107,15 @@ const PublicLayout = () => {
     <>
       <Navbar />
       <main className="min-h-screen bg-secondary pt-[74px] pb-24 md:pb-0 tier-surface"> 
+        {!storefrontOpen && (
+          <div className="border-b border-amber-200 bg-amber-50/95 px-4 text-sm text-amber-900">
+            <div className="mx-auto flex min-h-[64px] max-w-7xl items-center justify-center py-4 text-center">
+              <p className="leading-6 mb-0">
+                Storefront is temporarily closed for new orders. Existing orders already placed will still be fulfilled.
+              </p>
+            </div>
+          </div>
+        )}
         <Outlet />
       </main>
       <FloatingWhatsApp />
@@ -120,7 +146,7 @@ function App() {
                   <Routes>
               
               {/* Public Routes */}
-              <Route element={<RedirectAdminToDashboard><PublicLayout /></RedirectAdminToDashboard>}>
+              <Route element={<RedirectAdminToDashboard><StorefrontGate><PublicLayout /></StorefrontGate></RedirectAdminToDashboard>}>
                 <Route path="/" element={<Home />} />
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
@@ -140,6 +166,7 @@ function App() {
                 />
                 <Route path="/cart" element={<CartPage />} />
                 <Route path="/checkout" element={<ClientRoute redirectTo="/checkout"><Checkout /></ClientRoute>} />
+                <Route path="/storefront-closed" element={<StorefrontClosed />} />
                 <Route path="/payment/success" element={<PaymentSuccess />} />
                 <Route path="/payment/failed" element={<PaymentFailed />} />
                 <Route path="/terms" element={<PolicyPage />} />
@@ -167,7 +194,8 @@ function App() {
                 } 
               />
 
-              <Route path="*" element={<Navigate to="/" />} />
+              <Route path="/coming-soon" element={<ComingSoon />} />
+              <Route path="*" element={<NotFound />} />
                   </Routes>
                   </Suspense>
                     </CartProvider>

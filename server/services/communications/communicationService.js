@@ -20,18 +20,21 @@ const sendEmailCommunication = async ({
     cc = null,
     bcc = null,
     attachments = [],
-    workflow = 'generic'
+    workflow = 'generic',
+    disableRetry = false
 }) => {
     try {
         return await sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
     } catch (error) {
-        await queueCommunicationFailure({
-            channel: 'email',
-            workflow,
-            recipient: Array.isArray(to) ? to.join(',') : String(to || ''),
-            payload: { to, subject, text, html, replyTo, cc, bcc, attachments },
-            error
-        }).catch(() => {});
+        if (!disableRetry) {
+            await queueCommunicationFailure({
+                channel: 'email',
+                workflow,
+                recipient: Array.isArray(to) ? to.join(',') : String(to || ''),
+                payload: { to, subject, text, html, replyTo, cc, bcc, attachments },
+                error
+            }).catch(() => {});
+        }
         throw error;
     }
 };

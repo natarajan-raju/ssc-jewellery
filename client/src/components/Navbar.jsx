@@ -5,10 +5,12 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
 import logo from '../assets/logo.webp';
+import emptyIllustration from '../assets/closed.svg';
 import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories } from '../hooks/usePublicSiteShell';
 import { formatTierLabel } from '../utils/tierFormat';
+import EmptyState from './EmptyState';
 
 const TIER_STYLES = {
     regular: {
@@ -462,8 +464,14 @@ export default function Navbar() {
                                             </div>
                                         )}
                                         {!isLoadingCategories && categories.length === 0 && (
-                                            <div className="col-span-2 lg:col-span-3 text-sm text-gray-500">
-                                                No categories available yet.
+                                            <div className="col-span-2 lg:col-span-3">
+                                                <EmptyState
+                                                    image={emptyIllustration}
+                                                    alt="No categories available"
+                                                    title="No categories available yet"
+                                                    description="Categories will appear here once products are ready to browse."
+                                                    compact
+                                                />
                                             </div>
                                         )}
                                         {!isLoadingCategories && categories.map((category) => {
@@ -525,7 +533,14 @@ export default function Navbar() {
                             {isSearchOpen && (
                                 <div className="absolute top-full mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden z-[90]">
                                     {searchResults.length === 0 && !isSearchLoading && (
-                                        <p className="px-4 py-3 text-sm text-gray-500">No products found.</p>
+                                        <EmptyState
+                                            image={emptyIllustration}
+                                            alt="No products found"
+                                            title="No products found"
+                                            description="Try a different product name or keyword."
+                                            compact
+                                            className="px-2"
+                                        />
                                     )}
                                     <div className="max-h-80 overflow-y-auto">
                                         {searchResults.map((product) => (
@@ -653,7 +668,14 @@ export default function Navbar() {
                         {isSearchOpen && (
                             <div className="absolute top-full mt-2 w-full rounded-xl border border-gray-200 bg-white shadow-xl overflow-hidden z-[90]">
                                 {searchResults.length === 0 && !isSearchLoading && (
-                                    <p className="px-4 py-3 text-sm text-gray-500">No products found.</p>
+                                    <EmptyState
+                                        image={emptyIllustration}
+                                        alt="No products found"
+                                        title="No products found"
+                                        description="Try a different product name or keyword."
+                                        compact
+                                        className="px-2"
+                                    />
                                 )}
                                 <div className="max-h-72 overflow-y-auto">
                                     {searchResults.map((product) => (

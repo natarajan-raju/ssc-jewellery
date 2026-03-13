@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
+import EmptyState from '../components/EmptyState';
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter, Send, Copy, ArrowUp, Home, LayoutGrid } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { useCms } from '../hooks/useCms';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 import { buildShopSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import emptyIllustration from '../assets/closed.svg';
 
 const PAGE_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 150;
@@ -43,6 +45,7 @@ const mergeUniqueProducts = (base = [], incoming = []) => {
 };
 
 export default function Shop() {
+    const [searchParams, setSearchParams] = useSearchParams();
     const { getCarouselCards } = useCms();
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState('all');
@@ -58,7 +61,7 @@ export default function Shop() {
     const [showFilters, setShowFilters] = useState(false);
     const [inStockOnly, setInStockOnly] = useState(false);
     const [priceRange, setPriceRange] = useState({ min: '', max: '' });
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState(() => String(searchParams.get('q') || '').trim());
     const [searchResults, setSearchResults] = useState([]);
     const [isSearchLoading, setIsSearchLoading] = useState(false);
     const [isShareOpen, setIsShareOpen] = useState(false);
@@ -82,6 +85,11 @@ export default function Shop() {
         selectedCategory
     }), [categories, products, selectedCategory]);
     useSeo(seoConfig);
+
+    useEffect(() => {
+        const nextQuery = String(searchParams.get('q') || '').trim();
+        setSearchTerm((current) => (current === nextQuery ? current : nextQuery));
+    }, [searchParams]);
 
     const normalizeCategoryList = useCallback((value) => {
         if (Array.isArray(value)) return value;
@@ -240,6 +248,18 @@ export default function Shop() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isCategoryOpen]);
+
+    useEffect(() => {
+        const trimmedQuery = String(searchTerm || '').trim();
+        const nextParams = new URLSearchParams(searchParams);
+        if (trimmedQuery) nextParams.set('q', trimmedQuery);
+        else nextParams.delete('q');
+        const currentSerialized = searchParams.toString();
+        const nextSerialized = nextParams.toString();
+        if (currentSerialized !== nextSerialized) {
+            setSearchParams(nextParams, { replace: true });
+        }
+    }, [searchParams, searchTerm, setSearchParams]);
 
     useEffect(() => {
         const toggleVisibility = () => {
@@ -853,8 +873,14 @@ export default function Shop() {
                                     </div>
                                 )}
                                 {displayProducts.length === 0 && !isSearchLoading && (
-                                    <div className="col-span-full py-10 text-center text-gray-400">
-                                        No products available.
+                                    <div className="col-span-full">
+                                        <EmptyState
+                                            image={emptyIllustration}
+                                            alt="No products available"
+                                            title="No products available"
+                                            description="Products matching your current view are not available right now. Try a different search or browse another category."
+                                            compact
+                                        />
                                     </div>
                                 )}
                                 <div ref={sentinelRef} className="h-10" />

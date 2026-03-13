@@ -7,6 +7,8 @@ import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import { formatAdminDate } from '../../utils/dateFormat';
+import EmptyState from '../../components/EmptyState';
+import giftIllustration from '../../assets/gift.svg';
 
 const ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -951,7 +953,19 @@ export default function LoyaltySettings({ onBack }) {
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={8}>Loading coupons...</td></tr>}
-                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={8}>No coupons found.</td></tr>}
+                                {!couponLoading && couponList.length === 0 && (
+                                    <tr>
+                                        <td className="px-3 py-4" colSpan={8}>
+                                            <EmptyState
+                                                image={giftIllustration}
+                                                alt="No coupons found"
+                                                title="No coupons found"
+                                                description="Create a coupon or adjust your filters to see matching results."
+                                                compact
+                                            />
+                                        </td>
+                                    </tr>
+                                )}
                                 {!couponLoading && couponList.map((cp) => (
                                     <tr key={cp.id || cp.code} onClick={() => openCouponDetails(cp)} className="cursor-pointer hover:bg-gray-50">
                                         <td className="px-3 py-2">
@@ -1013,7 +1027,19 @@ export default function LoyaltySettings({ onBack }) {
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {couponLoading && <tr><td className="px-3 py-4 text-gray-400" colSpan={3}>Loading coupons...</td></tr>}
-                                {!couponLoading && couponList.length === 0 && <tr><td className="px-3 py-4 text-gray-400" colSpan={3}>No coupons found.</td></tr>}
+                                {!couponLoading && couponList.length === 0 && (
+                                    <tr>
+                                        <td className="px-3 py-4" colSpan={3}>
+                                            <EmptyState
+                                                image={giftIllustration}
+                                                alt="No coupons found"
+                                                title="No coupons found"
+                                                description="Create a coupon or adjust your filters to see matching results."
+                                                compact
+                                            />
+                                        </td>
+                                    </tr>
+                                )}
                                 {!couponLoading && couponList.map((cp) => (
                                     <tr key={cp.id || cp.code} onClick={() => openCouponDetails(cp)} className="cursor-pointer hover:bg-gray-50">
                                         <td className="px-3 py-2 align-top">

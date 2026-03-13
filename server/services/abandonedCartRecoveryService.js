@@ -2,6 +2,7 @@ const Cart = require('../models/Cart');
 const User = require('../models/User');
 const Order = require('../models/Order');
 const AbandonedCart = require('../models/AbandonedCart');
+const CompanyProfile = require('../models/CompanyProfile');
 const {
     sendEmailCommunication,
     sendWhatsapp
@@ -15,6 +16,20 @@ const RECOVERY_JOB_INTERVAL_MS = Math.max(
 );
 const MAX_RECOVERY_BATCHES_PER_RUN = 100;
 let knownPublicOrigin = '';
+let storefrontStateCache = { open: true, ts: 0 };
+
+const isStorefrontOpen = async () => {
+    const now = Date.now();
+    if (now - storefrontStateCache.ts < 60 * 1000) {
+        return storefrontStateCache.open;
+    }
+    const company = await CompanyProfile.get().catch(() => null);
+    storefrontStateCache = {
+        open: company?.storefrontOpen !== false,
+        ts: now
+    };
+    return storefrontStateCache.open;
+};
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const MIN_PAYMENT_LINK_TTL_MS = 10 * 60 * 1000;
@@ -365,6 +380,9 @@ const CART_ACTIVITY_DEBOUNCE_MS = 3000;
 const cartActivityState = new Map();
 
 const runCartActivity = async (userId, reason, { onJourneyUpdate = null } = {}) => {
+    if (!(await isStorefrontOpen())) {
+        return { ok: true, skipped: true, reason: 'storefront_closed' };
+    }
     const campaign = await AbandonedCart.getCampaign();
     if (!campaign.enabled) return { ok: true, skipped: true, reason: 'campaign_disabled' };
 
@@ -508,6 +526,9 @@ const markRecoveredByOrder = async ({ order = null, userId = null, reason = 'ord
 };
 
 const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate = null } = {}) => {
+    if (!(await isStorefrontOpen())) {
+        return { ok: true, skipped: true, reason: 'storefront_closed', due: 0, processed: 0, sent: 0, skippedCount: 0, failed: 0 };
+    }
     const campaign = await AbandonedCart.getCampaign();
     if (!campaign.enabled) return { ok: true, skipped: true, reason: 'campaign_disabled' };
 

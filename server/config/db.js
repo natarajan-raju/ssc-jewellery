@@ -1104,9 +1104,17 @@ const initDB = async () => {
             CREATE TABLE IF NOT EXISTS company_profile (
                 id INT PRIMARY KEY,
                 display_name VARCHAR(255) NOT NULL DEFAULT 'SSC Jewellery',
+                storefront_open TINYINT(1) NOT NULL DEFAULT 1,
                 contact_number VARCHAR(40),
                 support_email VARCHAR(255),
                 address TEXT,
+                city VARCHAR(120),
+                state VARCHAR(120),
+                postal_code VARCHAR(20),
+                country VARCHAR(120),
+                opening_hours TEXT,
+                latitude DECIMAL(10,7) NULL,
+                longitude DECIMAL(10,7) NULL,
                 instagram_url VARCHAR(255),
                 youtube_url VARCHAR(255),
                 facebook_url VARCHAR(255),
@@ -1125,6 +1133,30 @@ const initDB = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN storefront_open TINYINT(1) NOT NULL DEFAULT 1');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN city VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN state VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN postal_code VARCHAR(20)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN country VARCHAR(120)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN opening_hours TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN latitude DECIMAL(10,7) NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN longitude DECIMAL(10,7) NULL');
+        } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_id VARCHAR(120)');
         } catch {}
@@ -1263,9 +1295,9 @@ const initDB = async () => {
         if (companyRows.length === 0) {
             await connection.execute(
                 `INSERT INTO company_profile
-                (id, display_name, contact_number, support_email, address, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', '', '', '', '', '', '', '', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), '', '', '', 3000, 12]
+                (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

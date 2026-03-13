@@ -2,13 +2,14 @@ const db = require('../../config/db');
 const { sendEmail } = require('./channels/emailChannel');
 const { sendWhatsapp } = require('./channels/whatsappChannel');
 
-const MAX_RETRY_ATTEMPTS = Math.max(1, Number(process.env.COMMUNICATION_RETRY_MAX_ATTEMPTS || 3));
-const BASE_RETRY_DELAY_MINUTES = Math.max(1, Number(process.env.COMMUNICATION_RETRY_DELAY_MINUTES || 10));
-const PROCESS_BATCH_SIZE = Math.max(1, Number(process.env.COMMUNICATION_RETRY_BATCH_SIZE || 25));
+const MAX_RETRY_ATTEMPTS = Math.max(1, Number(process.env.COMMUNICATION_RETRY_MAX_ATTEMPTS || 2));
+const BASE_RETRY_DELAY_MINUTES = Math.max(1, Number(process.env.COMMUNICATION_RETRY_DELAY_MINUTES || 30));
+const PROCESS_BATCH_SIZE = Math.max(1, Number(process.env.COMMUNICATION_RETRY_BATCH_SIZE || 3));
 const MAX_EMAIL_RETRY_ATTACHMENT_BYTES = Math.max(64 * 1024, Number(process.env.COMMUNICATION_RETRY_ATTACHMENT_MAX_BYTES || (1024 * 1024)));
 const STALE_LOCK_MINUTES = Math.max(5, Number(process.env.COMMUNICATION_RETRY_STALE_LOCK_MINUTES || 15));
 const SENT_RETENTION_DAYS = Math.max(1, Number(process.env.COMMUNICATION_RETRY_SENT_RETENTION_DAYS || 14));
 const FAILED_RETENTION_DAYS = Math.max(1, Number(process.env.COMMUNICATION_RETRY_FAILED_RETENTION_DAYS || 30));
+const RATE_LIMIT_RETRY_DELAY_MINUTES = Math.max(BASE_RETRY_DELAY_MINUTES, Number(process.env.COMMUNICATION_RATE_LIMIT_RETRY_DELAY_MINUTES || 120));
 
 const toJson = (value) => {
     try {
@@ -72,10 +73,28 @@ const hydrateAttachments = (attachments = []) => (
     })
 );
 
-const buildNextRetryAt = (attemptCount = 0) => {
+const buildNextRetryAt = (attemptCount = 0, baseDelayMinutes = BASE_RETRY_DELAY_MINUTES) => {
     const retryNumber = Math.max(1, Number(attemptCount || 0));
-    const minutes = BASE_RETRY_DELAY_MINUTES * (2 ** Math.max(0, retryNumber - 1));
+    const minutes = Math.max(1, Number(baseDelayMinutes || BASE_RETRY_DELAY_MINUTES)) * (2 ** Math.max(0, retryNumber - 1));
     return new Date(Date.now() + (minutes * 60 * 1000));
+};
+
+const resolveFailureMessage = ({ error = null, result = null } = {}) => (
+    error?.message || result?.reason || result?.message || 'channel_failed'
+);
+
+const isRateLimitFailure = ({ error = null, result = null } = {}) => {
+    const message = String(resolveFailureMessage({ error, result }) || '').toLowerCase();
+    return [
+        'ratelimit',
+        'rate limit',
+        'too many auth commands',
+        'too many authentication',
+        'too many login',
+        'hostinger_out_ratelimit',
+        '451 4.7.1',
+        '450 4.7.1'
+    ].some((token) => message.includes(token));
 };
 
 const queueCommunicationFailure = async ({
@@ -91,7 +110,10 @@ const queueCommunicationFailure = async ({
     const safeRecipient = String(recipient || '').trim();
     if (!safeChannel || !safeRecipient) return null;
 
-    const nextRetryAt = buildNextRetryAt(1);
+    const nextRetryAt = buildNextRetryAt(
+        1,
+        isRateLimitFailure({ error, result }) ? RATE_LIMIT_RETRY_DELAY_MINUTES : BASE_RETRY_DELAY_MINUTES
+    );
     const normalizedPayload = safeChannel === 'email'
         ? {
             ...payload,
@@ -143,7 +165,7 @@ const queueCommunicationFailure = async ({
             safeRecipient,
             toJson(normalizedPayload),
             Math.max(1, Number(maxAttempts || MAX_RETRY_ATTEMPTS)),
-            error?.message || result?.reason || result?.message || 'channel_failed',
+            resolveFailureMessage({ error, result }),
             toJson(result),
             nextRetryAt
         ]
@@ -168,6 +190,9 @@ const markRetrySent = async (id, result = null) => {
 
 const markRetryFailed = async (id, { attemptCount, maxAttempts, error = null, result = null } = {}) => {
     const exhausted = Number(attemptCount || 0) >= Number(maxAttempts || MAX_RETRY_ATTEMPTS);
+    const retryDelayMinutes = isRateLimitFailure({ error, result })
+        ? RATE_LIMIT_RETRY_DELAY_MINUTES
+        : BASE_RETRY_DELAY_MINUTES;
     await db.execute(
         `UPDATE communication_delivery_logs
          SET status = ?,
@@ -179,8 +204,8 @@ const markRetryFailed = async (id, { attemptCount, maxAttempts, error = null, re
          WHERE id = ?`,
         [
             exhausted ? 'failed' : 'queued',
-            exhausted ? null : buildNextRetryAt(attemptCount),
-            error?.message || result?.reason || result?.message || 'channel_failed',
+            exhausted ? null : buildNextRetryAt(attemptCount, retryDelayMinutes),
+            resolveFailureMessage({ error, result }),
             toJson(result),
             id
         ]

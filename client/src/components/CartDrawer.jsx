@@ -11,12 +11,14 @@ import { useWishlist } from '../context/WishlistContext';
 import { vibrateTap } from '../utils/haptics';
 import RazorpayAffordability from './RazorpayAffordability';
 import { computeShippingPreview } from '../utils/shippingPreview';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
     const { user } = useAuth();
     const { zones } = useShipping();
     const { addToWishlist, wishlist } = useWishlist();
+    const { companyInfo } = usePublicCompanyInfo();
     const location = useLocation();
     const [render, setRender] = useState(false);
     const [active, setActive] = useState(false);
@@ -55,6 +57,7 @@ export default function CartDrawer() {
         [subtotal, shippingPreview?.fee]
     );
     const canRenderDrawerWidget = !['/cart', '/checkout'].includes(String(location.pathname || '').toLowerCase());
+    const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const isAtMaxQuantity = (item) => Boolean(item?.trackQuantity && Number(item?.availableQuantity || 0) > 0 && Number(item?.quantity || 0) >= Number(item?.availableQuantity || 0));
 
     useEffect(() => {
@@ -365,13 +368,20 @@ export default function CartDrawer() {
                             View cart
                         </Link>
                     </div>
-                    <Link
-                        to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
-                        className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
-                        onClick={closeCart}
-                    >
-                        Proceed to Checkout
-                    </Link>
+                    {storefrontOpen ? (
+                        <Link
+                            to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
+                            className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
+                            onClick={closeCart}
+                        >
+                            Proceed to Checkout
+                        </Link>
+                    ) : (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+                            <p className="text-sm font-semibold text-amber-900">Storefront is temporarily closed for new orders.</p>
+                            <p className="mt-1 text-xs text-amber-800">Existing orders will still be fulfilled. You can keep items in cart and checkout when ordering reopens.</p>
+                        </div>
+                    )}
                     <RazorpayAffordability amountRupees={cartTotal} className="mt-3" showWidget={canRenderDrawerWidget} />
                     {isShippingUnavailable && (
                         <p className="text-[10px] text-amber-700 text-center mt-2">
@@ -379,7 +389,9 @@ export default function CartDrawer() {
                         </p>
                     )}
                     <p className="text-[10px] text-gray-400 text-center mt-2">
-                        Checkout requires login. We will prompt you later.
+                        {storefrontOpen
+                            ? 'Checkout requires login. We will prompt you later.'
+                            : 'Browsing, cart, wishlist, and order tracking stay available while ordering is paused.'}
                     </p>
                 </div>
                 )}

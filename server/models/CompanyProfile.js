@@ -3,9 +3,17 @@ const { DEFAULT_WHATSAPP_MODULE_SETTINGS, normalizeWhatsappModuleSettings } = re
 
 const DEFAULT_COMPANY_PROFILE = {
     displayName: 'SSC Jewellery',
+    storefrontOpen: true,
     contactNumber: '',
     supportEmail: '',
     address: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: '',
+    openingHours: '',
+    latitude: '',
+    longitude: '',
     gstNumber: '',
     taxEnabled: false,
     instagramUrl: '',
@@ -34,9 +42,17 @@ const normalizeRow = (row) => {
     }
     return {
         displayName: row.display_name || DEFAULT_COMPANY_PROFILE.displayName,
+        storefrontOpen: Number(row.storefront_open ?? 1) === 1,
         contactNumber: row.contact_number || '',
         supportEmail: row.support_email || '',
         address: row.address || '',
+        city: row.city || '',
+        state: row.state || '',
+        postalCode: row.postal_code || '',
+        country: row.country || '',
+        openingHours: row.opening_hours || '',
+        latitude: row.latitude == null ? '' : String(row.latitude),
+        longitude: row.longitude == null ? '' : String(row.longitude),
         gstNumber: row.gst_number || '',
         taxEnabled: Number(row.tax_enabled || 0) === 1,
         instagramUrl: row.instagram_url || '',
@@ -62,14 +78,22 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
+                DEFAULT_COMPANY_PROFILE.storefrontOpen ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.contactNumber,
                 DEFAULT_COMPANY_PROFILE.supportEmail,
                 DEFAULT_COMPANY_PROFILE.address,
+                DEFAULT_COMPANY_PROFILE.city,
+                DEFAULT_COMPANY_PROFILE.state,
+                DEFAULT_COMPANY_PROFILE.postalCode,
+                DEFAULT_COMPANY_PROFILE.country,
+                DEFAULT_COMPANY_PROFILE.openingHours,
+                null,
+                null,
                 DEFAULT_COMPANY_PROFILE.gstNumber,
                 DEFAULT_COMPANY_PROFILE.taxEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.instagramUrl,
@@ -111,9 +135,17 @@ class CompanyProfile {
 
         const next = {
             displayName: String(payload.displayName || '').trim() || DEFAULT_COMPANY_PROFILE.displayName,
+            storefrontOpen: payload.storefrontOpen !== false,
             contactNumber: String(payload.contactNumber || '').trim(),
             supportEmail: String(payload.supportEmail || '').trim(),
             address: String(payload.address || '').trim(),
+            city: String(payload.city || '').trim(),
+            state: String(payload.state || '').trim(),
+            postalCode: String(payload.postalCode || '').trim(),
+            country: String(payload.country || '').trim(),
+            openingHours: String(payload.openingHours || '').trim(),
+            latitude: String(payload.latitude ?? '').trim(),
+            longitude: String(payload.longitude ?? '').trim(),
             gstNumber: String(payload.gstNumber || '').trim(),
             taxEnabled: payload.taxEnabled === true || payload.taxEnabled === 1 || String(payload.taxEnabled || '').toLowerCase() === 'true',
             instagramUrl: String(payload.instagramUrl || '').trim(),
@@ -135,13 +167,21 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, contact_number, support_email, address, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
+                storefront_open = VALUES(storefront_open),
                 contact_number = VALUES(contact_number),
                 support_email = VALUES(support_email),
                 address = VALUES(address),
+                city = VALUES(city),
+                state = VALUES(state),
+                postal_code = VALUES(postal_code),
+                country = VALUES(country),
+                opening_hours = VALUES(opening_hours),
+                latitude = VALUES(latitude),
+                longitude = VALUES(longitude),
                 gst_number = VALUES(gst_number),
                 tax_enabled = VALUES(tax_enabled),
                 instagram_url = VALUES(instagram_url),
@@ -160,9 +200,17 @@ class CompanyProfile {
                 updated_at = CURRENT_TIMESTAMP`,
             [
                 next.displayName,
+                next.storefrontOpen ? 1 : 0,
                 next.contactNumber,
                 next.supportEmail,
                 next.address,
+                next.city,
+                next.state,
+                next.postalCode,
+                next.country,
+                next.openingHours,
+                next.latitude || null,
+                next.longitude || null,
                 next.gstNumber,
                 next.taxEnabled ? 1 : 0,
                 next.instagramUrl,
@@ -212,9 +260,17 @@ class CompanyProfile {
         const source = profile || {};
         return {
             displayName: String(source.displayName || DEFAULT_COMPANY_PROFILE.displayName),
+            storefrontOpen: source.storefrontOpen !== false,
             contactNumber: String(source.contactNumber || ''),
             supportEmail: String(source.supportEmail || ''),
             address: String(source.address || ''),
+            city: String(source.city || ''),
+            state: String(source.state || ''),
+            postalCode: String(source.postalCode || ''),
+            country: String(source.country || ''),
+            openingHours: String(source.openingHours || ''),
+            latitude: String(source.latitude ?? ''),
+            longitude: String(source.longitude ?? ''),
             gstNumber: String(source.gstNumber || ''),
             taxEnabled: source.taxEnabled === true || source.taxEnabled === 1,
             instagramUrl: String(source.instagramUrl || ''),

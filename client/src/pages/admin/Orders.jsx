@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -12,6 +12,7 @@ import { getGstDisplayDetails } from '../../utils/gst';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAuth } from '../../context/AuthContext';
+import { getPreferredPrinterTransport, getPrinterSupportState, printShippingLabel, validateShippingLabelData } from '../../utils/thermalLabelPrint';
 
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
@@ -205,7 +206,6 @@ export default function Orders({
     const toast = useToast();
     const { user } = useAuth();
     const [orders, setOrders] = useState([]);
-    const [paymentHealth, setPaymentHealth] = useState(null);
     const [metrics, setMetrics] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('all');
@@ -253,6 +253,10 @@ export default function Orders({
     const [isExporting, setIsExporting] = useState(false);
     const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
     const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
+    const [printingLabelId, setPrintingLabelId] = useState(null);
+    const [companyProfile, setCompanyProfile] = useState(null);
+    const printerSupport = useMemo(() => getPrinterSupportState(), []);
+    const preferredPrinterTransport = useMemo(() => getPreferredPrinterTransport(), []);
     const [selectedStatusCount, setSelectedStatusCount] = useState(0);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
@@ -360,6 +364,16 @@ export default function Orders({
         const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
         return status === 'paid' || status === 'refunded';
     };
+    const getShippingLabelValidation = useCallback((order) => {
+        if (!companyProfile) {
+            return { ok: false, missing: ['company profile'] };
+        }
+        return validateShippingLabelData(order, companyProfile);
+    }, [companyProfile]);
+    const canPrintShippingLabel = useCallback((order) => {
+        if (isAttemptEntry(order)) return false;
+        return getShippingLabelValidation(order).ok;
+    }, [getShippingLabelValidation]);
     const needsSettlementSync = (order) => {
         if (!order || isAttemptEntry(order)) return false;
         const paymentStatus = String(order?.payment_status || '').toLowerCase();
@@ -693,15 +707,6 @@ export default function Orders({
         }
     }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, sourceChannel, startDate, statusFilter, toast]);
 
-    const fetchPaymentHealth = useCallback(async () => {
-        try {
-            const data = await orderService.getAdminPaymentHealth();
-            setPaymentHealth(data?.summary || null);
-        } catch {
-            setPaymentHealth(null);
-        }
-    }, []);
-
     useEffect(() => {
         registerOrderMetricsQuery(metricsQuery);
         fetchOrderMetrics(metricsQuery).catch(() => {});
@@ -712,8 +717,20 @@ export default function Orders({
     }, [fetchOrders]);
 
     useEffect(() => {
-        fetchPaymentHealth();
-    }, [fetchPaymentHealth]);
+        let active = true;
+        adminService.getCompanyInfo()
+            .then((data) => {
+                if (!active) return;
+                setCompanyProfile(data?.company || null);
+            })
+            .catch(() => {
+                if (!active) return;
+                setCompanyProfile(null);
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
 
     useEffect(() => {
         if (!selectedOrder) return;
@@ -1019,6 +1036,45 @@ export default function Orders({
             toast.error(error.message || 'Unable to send invoice to customer');
         } finally {
             setSendingInvoiceId(null);
+        }
+    };
+    const handlePrintShippingLabel = async (order, e = null) => {
+        if (e) e.stopPropagation();
+        if (!printerSupport.supported) {
+            toast.error(printerSupport.reason);
+            return;
+        }
+        const validation = getShippingLabelValidation(order);
+        if (!validation.ok) {
+            toast.error(`Shipping label unavailable: missing ${validation.missing.join(', ')}`);
+            return;
+        }
+        setPrintingLabelId(order.order_id || order.id);
+        try {
+            let result;
+            try {
+                result = await printShippingLabel({
+                    order,
+                    companyProfile,
+                    forceReconnect: false,
+                    transport: preferredPrinterTransport,
+                    onProgress: () => {}
+                });
+            } catch (error) {
+                result = await printShippingLabel({
+                    order,
+                    companyProfile,
+                    forceReconnect: true,
+                    transport: preferredPrinterTransport,
+                    onProgress: () => {}
+                }).catch(() => { throw error; });
+            }
+            const transportLabel = String(result?.printer?.transport || '').toLowerCase() === 'usb' ? 'USB' : 'Bluetooth';
+            toast.success(`Shipping label printed for ${order.order_ref} via ${transportLabel}`);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to print shipping label');
+        } finally {
+            setPrintingLabelId(null);
         }
     };
 
@@ -1383,7 +1439,6 @@ export default function Orders({
             setAttemptConversionReason('');
             setPage(1);
             fetchOrders(1);
-            fetchPaymentHealth();
         } catch (error) {
             toast.error(error?.message || 'Failed to convert payment attempt');
         } finally {
@@ -1865,17 +1920,6 @@ export default function Orders({
                 <div>
                     <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
                     <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
-                    {paymentHealth && (
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                            <span className={`px-2.5 py-1 rounded-full border ${paymentHealth.totalIssues > 0 ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
-                                Payment Health: {paymentHealth.totalIssues > 0 ? `${paymentHealth.totalIssues} issue(s)` : 'Healthy'}
-                            </span>
-                            {paymentHealth.unlinkedPaidAttempts > 0 && <span className="px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-800">Unlinked paid attempts: {paymentHealth.unlinkedPaidAttempts}</span>}
-                            {paymentHealth.staleActiveAttempts > 0 && <span className="px-2.5 py-1 rounded-full border border-amber-200 bg-amber-50 text-amber-800">Stale active attempts: {paymentHealth.staleActiveAttempts}</span>}
-                            {paymentHealth.failedSettlements > 0 && <span className="px-2.5 py-1 rounded-full border border-rose-200 bg-rose-50 text-rose-700">Failed settlements: {paymentHealth.failedSettlements}</span>}
-                            {paymentHealth.missingSettlements > 0 && <span className="px-2.5 py-1 rounded-full border border-sky-200 bg-sky-50 text-sky-700">Missing settlements: {paymentHealth.missingSettlements}</span>}
-                        </div>
-                    )}
                 </div>
                 <div className="w-full">
                     <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center gap-2 w-full md:w-auto">
@@ -2177,6 +2221,17 @@ export default function Orders({
                                                             <MessageCircle size={14} />
                                                         </a>
                                                     )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => handlePrintShippingLabel(order, e)}
+                                                        disabled={printingLabelId === (order.order_id || order.id) || (!canPrintShippingLabel(order) && printerSupport.supported)}
+                                                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                                                        title={canPrintShippingLabel(order)
+                                                            ? 'Print shipping label'
+                                                            : 'Shipping label requires complete sender and receiver address details'}
+                                                    >
+                                                        <Printer size={14} />
+                                                    </button>
                                                     {canDownloadInvoice(order) && (
                                                         <button
                                                             type="button"
@@ -2285,6 +2340,17 @@ export default function Orders({
                                                 <MessageCircle size={14} />
                                             </a>
                                         )}
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handlePrintShippingLabel(order, e)}
+                                            disabled={printingLabelId === (order.order_id || order.id) || (!canPrintShippingLabel(order) && printerSupport.supported)}
+                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                                            title={canPrintShippingLabel(order)
+                                                ? 'Print shipping label'
+                                                : 'Shipping label requires complete sender and receiver address details'}
+                                        >
+                                            <Printer size={14} />
+                                        </button>
                                         {canDownloadInvoice(order) && (
                                             <button
                                                 type="button"

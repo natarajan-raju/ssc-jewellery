@@ -1,6 +1,7 @@
 const AbandonedCart = require('../models/AbandonedCart');
 const { runDueAbandonedCartRecoveriesUntilClear, runAbandonedCartMaintenanceOnce } = require('../services/abandonedCartRecoveryService');
 const { listCommunicationDeliveryLogs } = require('../services/communications/communicationRetryService');
+const CompanyProfile = require('../models/CompanyProfile');
 
 const parseIntegerArrayStrict = (value, field) => {
     if (value == null) return undefined;
@@ -53,6 +54,12 @@ const updateAbandonedCartCampaign = async (req, res) => {
 
 const processAbandonedCartRecoveriesNow = async (req, res) => {
     try {
+        const company = await CompanyProfile.get();
+        if (company?.storefrontOpen === false) {
+            return res.status(423).json({
+                message: 'Storefront is closed for new orders. Abandoned-cart recovery is paused until the store reopens.'
+            });
+        }
         const limit = Number(req.body?.limit || req.query?.limit || 25);
         const io = req.app.get('io');
         const onJourneyUpdate = io

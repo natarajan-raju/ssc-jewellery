@@ -477,6 +477,7 @@ const getCompanyInfo = async (_req, res) => {
                 gstNumber: profile.gstNumber || '',
                 taxEnabled: Boolean(profile.taxEnabled),
                 contactJumbotronImageUrl: profile.contactJumbotronImageUrl,
+                storefrontOpen: profile.storefrontOpen !== false,
                 razorpayKeyId: profile.razorpayKeyId || '',
                 razorpayEmiMinAmount: Number(profile.razorpayEmiMinAmount || 3000),
                 razorpayStartingTenureMonths: Number(profile.razorpayStartingTenureMonths || 12)
