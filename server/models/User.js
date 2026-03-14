@@ -70,7 +70,7 @@ class User {
                 WHEN role = 'staff' THEN 2
                 ELSE 1
                 END DESC, 
-                createdAt DESC
+                created_at DESC
         `);
         return rows.map(User.normalizeRow);
     }
@@ -130,7 +130,7 @@ class User {
                 WHEN u.role = 'staff' THEN 2
                 ELSE 1
                 END DESC, 
-                u.createdAt DESC
+                u.created_at DESC
             LIMIT ? OFFSET ?`;
         
         params.push(parseInt(limit), parseInt(offset));
@@ -184,8 +184,7 @@ class User {
     static async create(userData) {
         const baseData = {
             ...userData,
-            role: userData.role || 'customer',
-            createdAt: new Date()
+            role: userData.role || 'customer'
         };
 
         // Generate ID: Timestamp + Random (8-12 chars)
@@ -193,13 +192,13 @@ class User {
         const randomPart = Math.random().toString(36).substring(2, 6);
         const uniqueId = `${timePart}${randomPart}`;
 
-        const query = `INSERT INTO users (id, name, email, mobile, password, role, dob, address, billing_address, profile_image, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        const query = `INSERT INTO users (id, name, email, mobile, password, role, dob, address, billing_address, profile_image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
         const addressJson = baseData.address ? JSON.stringify(baseData.address) : null;
         const billingJson = baseData.billingAddress ? JSON.stringify(baseData.billingAddress) : null;
         
         await db.execute(query, [
             uniqueId, baseData.name, baseData.email, baseData.mobile, 
-            baseData.password, baseData.role, baseData.dob || null, addressJson, billingJson, baseData.profileImage || null, baseData.createdAt
+            baseData.password, baseData.role, baseData.dob || null, addressJson, billingJson, baseData.profileImage || null
         ]);
         
         return { id: uniqueId, ...baseData, dobLocked: false, birthdayOfferClaimedYear: null };
