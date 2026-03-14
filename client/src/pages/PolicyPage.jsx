@@ -5,7 +5,7 @@ import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { buildPolicySeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
-const WEBSITE_URL = 'https://sscjewels.com';
+import { getWebsiteUrl } from '../utils/publicContact';
 
 const DEFAULT_COMPANY = {
     displayName: 'SSC Impon Jewellery',
@@ -37,7 +37,7 @@ const getJurisdiction = (address = '') => {
     return 'as per registered office address configured by the merchant';
 };
 
-const getPolicyContent = ({ merchantName, registeredOffice, jurisdiction, effectiveDate, supportEmail }) => ({
+const getPolicyContent = ({ merchantName, registeredOffice, jurisdiction, effectiveDate, supportEmail, websiteUrl }) => ({
     terms: {
         title: 'Terms & Conditions',
         sections: [
@@ -151,7 +151,7 @@ const getPolicyContent = ({ merchantName, registeredOffice, jurisdiction, effect
     copyright: {
         title: 'Copyright & Legal Disclaimer',
         sections: [
-            { heading: 'Website Ownership', paragraphs: [`This website (${WEBSITE_URL}) and all associated brand assets are operated by ${merchantName}.`] },
+            { heading: 'Website Ownership', paragraphs: [`This website (${websiteUrl}) and all associated brand assets are operated by ${merchantName}.`] },
             { heading: 'Copyright Notice', paragraphs: ['All content on this website including logos, product photos, graphics, text, and layout is protected by applicable copyright and intellectual property laws. Unauthorized copying, reproduction, or republication is prohibited without prior written permission.'] },
             { heading: 'Trademark Disclaimer', paragraphs: ['Brand names, product names, and logos used on this website are either property of the merchant or used with lawful permission where applicable.'] },
             { heading: 'Product Representation Disclaimer', paragraphs: ['Product images are for representation purposes only. Slight differences in shade, texture, and finish may occur due to photography, screen settings, and handcrafted/artificial jewellery characteristics.'] },
@@ -175,6 +175,7 @@ const POLICY_THEME = {
 export default function PolicyPage() {
     const location = useLocation();
     const { companyInfo, applyCompanyInfo } = usePublicCompanyInfo();
+    const WEBSITE_URL = useMemo(() => getWebsiteUrl(), []);
     const company = useMemo(() => ({
         ...DEFAULT_COMPANY,
         ...(companyInfo || {}),
@@ -199,7 +200,8 @@ export default function PolicyPage() {
         registeredOffice,
         jurisdiction,
         effectiveDate,
-        supportEmail: String(company.supportEmail || '').trim()
+        supportEmail: String(company.supportEmail || '').trim(),
+        websiteUrl: WEBSITE_URL
     });
     const current = policies[policyKey];
     const seoConfig = useMemo(() => buildPolicySeo({

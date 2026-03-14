@@ -75,11 +75,31 @@ const sanitizeRequest = require('./middleware/sanitizeRequest');
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
 
+const buildSocketCorsOrigins = () => {
+    const rawOrigins = [
+        process.env.APP_BASE_URL,
+        process.env.CLIENT_BASE_URL,
+        process.env.FRONTEND_URL
+    ]
+        .flatMap((value) => String(value || '').split(','))
+        .map((value) => value.trim().replace(/\/+$/, ''))
+        .filter(Boolean);
+
+    if (rawOrigins.length > 0) {
+        return Array.from(new Set(rawOrigins));
+    }
+
+    if (!isProduction) {
+        return ['http://localhost:5173', 'http://localhost:3000'];
+    }
+
+    return true;
+};
+
 // [NEW] Setup Socket.io
 const io = new Server(server, {
     cors: {
-        // Allow connections from your Frontend URL(s)
-        origin: ["http://localhost:5173", "http://localhost:3000"], 
+        origin: buildSocketCorsOrigins(),
         methods: ["GET", "POST"]
     }
 });

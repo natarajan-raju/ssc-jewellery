@@ -8,6 +8,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { orderService } from '../services/orderService';
 import ordersIllustration from '../assets/orders.svg';
 import { getGstDisplayDetails } from '../utils/gst';
+import { buildWhatsAppChatLink } from '../utils/publicContact';
 
 const formatDate = (value) => {
     if (!value) return '—';
@@ -196,7 +197,7 @@ const isCancelledWithoutRefund = (order) => String(order?.status || '').toLowerC
 const getOrderSupportLink = (order) => {
     const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
     const text = `Hi, I need support for my order ${orderRef}. I have a query regarding this order.`;
-    return `https://wa.me/919500941350?text=${encodeURIComponent(text)}`;
+    return buildWhatsAppChatLink({ text });
 };
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {

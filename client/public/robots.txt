@@ -13,4 +13,4 @@ Disallow: /checkout
 Disallow: /payment/success
 Disallow: /payment/failed
 
-Sitemap: http://localhost:5173/sitemap.xml
+# Production build replaces this fallback file with generated crawl artifacts.

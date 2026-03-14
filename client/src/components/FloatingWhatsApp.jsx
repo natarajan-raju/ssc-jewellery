@@ -1,6 +1,16 @@
+import { useMemo } from 'react';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { buildWhatsAppChatLink } from '../utils/publicContact';
+
 const FloatingWhatsApp = () => {
+    const { companyInfo } = usePublicCompanyInfo();
     const message = 'I am interested in your products in your website.';
-    const href = `https://wa.me/+919500941350?text=${encodeURIComponent(message)}`;
+    const href = useMemo(() => buildWhatsAppChatLink({
+        number: companyInfo?.whatsappNumber,
+        text: message
+    }), [companyInfo?.whatsappNumber]);
+
+    if (!href) return null;
 
     return (
         <a

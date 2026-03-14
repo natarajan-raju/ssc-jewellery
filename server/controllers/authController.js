@@ -172,7 +172,13 @@ const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' }
 
 const buildWelcomeEmailTemplate = ({ user = {} } = {}) => {
     const customerName = String(user?.name || 'Customer').trim() || 'Customer';
-    const shopUrl = String(process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || 'https://sscjewels.com').trim();
+    const shopUrl = String(
+        process.env.APP_BASE_URL
+        || process.env.CLIENT_BASE_URL
+        || process.env.FRONTEND_URL
+        || process.env.APP_URL
+        || (String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production' ? '' : 'http://localhost:5173')
+    ).trim();
     const subject = `Welcome to SSC Impon Jewellery, ${customerName}`;
     const text = [
         `Hello ${customerName},`,
@@ -194,7 +200,7 @@ const buildWelcomeEmailTemplate = ({ user = {} } = {}) => {
                         <p style="margin:0 0 12px;">Your account has been successfully created.</p>
                         <p style="margin:0 0 12px;">You can now explore products, track orders, and enjoy exclusive offers.</p>
                         <p style="margin:0 0 16px;">We are happy to have you with us.</p>
-                        <a href="${shopUrl}" target="_blank" rel="noreferrer" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Shop Now</a>
+                        ${shopUrl ? `<a href="${shopUrl}" target="_blank" rel="noreferrer" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Shop Now</a>` : ''}
                         <p style="margin:16px 0 0;">Happy shopping!<br/>Team SSC Impon Jewellery</p>
                     </td>
                 </tr>

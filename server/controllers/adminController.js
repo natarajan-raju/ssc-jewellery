@@ -2427,7 +2427,7 @@ const issueCouponToUser = async (req, res) => {
                         couponCode: coupon.code,
                         discount: offerLabel,
                         validUntil: expiryLabel,
-                        shopUrl: categoryContext?.categoryUrl || process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || 'https://sscjewellery.com/'
+                        shopUrl: categoryContext?.categoryUrl || process.env.APP_BASE_URL || process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || ''
                     }
                 }).catch(() => ({ ok: false }))
                 : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })

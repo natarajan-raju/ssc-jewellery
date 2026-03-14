@@ -16,6 +16,7 @@ import placeholderImg from '../assets/placeholder.jpg'
 import { vibrateTap } from '../utils/haptics';
 import { buildProductSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { buildWhatsAppShareLink } from '../utils/publicContact';
 
 const toBool = (value) => value === 1 || value === true || value === '1' || value === 'true';
 const toNumber = (value, fallback = 0) => {
@@ -760,7 +761,7 @@ export default function ProductPage() {
     const encodedUrl = encodeURIComponent(shareUrl);
     const encodedText = encodeURIComponent(shareText);
     const shareLinks = {
-        whatsapp: `https://wa.me/9500941350?text=${encodedText}`,
+        whatsapp: buildWhatsAppShareLink({ text: shareText }),
         facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
         twitter: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
         telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`

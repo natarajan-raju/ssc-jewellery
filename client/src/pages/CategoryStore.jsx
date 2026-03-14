@@ -8,6 +8,7 @@ import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 import { buildCategorySeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { buildWhatsAppShareLink } from '../utils/publicContact';
 import emptyIllustration from '../assets/closed.svg';
 // import { io } from 'socket.io-client';
 
@@ -71,7 +72,7 @@ export default function CategoryStore() {
     const encodedUrl = encodeURIComponent(shareUrl);
     const encodedText = encodeURIComponent(shareText);
     const shareLinks = {
-        whatsapp: `https://wa.me/9500941350?text=${encodedText}`,
+        whatsapp: buildWhatsAppShareLink({ text: shareText }),
         facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
         twitter: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
         telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`
