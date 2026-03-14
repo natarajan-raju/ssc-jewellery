@@ -40,8 +40,10 @@ if (!String(process.env.JWT_SECRET || '').trim()) {
     console.error('FATAL: JWT_SECRET is missing. Set JWT_SECRET in your environment before starting the server.');
     process.exit(1);
 }
+console.log('Boot: JWT secret present');
 
 const db = require('./config/db');
+console.log('Boot: DB module loaded');
 
 const express = require('express');
 const cors = require('cors');
@@ -175,14 +177,20 @@ app.get('*', (req, res) => {
 
 // [CHANGE] Use server.listen instead of app.listen
 const startServer = async () => {
+    console.log('Boot: startServer invoked');
     try {
         if (db?.ready && typeof db.ready.then === 'function') {
+            console.log('Boot: waiting for DB readiness');
             await db.ready;
+            console.log('Boot: DB ready');
+        } else {
+            console.log('Boot: DB readiness promise not found, continuing');
         }
     } catch (error) {
         console.error('Database bootstrap failed. Server not started:', error?.message || error);
         process.exit(1);
     }
+    console.log(`Boot: starting HTTP server on port ${PORT}`);
     server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 };
 startServer();
