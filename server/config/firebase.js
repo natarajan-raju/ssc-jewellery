@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const admin = require('firebase-admin');
+const isProduction = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 
 const normalizePrivateKey = (value = '') => String(value || '').replace(/\\n/g, '\n');
 
@@ -45,11 +46,23 @@ const loadServiceAccountFromPath = () => {
 };
 
 const loadServiceAccount = () => {
+  const fallbackPath = path.resolve(__dirname, '../service-account.json');
+
+  if (!isProduction && fs.existsSync(fallbackPath)) {
+    return require(fallbackPath);
+  }
+
   const fromEnv = loadServiceAccountFromEnv();
   if (fromEnv) return fromEnv;
   const fromPath = loadServiceAccountFromPath();
   if (fromPath) return fromPath;
-  return require('../service-account.json');
+  if (fs.existsSync(fallbackPath)) {
+    return require(fallbackPath);
+  }
+
+  throw new Error(
+    'Firebase service account not found. Set FIREBASE_SERVICE_ACCOUNT_PATH or provide FIREBASE_SERVICE_ACCOUNT_JSON / FIREBASE_PROJECT_ID + FIREBASE_CLIENT_EMAIL + FIREBASE_PRIVATE_KEY.'
+  );
 };
 
 if (!admin.apps.length) {

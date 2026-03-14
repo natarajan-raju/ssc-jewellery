@@ -19,6 +19,7 @@ const {
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
 const { emitToUserAudiences } = require('../utils/socketAudience');
+const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
 const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 
 const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
@@ -1113,17 +1114,8 @@ const getDashboardAlertSettings = async (_req, res) => {
     }
 };
 
-const CLIENT_PUBLIC_DIR = path.join(__dirname, '../../client/public');
-const resolveLocalUploadedAssetPath = (assetUrl = '') => {
-    const raw = String(assetUrl || '').trim();
-    if (!raw.startsWith('/uploads/')) return null;
-    const absolutePath = path.join(CLIENT_PUBLIC_DIR, raw.replace(/^\/+/, ''));
-    if (!absolutePath.startsWith(CLIENT_PUBLIC_DIR)) return null;
-    return absolutePath;
-};
-
 const removeUploadedAssetIfLocal = async (assetUrl = '') => {
-    const absolutePath = resolveLocalUploadedAssetPath(assetUrl);
+    const absolutePath = resolveUploadedAssetPath(assetUrl);
     if (!absolutePath) return;
     try {
         await fs.promises.unlink(absolutePath);

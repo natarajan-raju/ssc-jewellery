@@ -14,6 +14,7 @@ const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
 const jwt = require('jsonwebtoken');
 const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
+const { getUploadsRoot } = require('./utils/uploadsRoot');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
@@ -184,7 +185,7 @@ app.use('/api/uploads', uploadRoutes);
 app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wishlist', wishlistRoutes);
-app.use('/uploads', express.static(path.join(__dirname, '../client/public/uploads')));
+app.use('/uploads', express.static(getUploadsRoot()));
 app.get('/robots.txt', (_req, res) => {
     res.type('text/plain').send(buildRobotsTxt());
 });

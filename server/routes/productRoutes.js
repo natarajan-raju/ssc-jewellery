@@ -2,20 +2,14 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const { protect, optionalProtect, admin } = require('../middleware/authMiddleware');
 const { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, manageCategoryProductsBulk, createCategory, deleteCategory } = require('../controllers/productController');
+const { ensureUploadsSubdir } = require('../utils/uploadsRoot');
 
 // --- MULTER CONFIGURATION (Image Uploads) ---
 const storage = multer.diskStorage({
     destination(req, file, cb) {
-        // Save directly to Frontend Public folder for easy serving
-        const uploadPath = path.join(__dirname, '../../client/public/uploads/products');
-        
-        // Ensure folder exists
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
-        }
+        const uploadPath = ensureUploadsSubdir('products');
         cb(null, uploadPath);
     },
     filename(req, file, cb) {
@@ -26,9 +20,7 @@ const storage = multer.diskStorage({
 
 const categoryStorage = multer.diskStorage({
     destination(req, file, cb) {
-        // Save to a specific categories folder
-        const uploadPath = path.join(__dirname, '../../client/public/uploads/categories');
-        if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
+        const uploadPath = ensureUploadsSubdir('categories');
         cb(null, uploadPath);
     },
     filename(req, file, cb) {

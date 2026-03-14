@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { ensureUploadsSubdir } = require('./uploadsRoot');
 
 const DEFAULT_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const DEFAULT_AUDIO_MIME_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm'];
@@ -33,10 +34,7 @@ const isAllowedUpload = (file = {}, options = {}) => {
 const createDiskStorage = (subdir) => {
     return multer.diskStorage({
         destination: (req, file, cb) => {
-            const uploadPath = path.join(__dirname, '../../client/public/uploads', subdir);
-            if (!fs.existsSync(uploadPath)) {
-                fs.mkdirSync(uploadPath, { recursive: true });
-            }
+            const uploadPath = ensureUploadsSubdir(subdir);
             cb(null, uploadPath);
         },
         filename: (req, file, cb) => {

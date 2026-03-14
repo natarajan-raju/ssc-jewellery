@@ -4,6 +4,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const CompanyProfile = require('../models/CompanyProfile');
 const { sendEmailCommunication } = require('../services/communications/communicationService');
+const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
 
 const CONTACT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CONTACT_RATE_LIMIT_MAX = 5;
@@ -81,18 +82,8 @@ const parseMaybeJson = (value, fallback = null) => {
     }
 };
 
-const CLIENT_PUBLIC_DIR = path.join(__dirname, '../../client/public');
-
-const resolveLocalCmsAssetPath = (assetUrl = '') => {
-    const raw = String(assetUrl || '').trim();
-    if (!raw.startsWith('/uploads/')) return null;
-    const absolutePath = path.join(CLIENT_PUBLIC_DIR, raw.replace(/^\/+/, ''));
-    if (!absolutePath.startsWith(CLIENT_PUBLIC_DIR)) return null;
-    return absolutePath;
-};
-
 const removeCmsAssetIfUploaded = async (assetUrl = '') => {
-    const absolutePath = resolveLocalCmsAssetPath(assetUrl);
+    const absolutePath = resolveUploadedAssetPath(assetUrl);
     if (!absolutePath) return;
     try {
         await fs.promises.unlink(absolutePath);
