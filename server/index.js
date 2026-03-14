@@ -85,6 +85,7 @@ const {
     processQueuedCommunicationRetries,
     pruneCommunicationDeliveryLogs
 } = require('./services/communications/communicationRetryService');
+const { buildRobotsTxt, buildSitemapXml, loadSitemapEntries } = require('./services/seoService');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
 console.log('Boot: service and middleware modules loaded');
 
@@ -184,6 +185,18 @@ app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/uploads', express.static(path.join(__dirname, '../client/public/uploads')));
+app.get('/robots.txt', (_req, res) => {
+    res.type('text/plain').send(buildRobotsTxt());
+});
+app.get('/sitemap.xml', async (_req, res) => {
+    try {
+        const entries = await loadSitemapEntries();
+        res.type('application/xml').send(buildSitemapXml(entries));
+    } catch (error) {
+        console.error('Failed to generate sitemap.xml:', error?.message || error);
+        res.status(500).type('application/xml').send(buildSitemapXml([]));
+    }
+});
 // Serve Frontend
 app.use(express.static(path.join(__dirname, '../client/dist')));
 app.get('*', (req, res) => {

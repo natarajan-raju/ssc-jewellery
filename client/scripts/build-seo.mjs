@@ -1,6 +1,5 @@
 import fs from 'fs/promises';
 import path from 'path';
-import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
@@ -89,116 +88,6 @@ const buildSitemapXml = (entries = []) => {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 };
 
-const buildRobotsTxt = () => {
-    const baseUrl = String(process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
-    const sitemapUrl = baseUrl ? `${baseUrl}/sitemap.xml` : '/sitemap.xml';
-    return [
-        'User-agent: *',
-        'Allow: /',
-        'Disallow: /admin',
-        'Disallow: /login',
-        'Disallow: /register',
-        'Disallow: /forgot-password',
-        'Disallow: /profile',
-        'Disallow: /wishlist',
-        'Disallow: /orders',
-        'Disallow: /track-order',
-        'Disallow: /cart',
-        'Disallow: /checkout',
-        'Disallow: /payment/success',
-        'Disallow: /payment/failed',
-        '',
-        `Sitemap: ${sitemapUrl}`,
-        ''
-    ].join('\n');
-};
-
-const getDbConnection = async () => mysql.createConnection({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-    dateStrings: true,
-    timezone: 'Z'
-});
-
-const normalizeCompany = (row = {}) => ({
-    displayName: row.display_name || 'SSC Jewellery',
-    supportEmail: row.support_email || '',
-    contactNumber: row.contact_number || '',
-    whatsappNumber: row.whatsapp_number || '',
-    city: row.city || '',
-    state: row.state || '',
-    postalCode: row.postal_code || '',
-    country: row.country || '',
-    openingHours: row.opening_hours || '',
-    latitude: row.latitude == null ? '' : String(row.latitude),
-    longitude: row.longitude == null ? '' : String(row.longitude),
-    instagramUrl: row.instagram_url || '',
-    youtubeUrl: row.youtube_url || '',
-    facebookUrl: row.facebook_url || '',
-    address: row.address || '',
-    contactJumbotronImageUrl: row.contact_jumbotron_image_url || '/assets/contact.jpg'
-});
-
-const normalizeProduct = (row = {}) => ({
-    ...row,
-    media: parseJsonSafe(row.media, []),
-    categories: parseJsonSafe(row.categories, []),
-    variants: []
-});
-
-const loadSeoData = async () => {
-    const connection = await getDbConnection();
-    try {
-        const [[companyRow = {}]] = await connection.query('SELECT * FROM company_profile WHERE id = 1 LIMIT 1');
-        const [categoryRows] = await connection.query(`
-            SELECT
-                c.id,
-                c.name,
-                c.image_url,
-                COUNT(DISTINCT p.id) AS product_count,
-                MAX(p.updated_at) AS lastmod
-            FROM categories c
-            JOIN product_categories pc ON pc.category_id = c.id
-            JOIN products p ON p.id = pc.product_id AND LOWER(COALESCE(p.status, '')) = 'active'
-            GROUP BY c.id, c.name, c.image_url
-            HAVING COUNT(DISTINCT p.id) > 0
-            ORDER BY c.name ASC
-        `);
-        const [productRows] = await connection.query(`
-            SELECT
-                p.id,
-                p.title,
-                p.subtitle,
-                p.description,
-                p.media,
-                p.categories,
-                p.mrp,
-                p.discount_price,
-                p.sku,
-                p.track_quantity,
-                p.quantity,
-                p.track_low_stock,
-                p.low_stock_threshold,
-                p.updated_at
-            FROM products p
-            WHERE LOWER(COALESCE(p.status, '')) = 'active'
-            ORDER BY p.updated_at DESC, p.created_at DESC
-        `);
-        return {
-            company: normalizeCompany(companyRow),
-            categories: categoryRows.map((row) => ({
-                ...row,
-                product_count: Number(row.product_count || 0)
-            })),
-            products: productRows.map(normalizeProduct)
-        };
-    } finally {
-        await connection.end();
-    }
-};
-
 const buildRouteEntries = ({ company, categories, products }) => {
     const today = new Date().toISOString().slice(0, 10);
     const staticPages = [
@@ -238,29 +127,16 @@ const buildRouteEntries = ({ company, categories, products }) => {
 const run = async () => {
     loadEnv();
     const templateHtml = await fs.readFile(path.join(distDir, 'index.html'), 'utf8');
-    let data = {
+    const data = {
         company: { displayName: 'SSC Jewellery', contactJumbotronImageUrl: '/assets/contact.jpg' },
         categories: [],
         products: []
     };
 
-    try {
-        data = await loadSeoData();
-    } catch (error) {
-        console.warn('SEO build: dynamic SEO data unavailable, continuing with static-only fallbacks.', error?.message || error);
-    }
-
     const routes = buildRouteEntries(data);
     for (const route of routes) {
         await writeRouteHtml(route.path, injectSeo(templateHtml, route.seo));
     }
-
-    const sitemapEntries = routes.map((route) => ({
-        loc: route.seo.canonical,
-        lastmod: route.lastmod || null
-    }));
-    await fs.writeFile(path.join(distDir, 'sitemap.xml'), buildSitemapXml(sitemapEntries), 'utf8');
-    await fs.writeFile(path.join(distDir, 'robots.txt'), buildRobotsTxt(), 'utf8');
 };
 
 run().catch((error) => {
