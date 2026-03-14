@@ -11,6 +11,15 @@ const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
 
 // --- CACHE STORAGE ---
 let productCache = {};
+const clearCategoryCaches = () => {
+    delete productCache.all_categories;
+    delete productCache.category_stats;
+    try {
+        localStorage.removeItem(CATEGORY_STATS_CACHE_KEY);
+    } catch {
+        // Ignore local storage errors.
+    }
+};
 
 const buildProductsCacheKey = (page, category, status, sort, limit, categoryId = '') =>
     `page${page}_limit${limit}_cat${category}_catid${categoryId || ''}_stat${status}_sort${sort}`;
@@ -359,6 +368,7 @@ export const productService = {
         });
         
         productCache = {}; // Clear cache on change
+        clearCategoryCaches();
         return handleResponse(res);
     },
 
@@ -370,6 +380,7 @@ export const productService = {
         });
         
         productCache = {}; // Clear cache so list refreshes
+        clearCategoryCaches();
         return handleResponse(res);
     },
 
@@ -384,6 +395,7 @@ export const productService = {
         });
 
         productCache = {}; // Clear cache
+        clearCategoryCaches();
         return handleResponse(res);
     },
 
@@ -454,6 +466,7 @@ export const productService = {
             }
             throw new Error(data.message || 'Failed to update category');
         }
+        clearCategoryCaches();
         return data;
     },
 
@@ -500,6 +513,7 @@ export const productService = {
             }
             throw new Error(data.message || 'Failed to create category');
         }
+        clearCategoryCaches();
         return data;
     },
 
@@ -508,6 +522,8 @@ export const productService = {
             method: 'DELETE',
             headers: getAuthHeader()
         });
-        return handleResponse(res);
+        const data = await handleResponse(res);
+        clearCategoryCaches();
+        return data;
     },
 };

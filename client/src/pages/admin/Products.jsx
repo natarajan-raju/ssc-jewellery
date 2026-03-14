@@ -104,6 +104,7 @@ const extractCategoryNames = (value) => {
 
 const ADMIN_FILTER_ALL = 'all';
 const ADMIN_FILTER_UNCATEGORIZED = 'uncategorized';
+const POST_CRUD_REFRESH_DELAY_MS = 180;
 
 export default function Products({ onNavigate, focusProductId = null, onFocusHandled = () => {} }) {
     const [allProducts, setAllProducts] = useState([]);
@@ -121,6 +122,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
     const [productToDelete, setProductToDelete] = useState(null); // For Delete Confirmation
+    const [refreshTick, setRefreshTick] = useState(0);
     const toast = useToast();
 
     const loadCategories = useCallback(async () => {
@@ -185,6 +187,13 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
         });
     }, [filterCategory]);
 
+    const scheduleCurrentCategoryRefresh = useCallback(() => {
+        window.clearTimeout(scheduleCurrentCategoryRefresh.timerId);
+        scheduleCurrentCategoryRefresh.timerId = window.setTimeout(() => {
+            setRefreshTick((prev) => prev + 1);
+        }, POST_CRUD_REFRESH_DELAY_MS);
+    }, []);
+
     const matchesCurrentFilter = useCallback((product = {}) => {
         const categoryNames = extractCategoryNames(product.categories);
         const normalizedCurrent = String(filterCategory || '').trim().toLowerCase();
@@ -202,6 +211,11 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
         fetchCategoryProducts({ category: filterCategory, force: false });
     }, [filterCategory, fetchCategoryProducts]);
 
+    useEffect(() => {
+        if (!refreshTick) return;
+        fetchCategoryProducts({ category: filterCategory, force: true, silent: true });
+    }, [fetchCategoryProducts, filterCategory, refreshTick]);
+
     useAdminCrudSync({
         'refresh:categories': (payload = {}) => {
             if (String(payload?.action || '').toLowerCase() === 'sync_all') {
@@ -210,7 +224,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                 clearCategoryCache(payload.category.name);
             }
             loadCategories();
-            fetchCategoryProducts({ category: filterCategory, force: true, silent: true });
+            scheduleCurrentCategoryRefresh();
         },
         'product:create': (payload = {}) => {
             const product = payload && payload.id ? payload : payload?.product;
@@ -218,12 +232,14 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             categoryNames.forEach(clearCategoryCache);
             if (!product?.id) return;
             const isInCurrent = matchesCurrentFilter(product);
-            if (!isInCurrent) return;
-            patchCurrentCategoryList((prev) => {
-                const exists = prev.some((item) => String(item?.id || '') === String(product.id));
-                if (exists) return prev.map((item) => String(item?.id || '') === String(product.id) ? { ...item, ...product } : item);
-                return [product, ...prev];
-            });
+            if (isInCurrent) {
+                patchCurrentCategoryList((prev) => {
+                    const exists = prev.some((item) => String(item?.id || '') === String(product.id));
+                    if (exists) return prev.map((item) => String(item?.id || '') === String(product.id) ? { ...item, ...product } : item);
+                    return [product, ...prev];
+                });
+            }
+            scheduleCurrentCategoryRefresh();
         },
         'product:update': (payload = {}) => {
             const product = payload && payload.id ? payload : payload?.product;
@@ -242,11 +258,13 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                 }
                 return [product, ...prev];
             });
+            scheduleCurrentCategoryRefresh();
         },
         'product:delete': ({ id } = {}) => {
             clearAllCategoryCaches();
             if (!id) return;
             patchCurrentCategoryList((prev) => prev.filter((item) => String(item?.id || '') !== String(id)));
+            scheduleCurrentCategoryRefresh();
         }
     });
 
