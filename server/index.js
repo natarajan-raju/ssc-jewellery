@@ -218,10 +218,10 @@ const startServer = async () => {
         console.error('Database bootstrap failed. Server not started:', error?.message || error);
         process.exit(1);
     }
+    initBackgroundJobs();
     console.log(`Boot: starting HTTP server on port ${PORT}`);
     server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 };
-startServer();
 
 const scheduleMidnightJob = () => {
     const now = new Date();
@@ -280,8 +280,6 @@ const scheduleMidnightJob = () => {
     }, delay);
 };
 
-scheduleMidnightJob();
-
 const schedulePaymentAttemptExpiryJob = () => {
     const intervalMs = 5 * 60 * 1000;
     setInterval(async () => {
@@ -293,8 +291,6 @@ const schedulePaymentAttemptExpiryJob = () => {
     }, intervalMs);
 };
 
-schedulePaymentAttemptExpiryJob();
-ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
 const scheduleMonthlyLoyaltyReassessment = () => {
     let lastRunKey = '';
     const runIfWindow = async () => {
@@ -332,7 +328,6 @@ const scheduleMonthlyLoyaltyReassessment = () => {
     runIfWindow();
 };
 
-scheduleMonthlyLoyaltyReassessment();
 const scheduleDailyBirthdayCoupons = () => {
     let lastRunKey = '';
     const runIfWindow = async () => {
@@ -365,7 +360,6 @@ const scheduleDailyBirthdayCoupons = () => {
     setInterval(runIfWindow, 10 * 60 * 1000);
     runIfWindow();
 };
-scheduleDailyBirthdayCoupons();
 
 const scheduleDashboardAlerts = () => {
     const run = async () => {
@@ -415,24 +409,30 @@ const scheduleCommunicationRetryMaintenance = () => {
     run();
 };
 
-scheduleDashboardAlerts();
-scheduleDashboardAggregatesRefresh();
-scheduleCommunicationRetryProcessing();
-scheduleCommunicationRetryMaintenance();
+let backgroundJobsStarted = false;
+const broadcastJourneyUpdate = (payload = {}) => {
+    io.to('admin').emit('abandoned_cart:journey:update', {
+        ...payload,
+        ts: new Date().toISOString()
+    });
+};
 
-startAbandonedCartRecoveryScheduler({
-    onJourneyUpdate: (payload = {}) => {
-        io.to('admin').emit('abandoned_cart:journey:update', {
-            ...payload,
-            ts: new Date().toISOString()
-        });
-    }
-});
-startAbandonedCartMaintenanceScheduler({
-    onJourneyUpdate: (payload = {}) => {
-        io.to('admin').emit('abandoned_cart:journey:update', {
-            ...payload,
-            ts: new Date().toISOString()
-        });
-    }
-});
+const initBackgroundJobs = () => {
+    if (backgroundJobsStarted) return;
+    backgroundJobsStarted = true;
+    console.log('Boot: starting background jobs');
+
+    scheduleMidnightJob();
+    schedulePaymentAttemptExpiryJob();
+    ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
+    scheduleMonthlyLoyaltyReassessment();
+    scheduleDailyBirthdayCoupons();
+    scheduleDashboardAlerts();
+    scheduleDashboardAggregatesRefresh();
+    scheduleCommunicationRetryProcessing();
+    scheduleCommunicationRetryMaintenance();
+    startAbandonedCartRecoveryScheduler({ onJourneyUpdate: broadcastJourneyUpdate });
+    startAbandonedCartMaintenanceScheduler({ onJourneyUpdate: broadcastJourneyUpdate });
+};
+
+startServer();
