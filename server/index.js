@@ -1,3 +1,13 @@
+console.log('Boot: entering server/index.js');
+process.on('uncaughtException', (error) => {
+    console.error('FATAL uncaughtException:', error?.stack || error?.message || error);
+    process.exit(1);
+});
+process.on('unhandledRejection', (error) => {
+    console.error('FATAL unhandledRejection:', error?.stack || error?.message || error);
+    process.exit(1);
+});
+
 const path = require('path');
 const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
@@ -47,6 +57,7 @@ console.log('Boot: DB module loaded');
 
 const express = require('express');
 const cors = require('cors');
+console.log('Boot: core packages loaded');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -56,9 +67,11 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const shippingRoutes = require('./routes/shippingRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
+console.log('Boot: route modules loaded');
 const Order = require('./models/Order');
 const User = require('./models/User');
 const { PaymentAttempt } = require('./models/PaymentAttempt');
+console.log('Boot: model modules loaded');
 const { sendOrderLifecycleCommunication } = require('./services/communications/communicationService');
 const { buildDeliveryConfirmationUrl } = require('./services/deliveryConfirmationService');
 const {
@@ -73,9 +86,11 @@ const {
     pruneCommunicationDeliveryLogs
 } = require('./services/communications/communicationRetryService');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
+console.log('Boot: service and middleware modules loaded');
 
 const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
+console.log('Boot: express app created');
 
 const buildSocketCorsOrigins = () => {
     const rawOrigins = [
