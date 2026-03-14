@@ -16,22 +16,43 @@ export default function ForgotPassword() {
   const backText = source === 'admin' ? 'Back to Admin Login' : 'Back to Login';
 
   const [step, setStep] = useState(1); 
-  const [mobile, setMobile] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [delivery, setDelivery] = useState(null);
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);  
+
+  const sentChannels = (delivery?.sent || []).filter(Boolean);
+  const deliveryText = (() => {
+    const parts = [];
+    if (delivery?.contacts?.email) parts.push(`email ${delivery.contacts.email}`);
+    if (delivery?.contacts?.whatsapp) parts.push(`WhatsApp ${delivery.contacts.whatsapp}`);
+    if (!parts.length) return '';
+    return parts.join(' and ');
+  })();
+
   const handleSendOtp = async (e) => {
     e.preventDefault();
-    if (mobile.length < 10) return toast.error("Invalid mobile number");
+    const trimmedIdentifier = identifier.trim();
+    if (!trimmedIdentifier) return toast.error("Enter your registered email or mobile number");
 
     setIsLoading(true);
     try {
-        await authService.sendOtp(mobile);
-        toast.success("OTP Sent! Check Console.");
+        const res = await authService.sendOtp({ identifier: trimmedIdentifier, purpose: 'password_reset' });
+        if (!res?.ok) {
+            throw new Error(res?.message || "Failed to send OTP");
+        }
+        setDelivery(res.delivery || null);
+        const currentChannels = Array.isArray(res?.delivery?.sent) ? res.delivery.sent.filter(Boolean) : [];
+        toast.success(
+          currentChannels.length
+            ? `OTP sent via ${currentChannels.join(' and ')}`
+            : "OTP sent successfully"
+        );
         setStep(2);
     } catch (error) {
-        toast.error("Failed to send OTP");
+        toast.error(error?.message || "Failed to send OTP");
     } finally {
         setIsLoading(false);
     }
@@ -43,7 +64,7 @@ export default function ForgotPassword() {
 
     setIsLoading(true);
     try {
-        const res = await authService.resetPassword({ mobile, otp, newPassword });
+        const res = await authService.resetPassword({ identifier: identifier.trim(), otp, newPassword });
         if (res.message.includes('successful')) {
             toast.success("Password Reset Successfully!");
             setTimeout(() => navigate(backLink), 2000); // Redirect to correct login
@@ -72,14 +93,18 @@ export default function ForgotPassword() {
         {step === 1 ? (
             <form onSubmit={handleSendOtp} className="space-y-4 animate-fade-in">
                 <div>
-                    <label className="block text-sm font-medium mb-1">Enter your registered mobile</label>
+                    <label className="block text-sm font-medium mb-1">Enter your registered email or mobile</label>
                     <input 
-                        placeholder="Mobile Number" 
+                        type="text"
+                        placeholder="Email address or mobile number" 
                         className="input-field" 
-                        value={mobile} 
-                        onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))} // Strict number input
+                        value={identifier} 
+                        onChange={e => setIdentifier(e.target.value)}
                         required 
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Google users can recover with email. Users with a registered mobile may receive OTP on both email and WhatsApp.
+                    </p>
                 </div>
                 <button type="submit" className="btn-primary w-full" disabled={isLoading}>
                     {isLoading ? <Loader2 className="animate-spin" /> : "Send OTP"}
@@ -88,7 +113,9 @@ export default function ForgotPassword() {
         ) : (
             <form onSubmit={handleReset} className="space-y-4 animate-fade-in">
                 <div className="bg-green-50 p-3 rounded text-sm text-green-800 mb-2 border border-green-200">
-                    OTP Sent to <b>{mobile}</b>
+                    OTP sent
+                    {deliveryText ? <> via <b>{deliveryText}</b></> : null}
+                    {!deliveryText && sentChannels.length ? <> via <b>{sentChannels.join(' and ')}</b></> : null}
                 </div>
                 <input 
                     placeholder="Enter OTP" 

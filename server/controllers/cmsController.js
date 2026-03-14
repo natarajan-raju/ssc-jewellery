@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const CompanyProfile = require('../models/CompanyProfile');
 const { sendEmailCommunication } = require('../services/communications/communicationService');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
+const { queueStaticRefresh } = require('../services/seoService');
 
 const CONTACT_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CONTACT_RATE_LIMIT_MAX = 5;
@@ -565,6 +566,7 @@ const createSlide = async (req, res) => {
         );
 
         notifyCmsClients(req, 'cms:hero_update', { action: 'create', id: result.insertId });
+        queueStaticRefresh('cms_hero_create');
         res.status(201).json({ message: 'Slide added', id: result.insertId, imageUrl });
     } catch (error) {
         res.status(500).json({ message: 'Failed to create slide' });
@@ -591,6 +593,7 @@ const updateBanner = async (req, res) => {
             await removeCmsAssetIfUploaded(previousImageUrl);
         }
         notifyCmsClients(req, 'cms:banner_update', { image_url: imageUrl, link });
+        queueStaticRefresh('cms_banner_update');
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -616,6 +619,7 @@ const updateSecondaryBanner = async (req, res) => {
             await removeCmsAssetIfUploaded(previousImageUrl);
         }
         notifyCmsClients(req, 'cms:banner_secondary_update', { image_url: imageUrl, link });
+        queueStaticRefresh('cms_banner_secondary_update');
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -643,6 +647,7 @@ const updateTertiaryBanner = async (req, res) => {
             await removeCmsAssetIfUploaded(previousImageUrl);
         }
         notifyCmsClients(req, 'cms:banner_tertiary_update', { image_url: imageUrl, link });
+        queueStaticRefresh('cms_banner_tertiary_update');
         res.json({ message: 'Banner updated', image_url: imageUrl, link });
     } catch (error) {
         res.status(500).json({ message: 'Failed to update banner' });
@@ -668,6 +673,7 @@ const updateFeaturedCategory = async (req, res) => {
         );
         const payload = rows[0] || { category_id: categoryId || null, title: title || '', subtitle: subtitle || '' };
         notifyCmsClients(req, 'cms:featured_category_update', payload);
+        queueStaticRefresh('cms_featured_category_update');
         res.json({ message: 'Featured category updated', ...payload });
     } catch (error) {
         const statusCode = /category/i.test(String(error?.message || '')) ? 400 : 500;
@@ -703,6 +709,7 @@ const createCarouselCard = async (req, res) => {
             ]
         );
         notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'create', id: result.insertId });
+        queueStaticRefresh('cms_carousel_create');
         res.status(201).json({ message: 'Carousel card created', id: result.insertId });
     } catch (error) {
         res.status(400).json({ message: error?.message || 'Failed to create carousel card' });
@@ -747,6 +754,7 @@ const updateCarouselCard = async (req, res) => {
             await removeCmsAssetIfUploaded(previousImageUrl);
         }
         notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'update', id: cardId });
+        queueStaticRefresh('cms_carousel_update');
         res.json({ message: 'Carousel card updated', id: cardId });
     } catch (error) {
         const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 400;
@@ -772,6 +780,7 @@ const deleteCarouselCard = async (req, res) => {
             await removeCmsAssetIfUploaded(previousImageUrl);
         }
         notifyCmsClients(req, 'cms:carousel_cards_update', { action: 'delete', id: cardId });
+        queueStaticRefresh('cms_carousel_delete');
         res.json({ message: 'Carousel card deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Failed to delete carousel card' });
@@ -792,6 +801,7 @@ const createHeroText = async (req, res) => {
             [String(text).trim(), nextOrder, 'active']
         );
         notifyCmsClients(req, 'cms:texts_update', { action: 'create', id: result.insertId });
+        queueStaticRefresh('cms_text_create');
         res.status(201).json({ message: 'Text added', id: result.insertId });
     } catch (error) {
         res.status(500).json({ message: 'Failed to create hero text' });
@@ -808,6 +818,7 @@ const updateHeroText = async (req, res) => {
             [text || '', status || 'active', req.params.id]
         );
         notifyCmsClients(req, 'cms:texts_update', { action: 'update', id: req.params.id });
+        queueStaticRefresh('cms_text_update');
         res.json({ message: 'Text updated' });
     } catch (error) {
         const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
@@ -821,6 +832,7 @@ const deleteHeroText = async (req, res) => {
         await ensureRowExists({ table: 'hero_texts', id: req.params.id });
         await db.execute('DELETE FROM hero_texts WHERE id = ?', [req.params.id]);
         notifyCmsClients(req, 'cms:texts_update', { action: 'delete', id: req.params.id });
+        queueStaticRefresh('cms_text_delete');
         res.json({ message: 'Text deleted' });
     } catch (error) {
         const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
@@ -845,6 +857,7 @@ const reorderHeroTexts = async (req, res) => {
         }
         await connection.commit();
         notifyCmsClients(req, 'cms:texts_update', { action: 'reorder', textIds });
+        queueStaticRefresh('cms_text_reorder');
         res.json({ message: 'Order updated' });
     } catch (error) {
         await connection.rollback();
@@ -865,6 +878,7 @@ const deleteSlide = async (req, res) => {
             await removeCmsAssetIfUploaded(previousImageUrl);
         }
         notifyCmsClients(req, 'cms:hero_update', { action: 'delete', id: req.params.id });
+        queueStaticRefresh('cms_hero_delete');
         res.json({ message: 'Slide deleted' });
     } catch (error) {
         const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;
@@ -891,6 +905,7 @@ const reorderSlides = async (req, res) => {
 
         await connection.commit();
         notifyCmsClients(req, 'cms:hero_update', { action: 'reorder', slideIds });
+        queueStaticRefresh('cms_hero_reorder');
         res.json({ message: 'Order updated' });
     } catch (error) {
         await connection.rollback();
@@ -910,6 +925,7 @@ const updateSlide = async (req, res) => {
             [title, subtitle, link, status, req.params.id]
         );
         notifyCmsClients(req, 'cms:hero_update', { action: 'update', id: req.params.id });
+        queueStaticRefresh('cms_hero_update');
         res.json({ message: 'Slide updated' });
     } catch (error) {
         const statusCode = /not found/i.test(String(error?.message || '')) ? 404 : 500;

@@ -71,13 +71,13 @@ export default defineConfig(({ mode }) => {
           orientation: 'portrait',
           icons: [
             {
-              src: '/logo_light.webp',
+              src: '/logo.webp',
               sizes: '192x192',
               type: 'image/webp',
               purpose: 'any maskable'
             },
             {
-              src: '/logo_light.webp',
+              src: '/logo.webp',
               sizes: '512x512',
               type: 'image/webp',
               purpose: 'any maskable'

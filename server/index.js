@@ -86,7 +86,13 @@ const {
     processQueuedCommunicationRetries,
     pruneCommunicationDeliveryLogs
 } = require('./services/communications/communicationRetryService');
-const { buildRobotsTxt, buildSitemapXml, loadSitemapEntries } = require('./services/seoService');
+const {
+    buildRobotsTxt,
+    buildSitemapXml,
+    initSeoAutomation,
+    loadSitemapEntries,
+    renderRouteHtml
+} = require('./services/seoService');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
 console.log('Boot: service and middleware modules loaded');
 
@@ -186,6 +192,29 @@ app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/uploads', express.static(getUploadsRoot()));
+app.get([
+    '/',
+    '/shop',
+    '/about',
+    '/faq',
+    '/contact',
+    '/terms',
+    '/shipping',
+    '/refund',
+    '/privacy',
+    '/copyright',
+    '/product/:id',
+    '/shop/:category'
+], async (req, res, next) => {
+    try {
+        const html = await renderRouteHtml(req.path);
+        if (!html) return next();
+        return res.type('html').send(html);
+    } catch (error) {
+        console.error(`SEO HTML render failed for ${req.path}:`, error?.message || error);
+        return next();
+    }
+});
 app.get('/robots.txt', (_req, res) => {
     res.type('text/plain').send(buildRobotsTxt());
 });
@@ -215,6 +244,9 @@ const startServer = async () => {
         } else {
             console.log('Boot: DB readiness promise not found, continuing');
         }
+        console.log('Boot: initializing SEO automation');
+        await initSeoAutomation();
+        console.log('Boot: SEO automation initialized');
     } catch (error) {
         console.error('Database bootstrap failed. Server not started:', error?.message || error);
         process.exit(1);

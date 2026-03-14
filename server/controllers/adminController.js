@@ -20,6 +20,7 @@ const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConf
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
+const { queueFullRefresh } = require('../services/seoService');
 const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 
 const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
@@ -2066,6 +2067,7 @@ const updateCompanyInfo = async (req, res) => {
             await removeUploadedAssetIfLocal(existingCompany.contactJumbotronImageUrl);
         }
         await emitCompanyTaxUpdate(req, { includeCompany: true });
+        queueFullRefresh('company_update');
         return res.json({ company });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to update company info' });

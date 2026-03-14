@@ -109,3 +109,69 @@ test('sendOtp returns 502 when no delivery channel actually succeeds', async () 
     assert.deepEqual(res.body.delivery.sent, []);
     assert.equal(res.body.delivery.failed[0].channel, 'whatsapp');
 });
+
+test('password reset OTP supports email-only accounts', async () => {
+    const controller = loadAuthController({
+        comms: {
+            sendEmailCommunication: async () => ({ ok: true, provider: 'mock-email' })
+        }
+    });
+
+    const req = {
+        body: {
+            identifier: 'googleuser@example.com',
+            purpose: 'password_reset'
+        }
+    };
+    const res = createMockRes();
+
+    await withPatched(User, {
+        findByEmail: async () => ({
+            id: 'u-google',
+            name: 'Google User',
+            email: 'googleuser@example.com',
+            mobile: null
+        })
+    }, async () => withPatched(OtpService, {
+        saveOtp: async () => {}
+    }, async () => {
+        await controller.sendOtp(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body.delivery.sent, ['email']);
+    assert.deepEqual(res.body.delivery.missing, ['whatsapp']);
+});
+
+test('password reset OTP sends both email and whatsapp for mobile-registered users', async () => {
+    const controller = loadAuthController({
+        comms: {
+            sendEmailCommunication: async () => ({ ok: true, provider: 'mock-email' }),
+            sendWhatsapp: async () => ({ ok: true, provider: 'mock-whatsapp' })
+        }
+    });
+
+    const req = {
+        body: {
+            identifier: '9876543210',
+            purpose: 'password_reset'
+        }
+    };
+    const res = createMockRes();
+
+    await withPatched(User, {
+        findByMobile: async () => ({
+            id: 'u-mobile',
+            name: 'Customer',
+            email: 'customer@example.com',
+            mobile: '9876543210'
+        })
+    }, async () => withPatched(OtpService, {
+        saveOtp: async () => {}
+    }, async () => {
+        await controller.sendOtp(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body.delivery.sent.sort(), ['email', 'whatsapp']);
+});

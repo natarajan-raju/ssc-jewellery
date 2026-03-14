@@ -51,6 +51,24 @@ const maskMobile = (value = '') => {
     return `${mobile.slice(0, 2)}${'*'.repeat(mobile.length - 4)}${mobile.slice(-2)}`;
 };
 
+const normalizeOtpPurpose = (value = '') => {
+    const purpose = String(value || '').trim().toLowerCase();
+    if (purpose === 'login') return 'login';
+    if (['password_reset', 'reset_password', 'reset', 'forgot_password', 'forgot-password'].includes(purpose)) {
+        return 'password_reset';
+    }
+    return 'general';
+};
+
+const resolveUserByIdentifier = async (identifier = '') => {
+    const normalized = String(identifier || '').trim().toLowerCase();
+    if (!normalized) return null;
+    if (isEmail(normalized)) return User.findByEmail(normalized);
+    const mobile = normalized.replace(/\D/g, '');
+    if (/^[0-9]{10,12}$/.test(mobile)) return User.findByMobile(mobile);
+    return null;
+};
+
 const pickBySeed = (variants = [], seed = '') => {
     const list = Array.isArray(variants) ? variants : [];
     if (!list.length) return '';
@@ -295,32 +313,55 @@ exports.sendOtp = async (req, res) => {
     try {
         const mobile = sanitize(req.body.mobile);
         const identifier = sanitize(req.body.identifier).toLowerCase();
-        const purpose = String(req.body.purpose || '').trim().toLowerCase();
+        const purpose = normalizeOtpPurpose(req.body.purpose);
 
         let user = null;
         let otpIdentity = mobile;
-        if (purpose === 'login') {
-            if (!identifier || !isEmail(identifier)) {
-                return res.status(400).json({ message: 'Enter a valid registered email.' });
-            }
-            user = await User.findByEmail(identifier);
-            if (!user) {
-                return res.status(400).json({ message: 'Email not registered' });
-            }
-            if (!user.email || !isEmail(user.email)) {
+        if (purpose === 'login' || purpose === 'password_reset') {
+            const lookupIdentifier = purpose === 'login' ? identifier : (identifier || mobile);
+            if (!lookupIdentifier) {
                 return res.status(400).json({
-                    message: 'No email is registered for this account.',
-                    delivery: { purpose: 'login', attempted: [], sent: [], missing: ['email'], failed: [] }
+                    message: purpose === 'password_reset'
+                        ? 'Enter your registered email or mobile number.'
+                        : 'Enter a valid registered email.'
                 });
             }
-            otpIdentity = String(user.email).trim().toLowerCase();
+
+            if (purpose === 'login' && !isEmail(lookupIdentifier)) {
+                return res.status(400).json({ message: 'Enter a valid registered email.' });
+            }
+
+            user = await resolveUserByIdentifier(lookupIdentifier);
+            if (!user) {
+                return res.status(400).json({
+                    message: purpose === 'password_reset'
+                        ? 'No account found for that email or mobile number.'
+                        : 'Email not registered'
+                });
+            }
+
+            const hasEmail = Boolean(user.email && isEmail(user.email));
+            const hasWhatsapp = /^[0-9]{10,12}$/.test(String(user.whatsapp || user.mobile || '').trim());
+            if (!hasEmail && !hasWhatsapp) {
+                return res.status(400).json({
+                    message: 'OTP not sent. No active delivery channel found for this account.',
+                    delivery: { purpose, attempted: [], sent: [], missing: ['email', 'whatsapp'], failed: [] }
+                });
+            }
+
+            otpIdentity = hasEmail
+                ? String(user.email).trim().toLowerCase()
+                : String(user.whatsapp || user.mobile || '').trim();
         } else if (!/^[0-9]{10,12}$/.test(mobile)) {
             return res.status(400).json({ message: "Invalid mobile number." });
         }
 
         // 1. Generate OTP Here
         const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        const otpStorageKey = OtpService.buildStorageKey(otpIdentity, purpose === 'login' ? 'login' : 'mobile');
+        const otpStorageKey = OtpService.buildStorageKey(
+            otpIdentity,
+            purpose === 'login' ? 'login' : purpose === 'password_reset' ? 'password_reset' : 'mobile'
+        );
 
         // 2. Save using our new Hybrid Service
         // - Local: Saves to RAM
@@ -335,7 +376,7 @@ exports.sendOtp = async (req, res) => {
             failed: []
         };
 
-        if (purpose === 'login' && user) {
+        if ((purpose === 'login' || purpose === 'password_reset') && user) {
             const userEmail = String(user.email || '').trim();
             const whatsappMobile = String(user.whatsapp || user.mobile || '').trim();
             const isWhatsappMobileValid = /^[0-9]{10,12}$/.test(whatsappMobile);
@@ -406,7 +447,7 @@ exports.sendOtp = async (req, res) => {
         }
 
         const payload = {
-            message: 'OTP generated',
+            message: purpose === 'password_reset' ? 'Password reset OTP generated' : 'OTP generated',
             delivery
         };
         if (String(process.env.NODE_ENV || '').trim().toLowerCase() === 'test') {
@@ -769,19 +810,30 @@ exports.updateProfile = async (req, res) => {
 // ... resetPassword logic (similar sanitization should apply) ...
 exports.resetPassword = async (req, res) => {
     try {
-        const mobile = sanitize(req.body.mobile);
+        const identifier = sanitize(req.body.identifier || req.body.mobile).toLowerCase();
         const otp = sanitize(req.body.otp);
         const newPassword = req.body.newPassword;
+        if (!identifier) return res.status(400).json({ message: 'Email or mobile number is required' });
+        if (!newPassword || String(newPassword).length < 6) {
+            return res.status(400).json({ message: 'Password too short (min 6 chars).' });
+        }
 
-        const user = User.findByMobile(mobile);
+        const user = await resolveUserByIdentifier(identifier);
         if (!user) return res.status(400).json({ message: 'User not found' });
 
-        const resetOtpKey = OtpService.buildStorageKey(mobile, 'mobile');
+        const otpIdentity = user.email && isEmail(user.email)
+            ? String(user.email).trim().toLowerCase()
+            : String(user.mobile || '').trim();
+        if (!otpIdentity) {
+            return res.status(400).json({ message: 'No reset channel is registered for this account' });
+        }
+
+        const resetOtpKey = OtpService.buildStorageKey(otpIdentity, 'password_reset');
         const isValidOtp = await OtpService.verifyOtp(resetOtpKey, otp);
         if (!isValidOtp) return res.status(400).json({ message: 'Invalid OTP' });
 
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        User.updatePassword(mobile, hashedPassword);
+        await User.updatePasswordById(user.id, hashedPassword);
 
         res.json({ message: 'Password reset successful' });
     } catch (error) {
@@ -792,10 +844,18 @@ exports.resetPassword = async (req, res) => {
 
 exports.verifyOtpOnly = async (req, res) => {
     try {
-        const { mobile, otp } = req.body;
-        const verifyOtpKey = OtpService.buildStorageKey(sanitize(mobile), 'mobile');
+        const identifier = sanitize(req.body.identifier || req.body.mobile).toLowerCase();
+        const otp = sanitize(req.body.otp);
+        const purpose = normalizeOtpPurpose(req.body.purpose);
+        if (!identifier) {
+            return res.status(400).json({ message: "Identifier is required", valid: false });
+        }
+        const verifyOtpKey = OtpService.buildStorageKey(
+            identifier,
+            purpose === 'login' ? 'login' : purpose === 'password_reset' ? 'password_reset' : 'mobile'
+        );
         // Pass 'false' to NOT delete the OTP yet
-        const isValid = await OtpService.verifyOtp(verifyOtpKey, sanitize(otp), false);
+        const isValid = await OtpService.verifyOtp(verifyOtpKey, otp, false);
         
         if (isValid) {
             res.json({ message: "OTP Verified", valid: true });

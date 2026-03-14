@@ -1,6 +1,12 @@
 const Product = require('../models/Product');
 const fs = require('fs');
 const path = require('path');
+const {
+    queueCategoryDelete,
+    queueCategoryRefresh,
+    queueProductDelete,
+    queueProductRefresh
+} = require('../services/seoService');
 
 // --- Helper to parse JSON safely ---
 const safeParse = (data, fallback = []) => {
@@ -257,6 +263,11 @@ const createProduct = async (req, res) => {
         const createdProduct = await Product.findById(newProduct.id);
         emitProductEvent(req, 'product:create', createdProduct || newProduct);
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
+        queueProductRefresh({
+            productId: newProduct.id,
+            categoryNames: asArray(productData.categories, { allowSingleString: true }),
+            reason: 'product_create'
+        });
         res.status(201).json(newProduct);
     } catch (error) {
         console.error("Create Error:", error);
@@ -266,9 +277,16 @@ const createProduct = async (req, res) => {
 // --- 3. DELETE PRODUCT ---
 const deleteProduct = async (req, res) => {
     try {
+        const existingProduct = await Product.findById(req.params.id).catch(() => null);
+        const existingCategories = asArray(existingProduct?.categories, { allowSingleString: true });
         await Product.delete(req.params.id);
         notifyClients(req, 'product:delete', { id: req.params.id }); // [NEW] Notify Sync
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
+        queueProductDelete({
+            productId: req.params.id,
+            categoryNames: existingCategories,
+            reason: 'product_delete'
+        });
         res.json({ message: 'Product deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Delete Failed' });
@@ -279,6 +297,8 @@ const deleteProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
     try {
         const { id } = req.params;
+        const existingProduct = await Product.findById(id).catch(() => null);
+        const previousCategories = asArray(existingProduct?.categories, { allowSingleString: true });
         
         // Media Logic
         const newImages = [];
@@ -341,6 +361,12 @@ const updateProduct = async (req, res) => {
         const updatedProduct = await Product.findById(id);
         emitProductEvent(req, 'product:update', updatedProduct);
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
+        const nextCategories = asArray(updatedProduct?.categories, { allowSingleString: true });
+        queueProductRefresh({
+            productId: id,
+            categoryNames: [...new Set([...previousCategories, ...nextCategories])],
+            reason: 'product_update'
+        });
         res.json({ message: 'Product updated successfully' });
     } catch (error) {
         console.error("Update Error:", error);
@@ -384,11 +410,19 @@ const getCategoryDetails = async (req, res) => {
 const updateCategory = async (req, res) => {
     try {
         const { name } = req.body;
+        const previousCategoryName = await Product.getCategoryName(req.params.id).catch(() => '');
         const imageUrl = req.file ? `/uploads/categories/${req.file.filename}` : null;
         const affectedProductIds = await Product.updateCategory(req.params.id, name, imageUrl);
         const category = await Product.getCategoryStatsById(req.params.id);
         notifyClients(req, 'refresh:categories',{ action: 'update', category }); // [NEW] Notify Sync
         await emitProductUpdatesForIds(req, affectedProductIds);
+        queueCategoryRefresh({
+            categoryId: req.params.id,
+            categoryName: name,
+            previousCategoryName,
+            affectedProductIds,
+            reason: 'category_update'
+        });
         res.json({ message: 'Category updated' });
     } catch (error) {
         const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
@@ -403,6 +437,12 @@ const reorderCategory = async (req, res) => {
         // [FIX] Fetch Name to notify clients precisely
         const catName = await Product.getCategoryName(req.params.id);
         notifyClients(req, 'refresh:categories', { action: 'reorder', categoryId: req.params.id, categoryName: catName, orderedProductIds: productIds }); // [NEW] Notify Sync
+        queueCategoryRefresh({
+            categoryId: req.params.id,
+            categoryName: catName,
+            affectedProductIds: productIds,
+            reason: 'category_reorder'
+        });
         res.json({ message: 'Order updated' });
     } catch (error) {
         res.status(500).json({ message: 'Reorder failed' });
@@ -435,6 +475,12 @@ const manageCategoryProduct = async (req, res) => {
         notifyClients(req, 'refresh:categories', { 
             action: 'count_update', 
             category
+        });
+        queueCategoryRefresh({
+            categoryId: req.params.id,
+            categoryName: catName,
+            affectedProductIds: [productId],
+            reason: 'category_membership'
         });
         res.json({ message: 'Success' });
     } catch (error) {
@@ -469,6 +515,12 @@ const manageCategoryProductsBulk = async (req, res) => {
             action: 'count_update',
             category
         });
+        queueCategoryRefresh({
+            categoryId: req.params.id,
+            categoryName: catName,
+            affectedProductIds,
+            reason: 'category_membership_bulk'
+        });
         res.json({ message: 'Success', updated: affectedProductIds.length });
     } catch (error) {
         const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
@@ -485,6 +537,11 @@ const createCategory = async (req, res) => {
         const id = await Product.createCategory(name, imageUrl);
         const category = await Product.getCategoryStatsById(id);
         notifyClients(req, 'refresh:categories', {action: 'create', category}); // [NEW] Notify Sync
+        queueCategoryRefresh({
+            categoryId: id,
+            categoryName: name,
+            reason: 'category_create'
+        });
         res.status(201).json({ message: 'Category created' });
     } catch (error) {
         res.status(400).json({ message: error.message || 'Create failed' });
@@ -497,6 +554,12 @@ const deleteCategory = async (req, res) => {
         const affectedProductIds = await Product.deleteCategory(req.params.id);
         notifyClients(req, 'refresh:categories',{ action: 'delete', categoryId: req.params.id, categoryName: catName }); // [NEW] Notify Sync
         await emitProductUpdatesForIds(req, affectedProductIds);
+        queueCategoryDelete({
+            categoryId: req.params.id,
+            categoryName: catName,
+            affectedProductIds,
+            reason: 'category_delete'
+        });
         res.json({ message: 'Category deleted' });
     } catch (error) {
         const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
