@@ -50,10 +50,36 @@ const parseProductsCacheKey = (key = '') => {
 };
 
 const normalizeText = (value) => String(value || '').trim().toLowerCase();
+const decodeBase64Url = (value = '') => {
+    try {
+        const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+        const padding = normalized.length % 4;
+        const padded = padding ? `${normalized}${'='.repeat(4 - padding)}` : normalized;
+        if (typeof window !== 'undefined' && typeof window.atob === 'function') {
+            return window.atob(padded);
+        }
+        if (typeof globalThis !== 'undefined' && globalThis.Buffer) {
+            return globalThis.Buffer.from(padded, 'base64').toString('utf8');
+        }
+    } catch {
+        // Ignore decode failures.
+    }
+    return '';
+};
+const getRoleFromToken = (token = '') => {
+    try {
+        const payload = JSON.parse(decodeBase64Url(String(token).split('.')[1] || ''));
+        return normalizeText(payload?.role || '');
+    } catch {
+        return '';
+    }
+};
 const getCurrentClientRole = () => {
     const userObj = safeLocalStorageJson('user', {});
     const userInfo = safeLocalStorageJson('userInfo', {});
-    return normalizeText(userObj?.role || userInfo?.role || '');
+    const storedRole = normalizeText(userObj?.role || userInfo?.role || '');
+    if (storedRole) return storedRole;
+    return getRoleFromToken(userObj?.token || userInfo?.token || getStoredToken() || '');
 };
 const canViewAdminCategoryData = () => ['admin', 'staff'].includes(getCurrentClientRole());
 const filterPublicCategoryStats = (data = []) => (
