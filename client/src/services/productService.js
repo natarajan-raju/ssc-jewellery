@@ -377,7 +377,9 @@ export const productService = {
         }
 
         // 2. Fetch if missing
-        const res = await getWithRetry(`${API_URL}/categories`);
+        const res = await getWithRetry(`${API_URL}/categories`, {
+            headers: getAuthHeader()
+        });
         const data = await handleResponse(res);
 
         // 3. Store in Cache
@@ -449,7 +451,9 @@ export const productService = {
             // Ignore corrupt or unavailable local storage cache.
         }
 
-        const res = await getWithRetry(`${API_URL}/categories/stats`);
+        const res = await getWithRetry(`${API_URL}/categories/stats`, {
+            headers: getAuthHeader()
+        });
         const data = await handleResponse(res);
         const payload = { data, timestamp: Date.now() };
         productCache['category_stats'] = payload;
