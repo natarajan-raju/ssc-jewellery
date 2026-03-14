@@ -1119,6 +1119,9 @@ const initDB = async () => {
                 youtube_url VARCHAR(255),
                 facebook_url VARCHAR(255),
                 whatsapp_number VARCHAR(40),
+                logo_url TEXT,
+                favicon_url TEXT,
+                apple_touch_icon_url TEXT,
                 gst_number VARCHAR(30),
                 tax_enabled TINYINT(1) NOT NULL DEFAULT 0,
                 contact_jumbotron_image_url TEXT,
@@ -1162,6 +1165,15 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN gst_number VARCHAR(30)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN logo_url TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN favicon_url TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN apple_touch_icon_url TEXT');
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN tax_enabled TINYINT(1) NOT NULL DEFAULT 0');

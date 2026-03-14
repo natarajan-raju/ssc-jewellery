@@ -3,11 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { orderService } from '../services/orderService';
 import { useToast } from '../context/ToastContext';
 import { useCart } from '../context/CartContext';
-import logo from '../assets/logo.webp';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import { getGstDisplayDetails } from '../utils/gst';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 export default function PaymentSuccess() {
     const toast = useToast();
@@ -101,7 +101,7 @@ export default function PaymentSuccess() {
             <div className="max-w-3xl mx-auto space-y-6">
                 <CheckoutFlowHeader state={isFailed ? 'failed' : 'confirmation'} />
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm max-w-xl w-full p-6 mx-auto">
-                    <img src={logo} alt="SSC Jewellery" className="h-10 w-auto mb-4" />
+                    <img src={BRAND_LOGO_URL} alt="SSC Jewellery" className="h-10 w-auto mb-4" />
                     <h1 className="text-2xl font-serif text-primary">
                         {isFailed ? 'Order Failed' : 'Order Received'}
                     </h1>

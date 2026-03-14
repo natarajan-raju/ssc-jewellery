@@ -393,6 +393,39 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    uploadCompanyLogo: async (file) => {
+        const token = getStoredToken();
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch(`${UPLOAD_API_URL}/company-logo`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+        });
+        return handleResponse(res);
+    },
+    uploadCompanyFavicon: async (file) => {
+        const token = getStoredToken();
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch(`${UPLOAD_API_URL}/company-favicon`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+        });
+        return handleResponse(res);
+    },
+    uploadCompanyAppleTouchIcon: async (file) => {
+        const token = getStoredToken();
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch(`${UPLOAD_API_URL}/company-apple-touch-icon`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+        });
+        return handleResponse(res);
+    },
     uploadCarouselCardImage: async (file) => {
         const token = getStoredToken();
         const formData = new FormData();

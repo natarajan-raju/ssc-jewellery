@@ -1990,6 +1990,9 @@ const updateCompanyInfo = async (req, res) => {
         const contactNumber = String(mergedPayload.contactNumber || '').trim();
         const supportEmail = String(mergedPayload.supportEmail || '').trim();
         const whatsappNumber = String(mergedPayload.whatsappNumber || '').trim();
+        const logoUrl = String(mergedPayload.logoUrl || '').trim();
+        const faviconUrl = String(mergedPayload.faviconUrl || '').trim();
+        const appleTouchIconUrl = String(mergedPayload.appleTouchIconUrl || '').trim();
         const postalCode = String(mergedPayload.postalCode || '').trim();
         const openingHours = String(mergedPayload.openingHours || '').trim();
         const latitude = String(mergedPayload.latitude ?? '').trim();
@@ -2020,6 +2023,9 @@ const updateCompanyInfo = async (req, res) => {
         if (whatsappNumber && !/^\d{10,14}$/.test(whatsappNumber)) {
             return res.status(400).json({ message: 'WhatsApp number must be 10-14 digits' });
         }
+        if (!logoUrl) {
+            return res.status(400).json({ message: 'Company logo is required' });
+        }
         if (postalCode && !/^[0-9A-Za-z\-\s]{3,12}$/.test(postalCode)) {
             return res.status(400).json({ message: 'Postal code format is invalid' });
         }
@@ -2041,6 +2047,15 @@ const updateCompanyInfo = async (req, res) => {
         if (contactJumbotronImageUrl && !isValidUrl(contactJumbotronImageUrl) && !contactJumbotronImageUrl.startsWith('/')) {
             return res.status(400).json({ message: 'Contact jumbotron image URL must be a valid URL or absolute asset path' });
         }
+        if (!isValidUrl(logoUrl) && !logoUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Company logo must be a valid URL or absolute asset path' });
+        }
+        if (faviconUrl && !isValidUrl(faviconUrl) && !faviconUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Favicon must be a valid URL or absolute asset path' });
+        }
+        if (appleTouchIconUrl && !isValidUrl(appleTouchIconUrl) && !appleTouchIconUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Apple touch icon must be a valid URL or absolute asset path' });
+        }
         if (razorpayKeyId && !/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(razorpayKeyId)) {
             return res.status(400).json({ message: 'Razorpay Key ID format is invalid' });
         }
@@ -2060,6 +2075,24 @@ const updateCompanyInfo = async (req, res) => {
         mergedPayload.emailChannelEnabled = true;
         mergedPayload.whatsappChannelEnabled = mergedPayload.whatsappChannelEnabled !== false;
         const company = await CompanyProfile.update(mergedPayload);
+        if (
+            existingCompany?.logoUrl
+            && existingCompany.logoUrl !== company?.logoUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.logoUrl);
+        }
+        if (
+            existingCompany?.faviconUrl
+            && existingCompany.faviconUrl !== company?.faviconUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.faviconUrl);
+        }
+        if (
+            existingCompany?.appleTouchIconUrl
+            && existingCompany.appleTouchIconUrl !== company?.appleTouchIconUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.appleTouchIconUrl);
+        }
         if (
             existingCompany?.contactJumbotronImageUrl
             && existingCompany.contactJumbotronImageUrl !== company?.contactJumbotronImageUrl

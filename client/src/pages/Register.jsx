@@ -3,7 +3,7 @@ import { authService } from '../services/authService';
 import { useNavigate, Link } from 'react-router-dom';
 import { Loader2, Check, X as XIcon, AlertCircle,Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext'; 
-import logo from '../assets/logo.webp'; 
+import { BRAND_LOGO_URL } from '../utils/branding.js'; 
 
 export default function Register() {
   const navigate = useNavigate();
@@ -152,7 +152,7 @@ export default function Register() {
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg border-t-4 border-accent">
         
         <div className="text-center mb-6">
-            <img src={logo} alt="SSC Impon Jewellery" className="w-24 h-auto mx-auto mb-4" />
+            <img src={BRAND_LOGO_URL} alt="SSC Impon Jewellery" className="w-24 h-auto mx-auto mb-4" />
             <h2 className="text-3xl font-serif font-bold text-primary">Create Account</h2>
         </div>
 

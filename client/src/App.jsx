@@ -25,6 +25,7 @@ import Home from './pages/Home';
 import { usePublicCompanyInfo } from './hooks/usePublicSiteShell';
 import ComingSoon from './pages/ComingSoon';
 import { canAccessAdminDashboard, shouldRedirectAdminToDashboard } from './utils/authRoutePolicy';
+import { BRAND_APPLE_TOUCH_ICON_URL, BRAND_FAVICON_URL, buildBrandAssetUrl } from './utils/branding.js';
 
 const Shop = lazy(() => import('./pages/Shop'));
 const CategoryStore = lazy(() => import('./pages/CategoryStore'));
@@ -102,6 +103,26 @@ const PublicLayout = () => {
       document.body.classList.add('tier-regular');
     };
   }, [tier]);
+
+  useEffect(() => {
+    const version = companyInfo?.updatedAt || '';
+    const faviconHref = buildBrandAssetUrl(BRAND_FAVICON_URL, version);
+    const appleHref = buildBrandAssetUrl(BRAND_APPLE_TOUCH_ICON_URL, version);
+
+    const upsertLink = (selector, rel, href) => {
+      if (!href) return;
+      let link = document.head.querySelector(selector);
+      if (!link) {
+        link = document.createElement('link');
+        link.setAttribute('rel', rel);
+        document.head.appendChild(link);
+      }
+      link.setAttribute('href', href);
+    };
+
+    upsertLink('link[rel="icon"]', 'icon', faviconHref);
+    upsertLink('link[rel="apple-touch-icon"]', 'apple-touch-icon', appleHref);
+  }, [companyInfo?.updatedAt]);
 
   return (
     <>

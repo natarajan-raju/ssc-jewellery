@@ -1,5 +1,6 @@
 import { absoluteUrl, buildCanonical, firstCategoryName, getProductImageCandidates, normalizeText } from './helpers.js';
 import { SITE_DESCRIPTION, SITE_NAME } from './constants.js';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 const buildPostalAddress = (company = {}) => {
     const address = normalizeText(company.address);
@@ -20,7 +21,7 @@ const buildPostalAddress = (company = {}) => {
 
 export const buildOrganizationSchema = (company = {}) => {
     const name = normalizeText(company.displayName) || SITE_NAME;
-    const logo = absoluteUrl(company.logoUrl || '/logo_light.webp');
+    const logo = absoluteUrl(BRAND_LOGO_URL);
     const sameAs = [
         company.instagramUrl,
         company.youtubeUrl,
@@ -54,7 +55,7 @@ export const buildOrganizationSchema = (company = {}) => {
 
 export const buildLocalBusinessSchema = (company = {}) => {
     const name = normalizeText(company.displayName) || SITE_NAME;
-    const logo = absoluteUrl(company.logoUrl || '/logo_light.webp');
+    const logo = absoluteUrl(BRAND_LOGO_URL);
     const image = absoluteUrl(company.contactJumbotronImageUrl || company.logoUrl || '/contact.jpg');
     const sameAs = [
         company.instagramUrl,

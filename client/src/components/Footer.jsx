@@ -2,9 +2,9 @@ import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import logoLight from '../assets/logo_light.webp';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 export default function Footer() {
     const { user } = useAuth();
@@ -69,7 +69,7 @@ export default function Footer() {
             <div className="container mx-auto px-4 py-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
                     <div className="space-y-4">
-                        <img src={logoLight} alt="SSC Jewellery" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
+                        <img src={BRAND_LOGO_URL} alt="SSC Jewellery" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
                         <p className="text-sm text-white/70">
                             Premium Impon jewellery crafted with care. Discover timeless designs and elegant collections.
                         </p>

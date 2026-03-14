@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
+const { resolvePublicAssetPath } = require('./publicAssetResolver');
 
 const DEFAULT_SUPPORT_EMAIL = 'support@sscjewellery.com';
 const TAMIL_REGEX = /[\u0B80-\u0BFF]/;
@@ -133,13 +134,17 @@ const resolveFirstExistingPath = (candidates = []) => {
     return null;
 };
 
-const resolveLogoPath = () => resolveFirstExistingPath([
-    path.join(__dirname, '../../client/public/apple-touch-icon.png'),
-    path.join(__dirname, '../../client/public/logo.png'),
-    path.join(__dirname, '../../client/public/logo.jpg'),
-    path.join(__dirname, '../../client/public/logo.jpeg'),
-    path.join(__dirname, '../../client/public/logo.webp')
-]);
+const resolveLogoPath = (company = {}) => {
+    const brandedLogo = resolvePublicAssetPath(company.logoUrl || '');
+    if (brandedLogo) return brandedLogo;
+    return resolveFirstExistingPath([
+        path.join(__dirname, '../../client/public/apple-touch-icon.png'),
+        path.join(__dirname, '../../client/public/logo.png'),
+        path.join(__dirname, '../../client/public/logo.jpg'),
+        path.join(__dirname, '../../client/public/logo.jpeg'),
+        path.join(__dirname, '../../client/public/logo.webp')
+    ]);
+};
 
 const resolvePaidStampPath = () => resolveFirstExistingPath([
     path.join(__dirname, '../../client/public/assets/paid-stamp.png'),
@@ -557,7 +562,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const couponCode = String(order.coupon_code || order.couponCode || '').trim();
     const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
 
-    const logoPath = resolveLogoPath();
+    const logoPath = resolveLogoPath(company);
     if (logoPath) {
         try {
             doc.image(logoPath, 42, 36, { fit: [96, 52] });

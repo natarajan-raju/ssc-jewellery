@@ -15,6 +15,7 @@ const { Server } = require('socket.io'); // [NEW] Import Socket.io
 const jwt = require('jsonwebtoken');
 const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
 const { getUploadsRoot } = require('./utils/uploadsRoot');
+const { resolveBrandingAsset } = require('./utils/brandingAssets');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
@@ -192,6 +193,42 @@ app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/uploads', express.static(getUploadsRoot()));
+app.get(['/branding/logo', '/branding/logo.webp'], async (_req, res, next) => {
+    try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+        const asset = await resolveBrandingAsset('logo');
+        if (asset?.mode === 'redirect') return res.redirect(asset.target);
+        if (asset?.target) return res.sendFile(asset.target);
+        return next();
+    } catch (error) {
+        console.error('Failed to resolve branding logo:', error?.message || error);
+        return next();
+    }
+});
+app.get('/favicon.ico', async (_req, res, next) => {
+    try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+        const asset = await resolveBrandingAsset('favicon');
+        if (asset?.mode === 'redirect') return res.redirect(asset.target);
+        if (asset?.target) return res.sendFile(asset.target);
+        return next();
+    } catch (error) {
+        console.error('Failed to resolve favicon:', error?.message || error);
+        return next();
+    }
+});
+app.get('/apple-touch-icon.png', async (_req, res, next) => {
+    try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+        const asset = await resolveBrandingAsset('appleTouchIcon');
+        if (asset?.mode === 'redirect') return res.redirect(asset.target);
+        if (asset?.target) return res.sendFile(asset.target);
+        return next();
+    } catch (error) {
+        console.error('Failed to resolve apple touch icon:', error?.message || error);
+        return next();
+    }
+});
 app.get([
     '/',
     '/shop',

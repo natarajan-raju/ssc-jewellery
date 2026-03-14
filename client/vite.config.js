@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
+import { BRAND_LOGO_URL } from './src/utils/branding.js';
 
 
 
@@ -59,7 +60,6 @@ export default defineConfig(({ mode }) => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
         manifest: {
           name: 'SSC Impon Jewellery',      // <--- Fixed Full Name
           short_name: 'SSC Impon',          // <--- Fixed App Name (Home Screen)
@@ -71,13 +71,13 @@ export default defineConfig(({ mode }) => {
           orientation: 'portrait',
           icons: [
             {
-              src: '/logo.webp',
+              src: BRAND_LOGO_URL,
               sizes: '192x192',
               type: 'image/webp',
               purpose: 'any maskable'
             },
             {
-              src: '/logo.webp',
+              src: BRAND_LOGO_URL,
               sizes: '512x512',
               type: 'image/webp',
               purpose: 'any maskable'

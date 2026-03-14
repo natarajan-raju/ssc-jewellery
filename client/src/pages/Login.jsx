@@ -7,7 +7,7 @@ import { getRedirectResult, signInWithPopup, signInWithRedirect, signOut } from 
 import { Loader2, Check, X as XIcon, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { isAppleMobileDevice } from '../utils/device';
-import logo from '../assets/logo.webp';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 
 export default function Login() {
@@ -232,7 +232,7 @@ export default function Login() {
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md border-t-4 border-accent relative z-10 animate-fade-in">
         
         <div className="text-center mb-8">
-            <img src={logo} alt="SSC Impon" className="w-24 h-auto mx-auto mb-4" />
+            <img src={BRAND_LOGO_URL} alt="SSC Impon" className="w-24 h-auto mx-auto mb-4" />
             <h2 className="text-3xl font-serif font-bold text-primary">Welcome Back</h2>
         </div>
 

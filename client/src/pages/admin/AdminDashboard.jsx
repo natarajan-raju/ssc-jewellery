@@ -20,14 +20,13 @@ import orderIllustration from '../../assets/order.svg';
 import courierIllustration from '../../assets/courier.svg';
 import receivedOrderAudio from '../../assets/received_order.mp3';
 import shippingPopupAudio from '../../assets/pop.mp3';
-import logo from '../../assets/logo.webp';
-import logoLight from '../../assets/logo_light.webp';
 import { burstConfetti } from '../../utils/celebration';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { getGstDisplayDetails } from '../../utils/gst';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
+import { BRAND_LOGO_URL } from '../../utils/branding.js';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const ADMIN_MURUGAR_POPUP_DATE_KEY = 'admin_murugar_popup_date_v1';
@@ -456,7 +455,7 @@ export default function AdminDashboard() {
             {/* --- DESKTOP SIDEBAR --- */}
             <aside className="hidden md:flex flex-col w-64 bg-primary fixed h-full border-r border-white/10 shadow-2xl z-50">
                 <div className="p-4 flex items-center justify-center border-b border-white/10">
-                    <img src={logoLight} alt="Logo" className="w-16 h-auto opacity-90" />
+                    <img src={BRAND_LOGO_URL} alt="Logo" className="w-16 h-auto opacity-90" />
                 </div>
                 
                 <nav className="flex-1 p-4 space-y-2">
@@ -513,7 +512,7 @@ export default function AdminDashboard() {
             <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col">
                 {/* Mobile Header */}
                 <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
-                    <img src={logo} className="w-10 h-auto" alt="Logo" />
+                    <img src={BRAND_LOGO_URL} className="w-10 h-auto" alt="Logo" />
                     <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
                 </div>
 

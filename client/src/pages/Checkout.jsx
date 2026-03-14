@@ -11,7 +11,6 @@ import { useShipping } from '../context/ShippingContext';
 import { useSocket } from '../context/SocketContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
-import logo from '../assets/logo.webp';
 import amexLogo from '../assets/amex.png';
 import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
@@ -20,10 +19,12 @@ import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
+import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
 import { normalizePaymentFailureReason } from '../utils/paymentFailure';
 import { computeShippingPreview } from '../utils/shippingPreview';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 import StorefrontClosed from './StorefrontClosed';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -753,7 +754,7 @@ export default function Checkout() {
                     currency: init.order.currency || 'INR',
                     name: 'SSC Jewellery',
                     description: `Order payment (${init.summary?.itemCount || itemCount} items)`,
-                    image: logo,
+                    image: BRAND_LOGO_URL,
                     order_id: init.order.id,
                     prefill: {
                         name: form.name || '',
@@ -828,6 +829,7 @@ export default function Checkout() {
     const isMembershipEligible = Boolean(membershipEligibility?.isEligible ?? true);
     const profileCompletionPct = Number(membershipEligibility?.completionPct || 0);
     const missingProfileFields = Array.isArray(membershipEligibility?.missingFields) ? membershipEligibility.missingFields : [];
+    const membershipUnlockState = formatMissingProfileFields(missingProfileFields);
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
     const tierLabel = formatTierLabel(loyaltyStatus?.profile?.label || tier);
     const progress = loyaltyStatus?.progress || checkoutSummary?.loyaltyMeta?.progress || {};
@@ -918,10 +920,15 @@ export default function Checkout() {
                                                 <p className="text-xs font-semibold !mb-0">
                                                     Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
                                                 </p>
-                                                {missingProfileFields.length > 0 && (
-                                                    <p className="text-[11px] mt-1 !mb-0">
-                                                        Pending: {missingProfileFields.slice(0, 3).join(', ')}{missingProfileFields.length > 3 ? ', ...' : ''}.
-                                                    </p>
+                                                {membershipUnlockState.items.length > 0 && (
+                                                    <div className="mt-2">
+                                                        <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
+                                                        <ul className="mt-1 space-y-1 text-[11px]">
+                                                            {membershipUnlockState.items.map((field) => (
+                                                                <li key={field}>- {field}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
                                                 )}
                                             </div>
                                         )}
@@ -1438,7 +1445,7 @@ export default function Checkout() {
             {orderResult && createPortal(
                 <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
                     <div className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-6 animate-fade-in border border-gray-100">
-                        <img src={logo} alt="SSC Jewellery" className="h-10 w-auto mb-3" />
+                        <img src={BRAND_LOGO_URL} alt="SSC Jewellery" className="h-10 w-auto mb-3" />
                         <h3 className="text-xl font-serif text-primary">Order Confirmed</h3>
                         <p className="text-sm text-gray-500 mt-2">
                             Thank you for shopping with us. Your order is confirmed and will be processed shortly.

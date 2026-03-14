@@ -35,6 +35,7 @@ import {
 import AddCustomerModal from '../../components/AddCustomerModal';
 import Modal from '../../components/Modal';
 import fallbackContactImage from '../../assets/contact.jpg';
+import { BRAND_APPLE_TOUCH_ICON_URL, BRAND_FAVICON_URL, BRAND_LOGO_URL } from '../../utils/branding.js';
 
 const DEFAULT_FORM = {
     displayName: '',
@@ -54,6 +55,9 @@ const DEFAULT_FORM = {
     youtubeUrl: '',
     facebookUrl: '',
     whatsappNumber: '',
+    logoUrl: '/logo.webp',
+    faviconUrl: '',
+    appleTouchIconUrl: '',
     contactJumbotronImageUrl: '/assets/contact.jpg',
     emailChannelEnabled: true,
     whatsappChannelEnabled: true,
@@ -115,6 +119,9 @@ export default function CompanyInfo() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isJumbotronUploading, setIsJumbotronUploading] = useState(false);
+    const [isLogoUploading, setIsLogoUploading] = useState(false);
+    const [isFaviconUploading, setIsFaviconUploading] = useState(false);
+    const [isAppleTouchIconUploading, setIsAppleTouchIconUploading] = useState(false);
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [taxRates, setTaxRates] = useState([]);
     const [taxRateEdits, setTaxRateEdits] = useState({});
@@ -247,6 +254,20 @@ export default function CompanyInfo() {
         } else if (!isValidWhatsApp(form.whatsappNumber)) {
             errors.whatsappNumber = 'WhatsApp number must be 10-14 digits';
         }
+        const logoUrl = String(form.logoUrl || '').trim();
+        const faviconUrl = String(form.faviconUrl || '').trim();
+        const appleTouchIconUrl = String(form.appleTouchIconUrl || '').trim();
+        if (!logoUrl) {
+            errors.logoUrl = 'Company logo is required';
+        } else if (!isValidUrl(logoUrl) && !logoUrl.startsWith('/')) {
+            errors.logoUrl = 'Company logo must be a valid URL or an absolute asset path';
+        }
+        if (faviconUrl && !isValidUrl(faviconUrl) && !faviconUrl.startsWith('/')) {
+            errors.faviconUrl = 'Favicon must be a valid URL or an absolute asset path';
+        }
+        if (appleTouchIconUrl && !isValidUrl(appleTouchIconUrl) && !appleTouchIconUrl.startsWith('/')) {
+            errors.appleTouchIconUrl = 'Apple touch icon must be a valid URL or an absolute asset path';
+        }
         if (!String(form.razorpayKeyId || '').trim()) {
             errors.razorpayKeyId = 'Razorpay Key ID is required';
         } else if (!/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(String(form.razorpayKeyId || '').trim())) {
@@ -325,6 +346,22 @@ export default function CompanyInfo() {
             toast.error(error?.message || 'Failed to upload contact jumbotron image');
         } finally {
             setIsJumbotronUploading(false);
+        }
+    };
+
+    const handleBrandingUpload = async ({ file, uploader, successMessage, errorMessage, field, setUploading }) => {
+        if (!file) return;
+        setUploading(true);
+        try {
+            const data = await uploader(file);
+            const assetUrl = String(data?.url || '').trim();
+            if (!assetUrl) throw new Error('Upload did not return an asset URL');
+            setForm((prev) => ({ ...prev, [field]: assetUrl }));
+            toast.success(successMessage);
+        } catch (error) {
+            toast.error(error?.message || errorMessage);
+        } finally {
+            setUploading(false);
         }
     };
 
@@ -599,6 +636,69 @@ export default function CompanyInfo() {
     if (isLoading) {
         return <div className="py-16 text-center text-gray-400">Loading settings...</div>;
     }
+
+    const brandingPreviews = [
+        {
+            key: 'logoUrl',
+            label: 'Company Logo',
+            required: true,
+            routePath: BRAND_LOGO_URL,
+            previewUrl: form.logoUrl || BRAND_LOGO_URL,
+            uploadLabel: isLogoUploading ? 'Uploading logo...' : 'Upload Logo',
+            helper: 'Mandatory. Used across storefront, admin panels, invoices, SEO, and PWA branding.',
+            error: formErrors.logoUrl,
+            uploading: isLogoUploading,
+            uploader: (file) => handleBrandingUpload({
+                file,
+                uploader: adminService.uploadCompanyLogo,
+                successMessage: 'Logo uploaded',
+                errorMessage: 'Failed to upload logo',
+                field: 'logoUrl',
+                setUploading: setIsLogoUploading
+            }),
+            accept: 'image/*,.ico'
+        },
+        {
+            key: 'faviconUrl',
+            label: 'Favicon',
+            required: false,
+            routePath: BRAND_FAVICON_URL,
+            previewUrl: form.faviconUrl || BRAND_FAVICON_URL,
+            uploadLabel: isFaviconUploading ? 'Uploading favicon...' : 'Upload Favicon',
+            helper: 'Optional. Used for browser tab icon through the stable /favicon.ico route.',
+            error: formErrors.faviconUrl,
+            uploading: isFaviconUploading,
+            uploader: (file) => handleBrandingUpload({
+                file,
+                uploader: adminService.uploadCompanyFavicon,
+                successMessage: 'Favicon uploaded',
+                errorMessage: 'Failed to upload favicon',
+                field: 'faviconUrl',
+                setUploading: setIsFaviconUploading
+            }),
+            accept: 'image/png,image/x-icon,image/vnd.microsoft.icon,image/webp,.ico'
+        },
+        {
+            key: 'appleTouchIconUrl',
+            label: 'Apple Touch Icon',
+            required: false,
+            routePath: BRAND_APPLE_TOUCH_ICON_URL,
+            previewUrl: form.appleTouchIconUrl || BRAND_APPLE_TOUCH_ICON_URL,
+            uploadLabel: isAppleTouchIconUploading ? 'Uploading apple touch icon...' : 'Upload Apple Touch Icon',
+            helper: 'Optional. Used for iOS home-screen icon via the stable /apple-touch-icon.png route.',
+            error: formErrors.appleTouchIconUrl,
+            uploading: isAppleTouchIconUploading,
+            uploader: (file) => handleBrandingUpload({
+                file,
+                uploader: adminService.uploadCompanyAppleTouchIcon,
+                successMessage: 'Apple touch icon uploaded',
+                errorMessage: 'Failed to upload apple touch icon',
+                field: 'appleTouchIconUrl',
+                setUploading: setIsAppleTouchIconUploading
+            }),
+            accept: 'image/*,.ico'
+        }
+    ];
 
     return (
         <div className="animate-fade-in">
@@ -1263,6 +1363,65 @@ export default function CompanyInfo() {
                     <div className="relative z-10">
                         <h3 className="text-sm font-semibold text-gray-800">Razorpay Settings</h3>
                         <p className="text-xs text-gray-500 mt-1">Stored in database and used by checkout/webhooks.</p>
+                    </div>
+                    <div className="relative z-10 space-y-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4">
+                        <div>
+                            <h4 className="text-sm font-semibold text-gray-800">Store Branding Assets</h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Upload once here and the same branding will be used across storefront screens, favicon/apple icons, SEO, invoices, and the installed PWA.
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                            {brandingPreviews.map((asset) => (
+                                <div key={asset.key} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-gray-800">
+                                                {asset.label} {asset.required ? <span className="text-red-500">*</span> : null}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-gray-500">{asset.helper}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 flex h-24 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                        <img
+                                            src={asset.previewUrl}
+                                            alt={asset.label}
+                                            className="max-h-full max-w-full object-contain"
+                                            onError={(e) => {
+                                                e.currentTarget.src = asset.routePath;
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="mt-3 space-y-2">
+                                        <Field
+                                            label={`${asset.label} URL`}
+                                            value={form[asset.key]}
+                                            onChange={(value) => handleChange(asset.key, value)}
+                                            placeholder={asset.routePath}
+                                            error={asset.error}
+                                        />
+                                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                                            <Upload size={14} />
+                                            {asset.uploadLabel}
+                                            <input
+                                                type="file"
+                                                accept={asset.accept}
+                                                className="hidden"
+                                                disabled={asset.uploading}
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    asset.uploader(file);
+                                                    e.target.value = '';
+                                                }}
+                                            />
+                                        </label>
+                                        <p className="text-[11px] text-gray-500 break-all !mb-0">
+                                            Stable route: <span className="font-mono">{asset.routePath}</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                     <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field

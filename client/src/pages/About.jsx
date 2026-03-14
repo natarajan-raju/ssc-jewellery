@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import { Gem, Sparkles } from 'lucide-react';
 import { buildAboutSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 const DEFAULT_COMPANY = {
     displayName: 'SSC Impon Jewellery',
@@ -65,7 +66,7 @@ export default function About() {
                     <Gem size={160} className="bg-emboss-icon absolute top-3 right-3 text-amber-100" strokeWidth={1.4} />
                     <div className="flex justify-center mb-6">
                         <img
-                            src="/assets/logo.webp"
+                            src={BRAND_LOGO_URL}
                             alt={`${company.displayName || 'SSC Impon Jewellery'} logo`}
                             className="w-52 md:w-64 lg:w-80 h-auto object-contain"
                         />

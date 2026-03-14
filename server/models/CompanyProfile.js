@@ -20,6 +20,9 @@ const DEFAULT_COMPANY_PROFILE = {
     youtubeUrl: '',
     facebookUrl: '',
     whatsappNumber: '',
+    logoUrl: '/logo.webp',
+    faviconUrl: '',
+    appleTouchIconUrl: '',
     contactJumbotronImageUrl: '/assets/contact.jpg',
     emailChannelEnabled: true,
     whatsappChannelEnabled: true,
@@ -59,6 +62,9 @@ const normalizeRow = (row) => {
         youtubeUrl: row.youtube_url || '',
         facebookUrl: row.facebook_url || '',
         whatsappNumber: row.whatsapp_number || '',
+        logoUrl: row.logo_url || DEFAULT_COMPANY_PROFILE.logoUrl,
+        faviconUrl: row.favicon_url || DEFAULT_COMPANY_PROFILE.faviconUrl,
+        appleTouchIconUrl: row.apple_touch_icon_url || DEFAULT_COMPANY_PROFILE.appleTouchIconUrl,
         contactJumbotronImageUrl: row.contact_jumbotron_image_url || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
         emailChannelEnabled: Number(row.email_channel_enabled ?? 1) === 1,
         whatsappChannelEnabled: Number(row.whatsapp_channel_enabled ?? 1) === 1,
@@ -78,8 +84,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -100,6 +106,9 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.youtubeUrl,
                 DEFAULT_COMPANY_PROFILE.facebookUrl,
                 DEFAULT_COMPANY_PROFILE.whatsappNumber,
+                DEFAULT_COMPANY_PROFILE.logoUrl,
+                DEFAULT_COMPANY_PROFILE.faviconUrl,
+                DEFAULT_COMPANY_PROFILE.appleTouchIconUrl,
                 DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
                 DEFAULT_COMPANY_PROFILE.emailChannelEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.whatsappChannelEnabled ? 1 : 0,
@@ -152,6 +161,9 @@ class CompanyProfile {
             youtubeUrl: String(payload.youtubeUrl || '').trim(),
             facebookUrl: String(payload.facebookUrl || '').trim(),
             whatsappNumber: String(payload.whatsappNumber || '').trim(),
+            logoUrl: String(payload.logoUrl || '').trim() || DEFAULT_COMPANY_PROFILE.logoUrl,
+            faviconUrl: String(payload.faviconUrl || '').trim(),
+            appleTouchIconUrl: String(payload.appleTouchIconUrl || '').trim(),
             contactJumbotronImageUrl: String(payload.contactJumbotronImageUrl || '').trim() || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl,
             emailChannelEnabled: true,
             whatsappChannelEnabled: payload.whatsappChannelEnabled !== false,
@@ -167,8 +179,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 storefront_open = VALUES(storefront_open),
@@ -188,6 +200,9 @@ class CompanyProfile {
                 youtube_url = VALUES(youtube_url),
                 facebook_url = VALUES(facebook_url),
                 whatsapp_number = VALUES(whatsapp_number),
+                logo_url = VALUES(logo_url),
+                favicon_url = VALUES(favicon_url),
+                apple_touch_icon_url = VALUES(apple_touch_icon_url),
                 contact_jumbotron_image_url = VALUES(contact_jumbotron_image_url),
                 email_channel_enabled = VALUES(email_channel_enabled),
                 whatsapp_channel_enabled = VALUES(whatsapp_channel_enabled),
@@ -217,6 +232,9 @@ class CompanyProfile {
                 next.youtubeUrl,
                 next.facebookUrl,
                 next.whatsappNumber,
+                next.logoUrl,
+                next.faviconUrl,
+                next.appleTouchIconUrl,
                 next.contactJumbotronImageUrl,
                 next.emailChannelEnabled ? 1 : 0,
                 next.whatsappChannelEnabled ? 1 : 0,
@@ -277,6 +295,9 @@ class CompanyProfile {
             youtubeUrl: String(source.youtubeUrl || ''),
             facebookUrl: String(source.facebookUrl || ''),
             whatsappNumber: String(source.whatsappNumber || ''),
+            logoUrl: String(source.logoUrl || DEFAULT_COMPANY_PROFILE.logoUrl),
+            faviconUrl: String(source.faviconUrl || DEFAULT_COMPANY_PROFILE.faviconUrl),
+            appleTouchIconUrl: String(source.appleTouchIconUrl || DEFAULT_COMPANY_PROFILE.appleTouchIconUrl),
             contactJumbotronImageUrl: String(source.contactJumbotronImageUrl || DEFAULT_COMPANY_PROFILE.contactJumbotronImageUrl),
             emailChannelEnabled: true,
             whatsappChannelEnabled: source.whatsappChannelEnabled !== false,

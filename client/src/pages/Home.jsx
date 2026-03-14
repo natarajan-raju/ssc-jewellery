@@ -10,9 +10,9 @@ import EmptyState from '../components/EmptyState';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
 import emptyIllustration from '../assets/closed.svg';
-import logoLight from '../assets/logo_light.webp';
 import { buildHomeSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
@@ -1037,7 +1037,7 @@ export default function Home() {
                    {/* [NEW] Header with Logo & Title */}
                     <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-12 animate-fade-in">
                         <img 
-                            src={logoLight}
+                            src={BRAND_LOGO_URL}
                             alt="Logo"
                             // [FIX] Increased mobile size to w-24 (96px) for better visibility
                             className="w-24 h-24 md:w-28 md:h-28 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]"

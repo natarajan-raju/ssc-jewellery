@@ -18,6 +18,7 @@ import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
 import { useMyOrders } from '../context/OrderContext';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
+import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -273,6 +274,7 @@ export default function Profile() {
     const missingProfileFields = Array.isArray(membershipEligibility?.missingFields)
         ? membershipEligibility.missingFields
         : [];
+    const membershipUnlockState = formatMissingProfileFields(missingProfileFields);
 
     return (
         <div className="bg-secondary min-h-screen">
@@ -339,10 +341,15 @@ export default function Profile() {
                                     <p className="text-[11px] mt-1 !mb-0">
                                         Complete all profile details to unlock tier discounts and shipping benefits.
                                     </p>
-                                    {missingProfileFields.length > 0 && (
-                                        <p className="text-[11px] mt-1 !mb-0">
-                                            Pending: {missingProfileFields.slice(0, 3).join(', ')}{missingProfileFields.length > 3 ? ', ...' : ''}.
-                                        </p>
+                                    {membershipUnlockState.items.length > 0 && (
+                                        <div className="mt-2">
+                                            <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
+                                            <ul className="mt-1 space-y-1 text-[11px]">
+                                                {membershipUnlockState.items.map((field) => (
+                                                    <li key={field}>- {field}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
                                     )}
                                 </div>
                             )}

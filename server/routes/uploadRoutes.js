@@ -27,6 +27,26 @@ const uploadContact = createUploader('contact', {
     allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
     maxFileSizeBytes: 5 * 1024 * 1024
 });
+const brandingImageMimeTypes = [
+    ...DEFAULT_IMAGE_MIME_TYPES,
+    'image/x-icon',
+    'image/vnd.microsoft.icon'
+];
+const uploadBrandingLogo = createUploader('branding', {
+    allowedMimeTypes: brandingImageMimeTypes,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.ico'],
+    maxFileSizeBytes: 5 * 1024 * 1024
+});
+const uploadBrandingFavicon = createUploader('branding', {
+    allowedMimeTypes: brandingImageMimeTypes,
+    allowedExtensions: ['.png', '.webp', '.jpg', '.jpeg', '.ico'],
+    maxFileSizeBytes: 2 * 1024 * 1024
+});
+const uploadBrandingAppleTouch = createUploader('branding', {
+    allowedMimeTypes: brandingImageMimeTypes,
+    allowedExtensions: ['.png', '.webp', '.jpg', '.jpeg', '.ico'],
+    maxFileSizeBytes: 2 * 1024 * 1024
+});
 const uploadCarousel = createUploader('carousel', {
     allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
     allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
@@ -63,6 +83,27 @@ router.post('/contact-jumbotron-image', protect, authorize('admin', 'staff'), up
     }
     const url = `/uploads/contact/${req.file.filename}`;
     return res.json({ url });
+});
+
+router.post('/company-logo', protect, authorize('admin', 'staff'), uploadBrandingLogo.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No logo uploaded' });
+    }
+    return res.json({ url: `/uploads/branding/${req.file.filename}` });
+});
+
+router.post('/company-favicon', protect, authorize('admin', 'staff'), uploadBrandingFavicon.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No favicon uploaded' });
+    }
+    return res.json({ url: `/uploads/branding/${req.file.filename}` });
+});
+
+router.post('/company-apple-touch-icon', protect, authorize('admin', 'staff'), uploadBrandingAppleTouch.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No apple touch icon uploaded' });
+    }
+    return res.json({ url: `/uploads/branding/${req.file.filename}` });
 });
 
 router.post('/carousel-card-image', protect, authorize('admin', 'staff'), uploadCarousel.single('image'), (req, res) => {

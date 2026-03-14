@@ -4,12 +4,12 @@ import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart, Search, Medal,
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
-import logo from '../assets/logo.webp';
 import emptyIllustration from '../assets/closed.svg';
 import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories } from '../hooks/usePublicSiteShell';
 import { formatTierLabel } from '../utils/tierFormat';
+import { BRAND_LOGO_URL } from '../utils/branding.js';
 import EmptyState from './EmptyState';
 
 const TIER_STYLES = {
@@ -403,7 +403,7 @@ export default function Navbar() {
                     
                     <Link to="/" className="flex items-center gap-2 group">
                         <img 
-                            src={logo} 
+                            src={BRAND_LOGO_URL} 
                             alt="Logo" 
                             className={`w-auto object-contain transition-all duration-300 h-10`}
                             decoding="async"
