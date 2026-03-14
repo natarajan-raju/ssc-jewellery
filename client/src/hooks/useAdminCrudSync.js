@@ -9,6 +9,7 @@ export const ADMIN_CRUD_EVENTS = [
     'product:update',
     'product:delete',
     'product:category_change',
+    'category:autopilot_update',
     'refresh:categories',
     'user:create',
     'user:update',

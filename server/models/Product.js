@@ -29,7 +29,10 @@ class Product {
 
     static async getCategoryMetaById(id, { connection = db } = {}) {
         const [rows] = await connection.execute(
-            'SELECT id, name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
+            `SELECT id, name, system_key, is_immutable, autopilot_enabled, autopilot_mode, autopilot_catalog_json, autopilot_refreshed_at
+             FROM categories
+             WHERE id = ?
+             LIMIT 1`,
             [id]
         );
         return rows[0] || null;
@@ -88,6 +91,13 @@ class Product {
             image: '/assets/category.jpg',
             immutable: true
         });
+        const [categoryRows] = await connection.execute(
+            'SELECT autopilot_enabled FROM categories WHERE id = ? LIMIT 1',
+            [offersId]
+        );
+        if (Number(categoryRows?.[0]?.autopilot_enabled || 0) !== 1) {
+            return;
+        }
         const discounted = await Product.isProductDiscounted(connection, productId);
         const [rows] = await connection.execute(
             'SELECT 1 FROM product_categories WHERE product_id = ? AND category_id = ? LIMIT 1',
@@ -174,12 +184,40 @@ class Product {
 
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
-    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest', categoryId = null) {
+    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest', categoryId = null, viewerKey = '') {
         const offset = (page - 1) * limit;
         const params = [];
         const conditions = [];
         const numericCategoryId = Number(categoryId);
         const hasCategoryId = Number.isFinite(numericCategoryId) && numericCategoryId > 0;
+        const { fetchAutopilotCapableCategory, getAutopilotProductsForCategory } = require('../services/categoryAutopilotService');
+        const autopilotCategory = await fetchAutopilotCapableCategory({
+            categoryId: hasCategoryId ? numericCategoryId : null,
+            categoryName: hasCategoryId ? '' : category
+        }).catch(() => null);
+        if (autopilotCategory && Number(autopilotCategory.autopilot_enabled || 0) === 1) {
+            const autopilotResult = await getAutopilotProductsForCategory(autopilotCategory, {
+                viewerKey,
+                page,
+                limit
+            }).catch(() => null);
+            if (autopilotResult) {
+                return {
+                    products: autopilotResult.products,
+                    total: autopilotResult.total,
+                    totalPages: autopilotResult.totalPages,
+                    page: autopilotResult.page,
+                    limit: autopilotResult.limit,
+                    category: autopilotCategory.name,
+                    categoryId: autopilotCategory.id,
+                    autopilot: {
+                        enabled: true,
+                        mode: 'hybrid',
+                        refreshedAt: autopilotCategory.autopilot_refreshed_at || null
+                    }
+                };
+            }
+        }
         const variantStatsJoin = `
             LEFT JOIN (
                 SELECT
@@ -639,7 +677,6 @@ class Product {
         const normalized = [...new Set(
             (Array.isArray(categoryNames) ? categoryNames : [])
                 .map((name) => String(name || '').trim())
-                .filter((name) => Product.normalizeCategoryName(name) !== 'offers')
                 .filter(Boolean)
         )];
 
@@ -738,7 +775,7 @@ class Product {
     static async getCategoriesWithStats({ publicOnly = false } = {}) {
         const query = publicOnly
             ? `
-                SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(p.id) as product_count
+                SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, c.autopilot_enabled, c.autopilot_mode, c.autopilot_refreshed_at, c.autopilot_catalog_json, COUNT(p.id) as product_count
                 FROM categories c
                 LEFT JOIN product_categories pc ON c.id = pc.category_id
                 LEFT JOIN products p ON p.id = pc.product_id AND p.status = 'active'
@@ -747,19 +784,20 @@ class Product {
                 ORDER BY c.name ASC
             `
             : `
-                SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(pc.product_id) as product_count
+                SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, c.autopilot_enabled, c.autopilot_mode, c.autopilot_refreshed_at, c.autopilot_catalog_json, COUNT(pc.product_id) as product_count
                 FROM categories c
                 LEFT JOIN product_categories pc ON c.id = pc.category_id
                 GROUP BY c.id
                 ORDER BY c.name ASC
             `;
         const [rows] = await db.execute(query);
-        return rows;
+        const { applyAutopilotStats } = require('../services/categoryAutopilotService');
+        return applyAutopilotStats(rows);
     }
 
     static async getCategoryStatsById(categoryId) {
         const query = `
-            SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, COUNT(pc.product_id) as product_count 
+            SELECT c.id, c.name, c.image_url, c.system_key, c.is_immutable, c.autopilot_enabled, c.autopilot_mode, c.autopilot_refreshed_at, c.autopilot_catalog_json, COUNT(pc.product_id) as product_count 
             FROM categories c 
             LEFT JOIN product_categories pc ON c.id = pc.category_id 
             WHERE c.id = ?
@@ -767,14 +805,48 @@ class Product {
             LIMIT 1
         `;
         const [rows] = await db.execute(query, [categoryId]);
-        return rows[0] || null;
+        const row = rows[0] || null;
+        if (!row) return null;
+        const { applyAutopilotStats } = require('../services/categoryAutopilotService');
+        const [withAutopilot] = await applyAutopilotStats([row]);
+        return withAutopilot || row;
     }
 
     // B. Get Single Category with Ordered Products
-    static async getCategoryDetails(categoryId) {
+    static async getCategoryDetails(categoryId, { viewerKey = '' } = {}) {
         // 1. Get Category Info
         const [catRows] = await db.execute('SELECT * FROM categories WHERE id = ?', [categoryId]);
         if (catRows.length === 0) return null;
+        const category = catRows[0];
+        const { getAutopilotProductsForCategory } = require('../services/categoryAutopilotService');
+        if (Number(category.autopilot_enabled || 0) === 1) {
+            const autopilotResult = await getAutopilotProductsForCategory(category, {
+                viewerKey,
+                page: 1,
+                limit: 25
+            }).catch(() => null);
+            if (autopilotResult) {
+                return {
+                    ...category,
+                    products: autopilotResult.products.map((product, index) => ({
+                        id: product.id,
+                        title: product.title,
+                        sku: product.sku,
+                        status: product.status,
+                        media: Array.isArray(product.media) ? product.media : [],
+                        quantity: product.quantity,
+                        display_order: index,
+                        autopilot_generated: true
+                    })),
+                    autopilot_meta: {
+                        enabled: true,
+                        mode: 'hybrid',
+                        total: autopilotResult.total,
+                        refreshedAt: category.autopilot_refreshed_at || null
+                    }
+                };
+            }
+        }
 
         // 2. Get Products in this Category (Ordered by display_order)
         const productQuery = `
@@ -792,7 +864,7 @@ class Product {
             media: typeof p.media === 'string' ? JSON.parse(p.media) : (p.media || [])
         }));
 
-        return { ...catRows[0], products };
+        return { ...category, products };
     }
 
     // C. Update Category Name
@@ -801,7 +873,7 @@ class Product {
         try {
             await connection.beginTransaction();
             const [catRows] = await connection.execute(
-                'SELECT name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
+                'SELECT name, system_key, is_immutable, autopilot_enabled FROM categories WHERE id = ? LIMIT 1',
                 [id]
             );
             if (!catRows[0]) {
@@ -849,6 +921,9 @@ class Product {
             await connection.beginTransaction();
             const meta = await Product.getCategoryMetaById(categoryId, { connection });
             if (!meta) throw new Error('Category not found');
+            if (Number(meta?.autopilot_enabled || 0) === 1 && Product.isImmutableSystemKey(meta?.system_key)) {
+                throw new Error('Auto-pilot is enabled. Turn it off to reorder products manually');
+            }
 
             const ids = Array.isArray(orderedProductIds)
                 ? orderedProductIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -900,8 +975,8 @@ class Product {
             await connection.beginTransaction();
             const meta = await Product.getCategoryMetaById(categoryId, { connection });
             if (!meta) throw new Error('Category not found');
-            if (String(meta.system_key || '').toLowerCase() === 'offers') {
-                throw new Error('Offers category is auto-managed from product discounts');
+            if (Number(meta?.autopilot_enabled || 0) === 1 && Product.isImmutableSystemKey(meta?.system_key)) {
+                throw new Error('Auto-pilot is enabled. Turn it off to manage products manually');
             }
             const normalizedAction = String(action || '').trim().toLowerCase();
             if (!['add', 'remove'].includes(normalizedAction)) {
@@ -959,8 +1034,8 @@ class Product {
             await connection.beginTransaction();
             const meta = await Product.getCategoryMetaById(categoryId, { connection });
             if (!meta) throw new Error('Category not found');
-            if (String(meta.system_key || '').toLowerCase() === 'offers') {
-                throw new Error('Offers category is auto-managed from product discounts');
+            if (Number(meta?.autopilot_enabled || 0) === 1 && Product.isImmutableSystemKey(meta?.system_key)) {
+                throw new Error('Auto-pilot is enabled. Turn it off to manage products manually');
             }
             const placeholders = ids.map(() => '?').join(',');
 
@@ -1037,7 +1112,7 @@ class Product {
         try {
             await connection.beginTransaction();
             const [catRows] = await connection.execute(
-                'SELECT name, system_key, is_immutable FROM categories WHERE id = ? LIMIT 1',
+                'SELECT name, system_key, is_immutable, autopilot_enabled FROM categories WHERE id = ? LIMIT 1',
                 [id]
             );
             if (!catRows[0]) {
@@ -1076,6 +1151,11 @@ class Product {
         } finally {
             connection.release();
         }
+    }
+
+    static async updateCategoryAutopilot(id, enabled) {
+        const { updateCategoryAutopilot } = require('../services/categoryAutopilotService');
+        return updateCategoryAutopilot(id, { enabled });
     }
 
     static async syncRelatedProductsCategoryReference(

@@ -31,6 +31,8 @@ export default function CategoryDetail({ categoryId, onBack }) {
     const toast = useToast();
     const isOffersCategory = String(category?.system_key || '').toLowerCase() === 'offers';
     const isNameImmutable = Boolean(category?.is_immutable);
+    const isAutopilotCapable = ['best_sellers', 'new_arrivals', 'offers'].includes(String(category?.system_key || '').toLowerCase());
+    const isAutopilotEnabled = isAutopilotCapable && Number(category?.autopilot_enabled || 0) === 1;
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -67,9 +69,21 @@ export default function CategoryDetail({ categoryId, onBack }) {
         loadData();
     }, [categoryId, loadData]);
 
+    const handleAutopilotUpdate = useCallback((payload = {}) => {
+        const payloadCategoryId = String(payload?.categoryId || payload?.category?.id || '');
+        if (payloadCategoryId && payloadCategoryId !== String(categoryId)) return;
+        if (payload?.details) {
+            setCategory(payload.details);
+            setProducts(Array.isArray(payload.details?.products) ? payload.details.products : []);
+            return;
+        }
+        loadData();
+    }, [categoryId, loadData]);
+
     useAdminCrudSync({
         'refresh:categories': handleCategoryRefresh,
-        'product:category_change': handleCategoryProductChange
+        'product:category_change': handleCategoryProductChange,
+        'category:autopilot_update': handleAutopilotUpdate
     });
 
     useEffect(() => {
@@ -115,10 +129,12 @@ export default function CategoryDetail({ categoryId, onBack }) {
 
     // --- DRAG AND DROP HANDLERS ---
     const handleDragStart = (index) => {
+        if (isAutopilotEnabled) return;
         setDraggedIndex(index);
     };
 
     const handleDragOver = (e, index) => {
+        if (isAutopilotEnabled) return;
         e.preventDefault();
         if (draggedIndex === null || draggedIndex === index) return;
         
@@ -133,6 +149,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
     };
 
     const handleDragEnd = async () => {
+        if (isAutopilotEnabled) return;
         setDraggedIndex(null);
         // Save new order to backend
         try {
@@ -150,8 +167,8 @@ export default function CategoryDetail({ categoryId, onBack }) {
 
    // A. Open Remove Modal
     const openRemoveModal = (product) => {
-        if (isOffersCategory) {
-            toast.error("Offers products are auto-managed by discount");
+        if (isAutopilotEnabled) {
+            toast.error("Auto-pilot is enabled. Turn it off to manage products manually.");
             return;
         }
         setModalConfig({
@@ -213,8 +230,8 @@ export default function CategoryDetail({ categoryId, onBack }) {
     };
 
     const handleAssignSubmit = async () => {
-        if (isOffersCategory) {
-            toast.error("Offers products are auto-managed by discount");
+        if (isAutopilotEnabled) {
+            toast.error("Auto-pilot is enabled. Turn it off to manage products manually.");
             return;
         }
         if (selectedAssignIds.size === 0) {
@@ -274,6 +291,21 @@ export default function CategoryDetail({ categoryId, onBack }) {
             return next;
         });
     };
+
+    const handleAutopilotToggle = async () => {
+        if (!category?.id || !isAutopilotCapable || isActionLoading) return;
+        setIsActionLoading(true);
+        try {
+            const nextEnabled = !isAutopilotEnabled;
+            await productService.updateCategoryAutopilot(category.id, nextEnabled);
+            await loadData();
+            toast.success(nextEnabled ? 'Auto-pilot enabled' : 'Auto-pilot disabled');
+        } catch (error) {
+            toast.error(error.message || 'Failed to update category auto-pilot');
+        } finally {
+            setIsActionLoading(false);
+        }
+    };
    
 
     if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>;
@@ -325,29 +357,57 @@ export default function CategoryDetail({ categoryId, onBack }) {
                         </div>
                     </div>
                 </div>
-                
-                <button
-                    onClick={openAssignModal}
-                    disabled={isOffersCategory}
-                    className="bg-white border border-gray-200 text-primary font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:border-primary transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                    <Plus size={18} /> Assign products
-                </button>
+
+                <div className="flex items-center gap-3">
+                    {isAutopilotCapable && (
+                        <button
+                            onClick={handleAutopilotToggle}
+                            disabled={isActionLoading}
+                            className={`font-bold px-4 py-2 rounded-lg border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                                isAutopilotEnabled
+                                    ? 'bg-primary text-white border-primary hover:bg-primary/90'
+                                    : 'bg-white border-gray-200 text-primary hover:border-primary'
+                            }`}
+                        >
+                            Auto-Pilot {isAutopilotEnabled ? 'On' : 'Off'}
+                        </button>
+                    )}
+                    <button
+                        onClick={openAssignModal}
+                        disabled={isAutopilotEnabled}
+                        className="bg-white border border-gray-200 text-primary font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:border-primary transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        <Plus size={18} /> Assign products
+                    </button>
+                </div>
             </div>
 
             {/* --- PRODUCT GRID (DRAG & DROP) --- */}
             <div className="space-y-4">
                 <p className="text-sm text-gray-500">
-                    Use drag & drop to change the order of products. Changes are saved automatically.
+                    {isAutopilotEnabled
+                        ? 'Auto-pilot is currently curating this category. Disable it to return to manual assignment and ordering.'
+                        : 'Use drag & drop to change the order of products. Changes are saved automatically.'}
                 </p>
                 {isReordering && (
                     <p className="text-xs text-gray-400">
                         Saving order...
                     </p>
                 )}
-                {isOffersCategory && (
+                {isAutopilotCapable && (
+                    <p className={`text-xs rounded-lg px-3 py-2 border ${
+                        isAutopilotEnabled
+                            ? 'text-primary bg-blue-50 border-blue-200'
+                            : 'text-gray-600 bg-gray-50 border-gray-200'
+                    }`}>
+                        {isAutopilotEnabled
+                            ? 'Auto-pilot refreshes this system category roughly every 3 days using native signals plus smart rotation. Your manual assignments and ordering are preserved underneath and will return when Auto-Pilot is turned off.'
+                            : 'Auto-pilot is off. This system category is currently using the normal manual assignment and ordering workflow.'}
+                    </p>
+                )}
+                {isOffersCategory && !isAutopilotEnabled && (
                     <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        Offers membership is auto-managed from product and variant discount values. You can only reorder products here.
+                        Offers is currently in manual mode. Auto-Pilot can be enabled any time to switch back to discount-led smart curation.
                     </p>
                 )}
                 
@@ -355,7 +415,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
                     {products.map((product, index) => (
                         <div 
                             key={product.id}
-                            draggable
+                            draggable={!isAutopilotEnabled}
                             onDragStart={() => handleDragStart(index)}
                             onDragOver={(e) => handleDragOver(e, index)}
                             onDragEnd={handleDragEnd}
@@ -369,7 +429,7 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                     <div className="w-full h-full flex items-center justify-center text-gray-300">No Image</div>
                                 )}
                                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {!isOffersCategory && (
+                                    {!isAutopilotEnabled && (
                                         <button 
                                             onClick={() => openRemoveModal(product)}
                                             className="p-1.5 bg-white text-red-500 rounded-md shadow-sm hover:bg-red-50"
@@ -379,7 +439,9 @@ export default function CategoryDetail({ categoryId, onBack }) {
                                         </button>
                                     )}
                                 </div>
-                                <div className="absolute top-2 left-2 cursor-grab active:cursor-grabbing p-1 bg-white/80 rounded backdrop-blur-sm text-gray-500">
+                                <div className={`absolute top-2 left-2 p-1 bg-white/80 rounded backdrop-blur-sm text-gray-500 ${
+                                    isAutopilotEnabled ? 'cursor-not-allowed opacity-50' : 'cursor-grab active:cursor-grabbing'
+                                }`}>
                                     <GripVertical size={14} />
                                 </div>
                             </div>

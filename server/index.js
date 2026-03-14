@@ -94,6 +94,9 @@ const {
     loadSitemapEntries,
     renderRouteHtml
 } = require('./services/seoService');
+const {
+    refreshEnabledCategoryAutopilotCatalogs
+} = require('./services/categoryAutopilotService');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
 console.log('Boot: service and middleware modules loaded');
 
@@ -479,6 +482,25 @@ const scheduleCommunicationRetryMaintenance = () => {
     run();
 };
 
+const scheduleCategoryAutopilotRefresh = () => {
+    const run = async ({ force = false } = {}) => {
+        try {
+            const results = await refreshEnabledCategoryAutopilotCatalogs({
+                force,
+                staleOnly: !force
+            });
+            if (force || (Array.isArray(results) && results.length > 0)) {
+                console.log('Category auto-pilot refresh completed:', Array.isArray(results) ? results.length : 0);
+            }
+        } catch (error) {
+            console.error('Category auto-pilot refresh failed:', error?.message || error);
+        }
+    };
+
+    setInterval(() => run({ force: false }), 12 * 60 * 60 * 1000);
+    run({ force: false });
+};
+
 let backgroundJobsStarted = false;
 const broadcastJourneyUpdate = (payload = {}) => {
     io.to('admin').emit('abandoned_cart:journey:update', {
@@ -501,6 +523,7 @@ const initBackgroundJobs = () => {
     scheduleDashboardAggregatesRefresh();
     scheduleCommunicationRetryProcessing();
     scheduleCommunicationRetryMaintenance();
+    scheduleCategoryAutopilotRefresh();
     startAbandonedCartRecoveryScheduler({ onJourneyUpdate: broadcastJourneyUpdate });
     startAbandonedCartMaintenanceScheduler({ onJourneyUpdate: broadcastJourneyUpdate });
 };

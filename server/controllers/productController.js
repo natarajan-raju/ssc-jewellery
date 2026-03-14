@@ -2,6 +2,9 @@ const Product = require('../models/Product');
 const fs = require('fs');
 const path = require('path');
 const {
+    refreshCategoryAutopilotCatalog
+} = require('../services/categoryAutopilotService');
+const {
     queueCategoryDelete,
     queueCategoryRefresh,
     queueProductDelete,
@@ -137,7 +140,8 @@ const getProducts = async (req, res) => {
         const sort = req.query.sort || 'newest';
 
         const resolvedStatus = canViewAdminProductData(req) ? status : 'active';
-        const result = await Product.getPaginated(page, limit, category, resolvedStatus, sort, categoryId);
+        const viewerKey = req?.user?.id ? String(req.user.id) : 'guest';
+        const result = await Product.getPaginated(page, limit, category, resolvedStatus, sort, categoryId, viewerKey);
         if (!canViewAdminProductData(req)) {
             result.products = (result.products || []).filter((product) => String(product.status || '').toLowerCase() === 'active').map(serializePublicProduct);
         }
@@ -399,7 +403,8 @@ const getCategoryStats = async (req, res) => {
 
 const getCategoryDetails = async (req, res) => {
     try {
-        const data = await Product.getCategoryDetails(req.params.id);
+        const viewerKey = canViewAdminProductData(req) ? '' : (req?.user?.id ? String(req.user.id) : 'guest');
+        const data = await Product.getCategoryDetails(req.params.id, { viewerKey });
         if (!data) return res.status(404).json({ message: 'Category not found' });
         res.json(data);
     } catch (error) {
@@ -567,9 +572,37 @@ const deleteCategory = async (req, res) => {
     }
 };
 
+const updateCategoryAutopilot = async (req, res) => {
+    try {
+        const enabled = req.body?.enabled === true || req.body?.enabled === 1 || String(req.body?.enabled || '').toLowerCase() === 'true';
+        const category = await Product.updateCategoryAutopilot(req.params.id, enabled);
+        const categoryStats = await Product.getCategoryStatsById(req.params.id);
+        const categoryDetails = await Product.getCategoryDetails(req.params.id, { viewerKey: '' });
+        notifyClients(req, 'refresh:categories', { action: 'autopilot', category: categoryStats });
+        notifyClients(req, 'category:autopilot_update', {
+            categoryId: req.params.id,
+            enabled,
+            category: categoryStats,
+            details: categoryDetails
+        });
+        queueCategoryRefresh({
+            categoryId: req.params.id,
+            categoryName: category?.name || categoryStats?.name || '',
+            reason: enabled ? 'category_autopilot_enable' : 'category_autopilot_disable'
+        });
+        if (enabled) {
+            await refreshCategoryAutopilotCatalog(req.params.id, { force: true }).catch(() => null);
+        }
+        res.json({ category: categoryStats, enabled });
+    } catch (error) {
+        const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;
+        res.status(status).json({ message: error.message || 'Failed to update category auto-pilot' });
+    }
+};
+
 module.exports = { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories,
     getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct,
-    manageCategoryProductsBulk, createCategory, deleteCategory, emitProductEvent,
+    manageCategoryProductsBulk, createCategory, deleteCategory, updateCategoryAutopilot, emitProductEvent,
     __test: {
         serializePublicProduct,
         canViewAdminProductData,

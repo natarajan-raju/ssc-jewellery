@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const { protect, optionalProtect, admin } = require('../middleware/authMiddleware');
-const { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, manageCategoryProductsBulk, createCategory, deleteCategory } = require('../controllers/productController');
+const { getProducts, searchProducts, getSingleProduct, createProduct, deleteProduct, updateProduct, getCategories, getCategoryStats, getCategoryDetails, updateCategory, reorderCategory, manageCategoryProduct, manageCategoryProductsBulk, createCategory, deleteCategory, updateCategoryAutopilot } = require('../controllers/productController');
 const { ensureUploadsSubdir } = require('../utils/uploadsRoot');
 
 // --- MULTER CONFIGURATION (Image Uploads) ---
@@ -59,6 +59,7 @@ router.put('/categories/:id', protect, admin, uploadCategoryImage.single('image'
 
 // 4. Reorder Products in Category
 router.put('/categories/:id/reorder', protect, admin, reorderCategory);
+router.put('/categories/:id/autopilot', protect, admin, updateCategoryAutopilot);
 
 // 5. Add/Remove Product from Category
 router.post('/categories/:id/products', protect, admin, manageCategoryProduct);

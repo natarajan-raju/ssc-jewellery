@@ -186,6 +186,10 @@ const initDB = async () => {
                 image_url TEXT,
                 system_key VARCHAR(50) UNIQUE,
                 is_immutable TINYINT(1) NOT NULL DEFAULT 0,
+                autopilot_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                autopilot_mode VARCHAR(30) NOT NULL DEFAULT 'hybrid',
+                autopilot_catalog_json JSON NULL,
+                autopilot_refreshed_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
@@ -194,6 +198,18 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE categories ADD COLUMN is_immutable TINYINT(1) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE categories ADD COLUMN autopilot_enabled TINYINT(1) NOT NULL DEFAULT 0");
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE categories ADD COLUMN autopilot_mode VARCHAR(30) NOT NULL DEFAULT 'hybrid'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE categories ADD COLUMN autopilot_catalog_json JSON NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE categories ADD COLUMN autopilot_refreshed_at DATETIME NULL');
         } catch {}
 
         await connection.query(`

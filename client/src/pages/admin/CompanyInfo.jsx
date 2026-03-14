@@ -1079,6 +1079,65 @@ export default function CompanyInfo() {
                             error={formErrors.contactJumbotronImageUrl}
                         />
                     </div>
+                    <div className="relative z-10 space-y-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4">
+                        <div>
+                            <h4 className="text-sm font-semibold text-gray-800">Store Branding Assets</h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Upload once here and the same branding will be used across storefront screens, favicon/apple icons, SEO, invoices, and the installed PWA.
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                            {brandingPreviews.map((asset) => (
+                                <div key={asset.key} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                            <p className="text-sm font-semibold text-gray-800">
+                                                {asset.label} {asset.required ? <span className="text-red-500">*</span> : null}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-gray-500">{asset.helper}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 flex h-24 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                        <img
+                                            src={asset.previewUrl}
+                                            alt={asset.label}
+                                            className="max-h-full max-w-full object-contain"
+                                            onError={(e) => {
+                                                e.currentTarget.src = asset.routePath;
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="mt-3 space-y-2">
+                                        <Field
+                                            label={`${asset.label} URL`}
+                                            value={form[asset.key]}
+                                            onChange={(value) => handleChange(asset.key, value)}
+                                            placeholder={asset.routePath}
+                                            error={asset.error}
+                                        />
+                                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                                            <Upload size={14} />
+                                            {asset.uploadLabel}
+                                            <input
+                                                type="file"
+                                                accept={asset.accept}
+                                                className="hidden"
+                                                disabled={asset.uploading}
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    asset.uploader(file);
+                                                    e.target.value = '';
+                                                }}
+                                            />
+                                        </label>
+                                        <p className="text-[11px] text-gray-500 break-all !mb-0">
+                                            Stable route: <span className="font-mono">{asset.routePath}</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                     <div className="relative z-10">
                         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
                             <Upload size={14} />
@@ -1363,65 +1422,6 @@ export default function CompanyInfo() {
                     <div className="relative z-10">
                         <h3 className="text-sm font-semibold text-gray-800">Razorpay Settings</h3>
                         <p className="text-xs text-gray-500 mt-1">Stored in database and used by checkout/webhooks.</p>
-                    </div>
-                    <div className="relative z-10 space-y-4 rounded-2xl border border-dashed border-gray-200 bg-gray-50/80 p-4">
-                        <div>
-                            <h4 className="text-sm font-semibold text-gray-800">Store Branding Assets</h4>
-                            <p className="mt-1 text-xs text-gray-500">
-                                Upload once here and the same branding will be used across storefront screens, favicon/apple icons, SEO, invoices, and the installed PWA.
-                            </p>
-                        </div>
-                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                            {brandingPreviews.map((asset) => (
-                                <div key={asset.key} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <p className="text-sm font-semibold text-gray-800">
-                                                {asset.label} {asset.required ? <span className="text-red-500">*</span> : null}
-                                            </p>
-                                            <p className="mt-1 text-[11px] text-gray-500">{asset.helper}</p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 flex h-24 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
-                                        <img
-                                            src={asset.previewUrl}
-                                            alt={asset.label}
-                                            className="max-h-full max-w-full object-contain"
-                                            onError={(e) => {
-                                                e.currentTarget.src = asset.routePath;
-                                            }}
-                                        />
-                                    </div>
-                                    <div className="mt-3 space-y-2">
-                                        <Field
-                                            label={`${asset.label} URL`}
-                                            value={form[asset.key]}
-                                            onChange={(value) => handleChange(asset.key, value)}
-                                            placeholder={asset.routePath}
-                                            error={asset.error}
-                                        />
-                                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
-                                            <Upload size={14} />
-                                            {asset.uploadLabel}
-                                            <input
-                                                type="file"
-                                                accept={asset.accept}
-                                                className="hidden"
-                                                disabled={asset.uploading}
-                                                onChange={(e) => {
-                                                    const file = e.target.files?.[0];
-                                                    asset.uploader(file);
-                                                    e.target.value = '';
-                                                }}
-                                            />
-                                        </label>
-                                        <p className="text-[11px] text-gray-500 break-all !mb-0">
-                                            Stable route: <span className="font-mono">{asset.routePath}</span>
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
                     </div>
                     <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <Field

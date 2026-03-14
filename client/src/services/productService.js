@@ -508,6 +508,16 @@ export const productService = {
         });
         return handleResponse(res);
     },
+    updateCategoryAutopilot: async (id, enabled) => {
+        const res = await fetch(`${API_URL}/categories/${id}/autopilot`, {
+            method: 'PUT',
+            headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+        const data = await handleResponse(res);
+        clearCategoryCaches();
+        return data;
+    },
 
     manageCategoryProduct: async (categoryId, productId, action) => {
         // action = 'add' or 'remove'
