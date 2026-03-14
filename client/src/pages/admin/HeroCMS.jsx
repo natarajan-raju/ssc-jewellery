@@ -810,8 +810,8 @@ const [modalConfig, setModalConfig] = useState({
             }
             resetCarouselForm();
             await loadCarouselCards();
-        } catch {
-            toast.error("Failed to save carousel card");
+        } catch (error) {
+            toast.error(error?.message || "Failed to save carousel card");
         } finally {
             setIsCarouselSaving(false);
         }
@@ -865,8 +865,8 @@ const [modalConfig, setModalConfig] = useState({
             if (!url) throw new Error('Upload failed');
             setCarouselForm((prev) => ({ ...prev, imageUrl: url }));
             toast.success('Own image uploaded');
-        } catch {
-            toast.error('Failed to upload image');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to upload image');
         } finally {
             setIsCarouselImageUploading(false);
         }
