@@ -57,7 +57,7 @@ router.post('/', protect, admin, upload.array('images', 10), createProduct);
 
 // --- CATEGORY MANAGEMENT ROUTES (NEW) ---
 // 1. Get Stats (List with counts)
-router.get('/categories/stats', getCategoryStats);
+router.get('/categories/stats', optionalProtect, getCategoryStats);
 
 // 2. Get Single Category Details (with ordered products)
 router.get('/categories/:id', protect, admin, getCategoryDetails);
