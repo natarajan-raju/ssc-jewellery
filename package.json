@@ -7,7 +7,8 @@
     "server": "nodemon server/index.js",
     "client": "npm run dev --prefix client",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "cd client && npm install --include=dev && npm run build",
+    "build": "npm run build --prefix client",
+    "postinstall": "npm install --prefix client --include=dev && npm run build --prefix client",
     "start": "node server/index.js",
     "test": "NODE_ENV=test node --test server/tests/*.test.js"
   },
