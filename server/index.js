@@ -195,7 +195,16 @@ app.use('/api/uploads', uploadRoutes);
 app.use('/api/shipping', shippingRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wishlist', wishlistRoutes);
-app.use('/uploads', express.static(getUploadsRoot()));
+app.use('/uploads', express.static(getUploadsRoot(), {
+    setHeaders: (res, filePath) => {
+        const normalizedPath = String(filePath || '').replace(/\\/g, '/');
+        if (normalizedPath.includes('/banner/')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+            return;
+        }
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+    }
+}));
 app.get(['/branding/logo', '/branding/logo.webp'], async (_req, res, next) => {
     try {
         res.set('Cache-Control', 'no-store, no-cache, must-revalidate');

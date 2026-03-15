@@ -284,6 +284,7 @@ const getHeroTexts = async (req, res) => {
 // 1.1 GET HOME BANNER (Public & Admin)
 const getBanner = async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 1 LIMIT 1');
         res.json(rows[0] || null);
     } catch (error) {
@@ -293,6 +294,7 @@ const getBanner = async (req, res) => {
 
 const getSecondaryBanner = async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 2 LIMIT 1');
         res.json(rows[0] || null);
     } catch (error) {
@@ -302,6 +304,7 @@ const getSecondaryBanner = async (req, res) => {
 
 const getTertiaryBanner = async (req, res) => {
     try {
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
         const [rows] = await db.execute('SELECT * FROM home_banner WHERE id = 3 LIMIT 1');
         res.json(rows[0] || { id: 3, image_url: '/placeholder_banner.jpg', link: '' });
     } catch (error) {

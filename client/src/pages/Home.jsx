@@ -139,6 +139,14 @@ const hasBannerImage = (imageUrl = '') => {
     return normalized !== '/placeholder_banner.jpg';
 };
 
+const appendCacheBust = (url = '', version = '') => {
+    const normalizedUrl = String(url || '').trim();
+    const normalizedVersion = String(version || '').trim();
+    if (!normalizedUrl || !normalizedVersion) return normalizedUrl;
+    const separator = normalizedUrl.includes('?') ? '&' : '?';
+    return `${normalizedUrl}${separator}v=${encodeURIComponent(normalizedVersion)}`;
+};
+
 const PROMO_TITLE_FONTS = [
     '"Impact", "Arial Black", sans-serif',
     '"Playfair Display", Georgia, serif',
@@ -204,6 +212,11 @@ export default function Home() {
     const [homeBanner, setHomeBanner] = useState(null);
     const [secondaryBanner, setSecondaryBanner] = useState(null);
     const [tertiaryBanner, setTertiaryBanner] = useState(null);
+    const [bannerVersions, setBannerVersions] = useState({
+        primary: '',
+        secondary: '',
+        tertiary: ''
+    });
     const [featuredSection, setFeaturedSection] = useState(null);
     const [featuredSectionProducts, setFeaturedSectionProducts] = useState([]);
     const [heroTexts, setHeroTexts] = useState([]);
@@ -293,6 +306,10 @@ export default function Home() {
         try {
             const data = await getBanner(false);
             setHomeBanner(data);
+            setBannerVersions((prev) => ({
+                ...prev,
+                primary: `${Date.now()}`
+            }));
         } catch (err) {
             console.error("Banner load failed", err);
         } finally {
@@ -304,6 +321,10 @@ export default function Home() {
         try {
             const data = await getSecondaryBanner(false);
             setSecondaryBanner(data);
+            setBannerVersions((prev) => ({
+                ...prev,
+                secondary: `${Date.now()}`
+            }));
         } catch (err) {
             console.error("Secondary banner load failed", err);
         } finally {
@@ -315,6 +336,10 @@ export default function Home() {
         try {
             const data = await getTertiaryBanner(false);
             setTertiaryBanner(data);
+            setBannerVersions((prev) => ({
+                ...prev,
+                tertiary: `${Date.now()}`
+            }));
         } catch (err) {
             console.error("Tertiary banner load failed", err);
         } finally {
@@ -1203,7 +1228,7 @@ export default function Home() {
                 ) : (
                     (() => {
                         const link = homeBanner?.link || '';
-                        const imageUrl = homeBanner?.image_url || '';
+                        const imageUrl = appendCacheBust(homeBanner?.image_url || '', bannerVersions.primary);
                         if (!hasBannerImage(imageUrl)) return null;
                         const content = (
                             <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
@@ -1285,7 +1310,7 @@ export default function Home() {
                 ) : (
                     (() => {
                         const link = secondaryBanner?.link || '';
-                        const imageUrl = secondaryBanner?.image_url || '';
+                        const imageUrl = appendCacheBust(secondaryBanner?.image_url || '', bannerVersions.secondary);
                         if (!hasBannerImage(imageUrl)) return null;
                         const content = (
                             <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
@@ -1390,7 +1415,7 @@ export default function Home() {
                 ) : (
                     (() => {
                         const link = tertiaryBanner?.link || '';
-                        const imageUrl = tertiaryBanner?.image_url || '';
+                        const imageUrl = appendCacheBust(tertiaryBanner?.image_url || '', bannerVersions.tertiary);
                         if (!hasBannerImage(imageUrl)) return null;
                         const content = (
                             <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>

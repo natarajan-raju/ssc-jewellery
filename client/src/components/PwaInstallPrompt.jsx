@@ -33,6 +33,10 @@ export default function PwaInstallPrompt() {
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
         const handleBeforeInstallPrompt = (event) => {
+            if (dismissed || isInstalled) {
+                setDeferredPrompt(null);
+                return;
+            }
             event.preventDefault();
             setDeferredPrompt(event);
         };
@@ -48,7 +52,7 @@ export default function PwaInstallPrompt() {
             window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
             window.removeEventListener('appinstalled', handleAppInstalled);
         };
-    }, []);
+    }, [dismissed, isInstalled]);
 
     const dismiss = () => {
         localStorage.setItem(DISMISS_KEY, '1');
