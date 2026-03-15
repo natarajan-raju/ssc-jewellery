@@ -3,6 +3,7 @@ import { Heart, Home, Package, ShoppingCart, User } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { useWishlist } from '../context/WishlistContext';
 
 const TAB_TRANSFORM_HIDDEN = 'translateY(calc(100% + env(safe-area-inset-bottom, 0px) + 0.5rem))';
 const TAB_TRANSFORM_VISIBLE = 'translateY(0)';
@@ -18,6 +19,7 @@ const HIDDEN_PATHS = new Set(['/checkout', '/payment/success', '/payment/failed'
 export default function MobileBottomNav() {
     const { user } = useAuth();
     const { itemCount, openCart, isOpen: isCartOpen } = useCart();
+    const { wishlistCount } = useWishlist();
     const location = useLocation();
     const navigate = useNavigate();
     const navRef = useRef(null);
@@ -98,6 +100,7 @@ export default function MobileBottomNav() {
             label: 'Wishlist',
             icon: Heart,
             active: location.pathname === '/wishlist',
+            badge: wishlistCount > 0 ? wishlistCount : null,
             onClick: () => navigateProtected('/wishlist')
         },
         {

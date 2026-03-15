@@ -9,6 +9,8 @@ import { useToast } from './ToastContext';
 import { dispatchSessionExpired, getStoredToken } from '../utils/authSession';
 
 const SocketContext = createContext(null);
+const SOCKET_RETRY_CYCLE_ATTEMPTS = 5;
+const SOCKET_RETRY_PAUSE_MS = 60 * 1000;
 
 // Detect URL environment
 const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:5000';
@@ -17,7 +19,12 @@ const SOCKET_URL = import.meta.env.PROD ? '/' : 'http://localhost:5000';
 // This prevents it from being destroyed/recreated during React Strict Mode checks.
 const globalSocket = io(SOCKET_URL, {
     transports: ['websocket'],
-    reconnectionAttempts: 5,
+    reconnection: true,
+    reconnectionAttempts: SOCKET_RETRY_CYCLE_ATTEMPTS,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    randomizationFactor: 0.5,
+    timeout: 20000,
     autoConnect: false // We will connect manually when the app mounts
 });
 const ADMIN_PAYMENT_TOAST_DEDUPE_MS = 15000;
@@ -46,6 +53,39 @@ export const SocketProvider = ({ children }) => {
              // globalSocket.disconnect(); // Keep this commented out
         };
     }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        let retryCycleTimer = null;
+
+        const clearRetryTimer = () => {
+            if (retryCycleTimer) {
+                window.clearTimeout(retryCycleTimer);
+                retryCycleTimer = null;
+            }
+        };
+
+        const scheduleNextRetryCycle = () => {
+            clearRetryTimer();
+            retryCycleTimer = window.setTimeout(() => {
+                const token = getStoredToken();
+                if (!token || socket.connected) return;
+                socket.connect();
+            }, SOCKET_RETRY_PAUSE_MS);
+        };
+
+        const handleConnect = () => clearRetryTimer();
+        const handleReconnectFailed = () => scheduleNextRetryCycle();
+
+        socket.on('connect', handleConnect);
+        socket.io.on('reconnect_failed', handleReconnectFailed);
+
+        return () => {
+            clearRetryTimer();
+            socket.off('connect', handleConnect);
+            socket.io.off('reconnect_failed', handleReconnectFailed);
+        };
+    }, [socket]);
 
     useEffect(() => {
         if (!socket) return;
