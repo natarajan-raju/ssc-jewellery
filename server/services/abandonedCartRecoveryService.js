@@ -158,7 +158,6 @@ const setKnownPublicOriginFromRequest = (req) => {
 const toAbsoluteMediaUrl = (rawUrl) => {
     const input = String(rawUrl || '').trim();
     if (!input) return '';
-    if (input.startsWith('/uploads/')) return input;
     if (/^https?:\/\//i.test(input)) return input;
     const { apiBase } = resolveAutoPublicOrigins();
     const base = String(apiBase || '').trim().replace(/\/+$/, '');
