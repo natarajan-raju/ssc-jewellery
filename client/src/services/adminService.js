@@ -627,7 +627,6 @@ export const adminService = {
 
     // IMPORTANT: Clear cache when data changes!
     clearCache: () => {
-        console.log("Invalidating Cache...");
         userCache = {};
         abandonedCache = {
             campaign: null,

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { adminService } from '../services/adminService';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
@@ -14,10 +14,20 @@ export const CustomerProvider = ({ children }) => {
     const [users, setUsers] = useState([]);
     const [lastFetchedAt, setLastFetchedAt] = useState(0);
     const [loading, setLoading] = useState(false);
+    const usersCountRef = useRef(0);
+    const lastFetchedAtRef = useRef(0);
+
+    useEffect(() => {
+        usersCountRef.current = users.length;
+    }, [users.length]);
+
+    useEffect(() => {
+        lastFetchedAtRef.current = lastFetchedAt;
+    }, [lastFetchedAt]);
 
     const refreshUsers = useCallback(async (force = false) => {
         if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
-        if (!force && Date.now() - lastFetchedAt < CACHE_TTL && users.length > 0) return;
+        if (!force && Date.now() - lastFetchedAtRef.current < CACHE_TTL && usersCountRef.current > 0) return;
 
         setLoading(true);
         try {
@@ -34,7 +44,7 @@ export const CustomerProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    }, [user, lastFetchedAt, users.length]);
+    }, [user]);
 
     useEffect(() => {
         try {
@@ -46,7 +56,7 @@ export const CustomerProvider = ({ children }) => {
         } catch {
             // Ignore malformed cache payloads and refetch.
         }
-        refreshUsers(true);
+        refreshUsers(false);
     }, [refreshUsers]);
 
     useEffect(() => {
@@ -65,6 +75,25 @@ export const CustomerProvider = ({ children }) => {
                 return nextUsers;
             });
         };
+        const patchUserCartActivity = (userId, activityAt) => {
+            if (!userId || !activityAt) return;
+            persist((prev) => prev.map((entry) => (
+                String(entry?.id || '') === String(userId)
+                    ? {
+                        ...entry,
+                        abandoned_cart_last_activity_at: activityAt,
+                        abandonedCartLastActivityAt: activityAt
+                    }
+                    : entry
+            )));
+        };
+        const resolveCartActivityAt = (payload = {}) => (
+            payload?.journey?.computed_last_activity_at
+            || payload?.journey?.last_activity_at
+            || payload?.journey?.updated_at
+            || payload?.ts
+            || null
+        );
 
         const handleCreate = (newUser) => {
             if (!newUser?.id) return;
@@ -91,15 +120,31 @@ export const CustomerProvider = ({ children }) => {
             adminService.clearCache();
             persist((prev) => prev.filter((u) => u.id !== id));
         };
+        const handleAbandonedCartUpdate = (payload = {}) => {
+            const userId = payload?.userId || payload?.journey?.user_id || null;
+            const activityAt = resolveCartActivityAt(payload);
+            patchUserCartActivity(userId, activityAt);
+        };
+        const handleAbandonedCartRecovered = (payload = {}) => {
+            const userId = payload?.userId || null;
+            const activityAt = payload?.ts || null;
+            patchUserCartActivity(userId, activityAt);
+        };
 
         socket.on('user:create', handleCreate);
         socket.on('user:update', handleUpdate);
         socket.on('user:delete', handleDelete);
+        socket.on('abandoned_cart:update', handleAbandonedCartUpdate);
+        socket.on('abandoned_cart:journey:update', handleAbandonedCartUpdate);
+        socket.on('abandoned_cart:recovered', handleAbandonedCartRecovered);
 
         return () => {
             socket.off('user:create', handleCreate);
             socket.off('user:update', handleUpdate);
             socket.off('user:delete', handleDelete);
+            socket.off('abandoned_cart:update', handleAbandonedCartUpdate);
+            socket.off('abandoned_cart:journey:update', handleAbandonedCartUpdate);
+            socket.off('abandoned_cart:recovered', handleAbandonedCartRecovered);
         };
     }, [socket, user]);
 
