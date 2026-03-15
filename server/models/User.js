@@ -82,17 +82,19 @@ class User {
         let query = `SELECT u.*,
             COALESCE(ul.tier, 'regular') as loyalty_tier,
             (SELECT COUNT(*) FROM cart_items ci WHERE ci.user_id = u.id) as cart_count,
-            (
-                SELECT MAX(activity_at)
-                FROM (
-                    SELECT ac.last_activity_at AS activity_at
-                    FROM abandoned_cart_candidates ac
-                    WHERE ac.user_id = u.id
-                    UNION ALL
-                    SELECT COALESCE(aj.last_activity_at, aj.updated_at, aj.created_at) AS activity_at
-                    FROM abandoned_cart_journeys aj
-                    WHERE aj.user_id = u.id
-                ) cart_activity
+            GREATEST(
+                COALESCE(
+                    (SELECT MAX(ac.last_activity_at)
+                     FROM abandoned_cart_candidates ac
+                     WHERE ac.user_id = u.id),
+                    '1000-01-01 00:00:00'
+                ),
+                COALESCE(
+                    (SELECT MAX(COALESCE(aj.last_activity_at, aj.updated_at, aj.created_at))
+                     FROM abandoned_cart_journeys aj
+                     WHERE aj.user_id = u.id),
+                    '1000-01-01 00:00:00'
+                )
             ) as abandoned_cart_last_activity_at,
             (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as total_orders,
             (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as total_spend,
@@ -186,17 +188,19 @@ class User {
     static async findById(id) {
         const [rows] = await db.execute(
             `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier,
-                    (
-                        SELECT MAX(activity_at)
-                        FROM (
-                            SELECT ac.last_activity_at AS activity_at
-                            FROM abandoned_cart_candidates ac
-                            WHERE ac.user_id = u.id
-                            UNION ALL
-                            SELECT COALESCE(aj.last_activity_at, aj.updated_at, aj.created_at) AS activity_at
-                            FROM abandoned_cart_journeys aj
-                            WHERE aj.user_id = u.id
-                        ) cart_activity
+                    GREATEST(
+                        COALESCE(
+                            (SELECT MAX(ac.last_activity_at)
+                             FROM abandoned_cart_candidates ac
+                             WHERE ac.user_id = u.id),
+                            '1000-01-01 00:00:00'
+                        ),
+                        COALESCE(
+                            (SELECT MAX(COALESCE(aj.last_activity_at, aj.updated_at, aj.created_at))
+                             FROM abandoned_cart_journeys aj
+                             WHERE aj.user_id = u.id),
+                            '1000-01-01 00:00:00'
+                        )
                     ) as abandoned_cart_last_activity_at
              FROM users u
              LEFT JOIN user_loyalty ul ON ul.user_id = u.id
