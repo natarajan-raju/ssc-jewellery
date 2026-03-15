@@ -113,7 +113,9 @@ class User {
             ) as active_coupon_count
             FROM users u
             LEFT JOIN user_loyalty ul ON ul.user_id = u.id`;
-        let countQuery = 'SELECT COUNT(*) as total FROM users';
+        let countQuery = `SELECT COUNT(*) as total
+            FROM users u
+            LEFT JOIN user_loyalty ul ON ul.user_id = u.id`;
         const params = [];
         const whereParts = [];
         
@@ -131,7 +133,7 @@ class User {
         if (whereParts.length) {
             const whereClause = ` WHERE ${whereParts.join(' AND ')}`;
             query += whereClause;
-            countQuery += whereClause.replaceAll('u.', '');
+            countQuery += whereClause;
         }
 
         // Sort Logic (Admin > Staff > Customer)

@@ -602,7 +602,14 @@ export default function Customers({
                 <div className="fixed inset-0 z-[70] flex items-start sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
                     <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl p-6 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto my-auto">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-gray-800">{selectedUser.name}'s Cart</h3>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-800">{selectedUser.name}'s Cart</h3>
+                                {getCartLastActivityLabel(selectedUser) && (
+                                    <p className="mt-1 text-xs text-amber-700">
+                                        Last cart activity: {getCartLastActivityLabel(selectedUser)}
+                                    </p>
+                                )}
+                            </div>
                             <button onClick={() => setIsCartOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
                         </div>
                         <div className="max-h-80 overflow-y-auto space-y-3">
