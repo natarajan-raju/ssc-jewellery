@@ -27,6 +27,13 @@ class Product {
         return ['best_sellers', 'new_arrivals', 'offers'].includes(String(systemKey || '').trim().toLowerCase());
     }
 
+    static shouldExposeCategoryPublicly(category = {}) {
+        if (!category || typeof category !== 'object') return false;
+        if (!String(category.name || '').trim()) return false;
+        if (Number(category.product_count || 0) > 0) return true;
+        return Number(category.autopilot_enabled || 0) === 1 && Product.isImmutableSystemKey(category.system_key);
+    }
+
     static async getCategoryMetaById(id, { connection = db } = {}) {
         const [rows] = await connection.execute(
             `SELECT id, name, system_key, is_immutable, autopilot_enabled, autopilot_mode, autopilot_catalog_json, autopilot_refreshed_at
@@ -780,7 +787,6 @@ class Product {
                 LEFT JOIN product_categories pc ON c.id = pc.category_id
                 LEFT JOIN products p ON p.id = pc.product_id AND p.status = 'active'
                 GROUP BY c.id
-                HAVING COUNT(p.id) > 0
                 ORDER BY c.name ASC
             `
             : `
@@ -789,10 +795,11 @@ class Product {
                 LEFT JOIN product_categories pc ON c.id = pc.category_id
                 GROUP BY c.id
                 ORDER BY c.name ASC
-            `;
+        `;
         const [rows] = await db.execute(query);
         const { applyAutopilotStats } = require('../services/categoryAutopilotService');
-        return applyAutopilotStats(rows);
+        const categories = await applyAutopilotStats(rows);
+        return publicOnly ? categories.filter((category) => Product.shouldExposeCategoryPublicly(category)) : categories;
     }
 
     static async getCategoryStatsById(categoryId) {

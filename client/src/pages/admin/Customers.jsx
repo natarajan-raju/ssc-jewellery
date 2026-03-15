@@ -20,7 +20,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
-import { formatAdminDate } from '../../utils/dateFormat';
+import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
 import { formatTierLabel } from '../../utils/tierFormat';
 import customerIllustration from '../../assets/customer.svg';
 import EmptyState from '../../components/EmptyState';
@@ -115,6 +115,12 @@ const canDeleteCouponFromDrawer = (coupon = {}) => {
     if (sourceType === 'abandoned') return true;
     const scopeType = String(coupon.scopeType || coupon.scope_type || '').toLowerCase();
     return scopeType === 'customer';
+};
+const getCartLastActivityLabel = (user = {}) => {
+    const raw = user?.abandoned_cart_last_activity_at || user?.abandonedCartLastActivityAt || '';
+    if (!raw) return '';
+    const formatted = formatAdminDateTime(raw);
+    return formatted === '—' ? '' : formatted;
 };
 
 export default function Customers({
@@ -809,6 +815,7 @@ export default function Customers({
                                 {paginatedCustomersOnly.map((user) => {
                                     const waLink = getWhatsappLink(user.mobile);
                                     const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
+                                    const cartLastActivity = getCartLastActivityLabel(user);
                                     const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                     const profileImage = getCustomerProfileImage(user);
                                     return (
@@ -852,6 +859,11 @@ export default function Customers({
                                                     <ShoppingCart size={16} />
                                                     {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[10px] font-bold bg-green-600 text-white rounded-full px-1.5 py-0.5">{cartCount}</span>}
                                                 </button>
+                                                {cartLastActivity && (
+                                                    <span className="hidden xl:inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-800" title={`Last cart activity: ${cartLastActivity}`}>
+                                                        {cartLastActivity}
+                                                    </span>
+                                                )}
                                                 {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`p-2 rounded-lg transition-all ${user.isActive === false ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={18} /></button>}
                                             </td>
                                         </tr>
@@ -886,6 +898,7 @@ export default function Customers({
                                     {paginatedCustomersOnly.map((user) => {
                                         const waLink = getWhatsappLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
+                                        const cartLastActivity = getCartLastActivityLabel(user);
                                         const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                         const profileImage = getCustomerProfileImage(user);
                                         return (
@@ -923,6 +936,11 @@ export default function Customers({
                                                     </button>
                                                     {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`p-1.5 rounded-md transition-all ${user.isActive === false ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={16} /></button>}
                                                 </div>
+                                                {cartLastActivity && (
+                                                    <p className="mt-2 text-[10px] text-amber-700">
+                                                        Cart activity: {cartLastActivity}
+                                                    </p>
+                                                )}
                                             </div>
                                         );
                                     })}

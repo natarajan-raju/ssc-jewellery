@@ -9,6 +9,7 @@ import { useCms } from '../hooks/useCms';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 import { buildShopSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 import { buildWhatsAppShareLink } from '../utils/publicContact';
 import emptyIllustration from '../assets/closed.svg';
 
@@ -578,7 +579,7 @@ export default function Shop() {
 
     const categoryOptions = useMemo(() => {
         const list = categories
-            .filter(c => c?.name && Number(c.product_count) > 0)
+            .filter((c) => isCategoryVisibleInStorefront(c))
             .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         return [{ id: 'all', name: 'All Products' }, ...list];
     }, [categories]);

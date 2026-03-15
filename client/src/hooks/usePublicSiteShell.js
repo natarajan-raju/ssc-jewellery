@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { productService } from '../services/productService';
+import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 const COMPANY_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -31,12 +32,7 @@ const notifyListeners = (listeners, value) => {
 
 const normalizePublicCategories = (data = []) => (
     (Array.isArray(data) ? data : [])
-        .filter((category) =>
-            category &&
-            typeof category.name === 'string' &&
-            category.name.trim().length > 0 &&
-            Number(category.product_count || 0) > 0
-        )
+        .filter((category) => isCategoryVisibleInStorefront(category))
         .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 );
 

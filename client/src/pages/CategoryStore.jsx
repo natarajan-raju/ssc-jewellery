@@ -8,6 +8,7 @@ import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 import { buildCategorySeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 import { buildWhatsAppShareLink } from '../utils/publicContact';
 import emptyIllustration from '../assets/closed.svg';
 // import { io } from 'socket.io-client';
@@ -153,10 +154,7 @@ export default function CategoryStore() {
     const fetchCategoryMetadata = useCallback(async (force = false) => {
         try {
             const allCategories = (await productService.getCategoryStats(force)).filter((entry) =>
-                entry &&
-                typeof entry.name === 'string' &&
-                entry.name.trim().length > 0 &&
-                Number(entry.product_count || 0) > 0
+                isCategoryVisibleInStorefront(entry)
             );
             const cleanName = normalizedCategoryName;
             const currentCat = allCategories.find(c => c.name.toLowerCase() === cleanName);

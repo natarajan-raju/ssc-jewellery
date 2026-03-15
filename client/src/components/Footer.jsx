@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
+import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 
 export default function Footer() {
     const { user } = useAuth();
@@ -45,11 +46,7 @@ export default function Footer() {
     });
 
     const categoryLinks = [...categories]
-        .filter((c) => {
-            if (!c?.name) return false;
-            if (c?.product_count == null) return true;
-            return Number(c.product_count) > 0;
-        })
+        .filter((c) => isCategoryVisibleInStorefront(c))
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     const categoryColumns = useMemo(() => {
         const chunkSize = 10;
@@ -126,7 +123,8 @@ export default function Footer() {
                             <Link to="/about" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Info size={14} className="text-white/40" />About</Link>
                             <Link to="/contact" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><PhoneCall size={14} className="text-white/40" />Contact</Link>
                             <Link to="/faq" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><HelpCircle size={14} className="text-white/40" />FAQs</Link>
-                            <a href="/sitemap.xml" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><FileText size={14} className="text-white/40" />Sitemap</a>
+                            <Link to="/sitemap" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><SearchIcon size={14} className="text-white/40" />Sitemap</Link>
+                            <a href="/sitemap.xml" target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><FileText size={14} className="text-white/40" />XML Sitemap</a>
                         </div>
                     </div>
 

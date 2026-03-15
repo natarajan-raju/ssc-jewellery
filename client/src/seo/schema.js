@@ -119,6 +119,20 @@ export const buildWebPageSchema = ({
     ...(about ? { about } : {})
 });
 
+export const buildSiteNavigationSchema = (items = []) => ({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Site navigation',
+    itemListElement: (Array.isArray(items) ? items : [])
+        .filter((item) => item?.name && item?.url)
+        .map((item, index) => ({
+            '@type': 'SiteNavigationElement',
+            position: index + 1,
+            name: item.name,
+            url: absoluteUrl(item.url)
+        }))
+});
+
 export const buildBreadcrumbSchema = (items = []) => ({
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',

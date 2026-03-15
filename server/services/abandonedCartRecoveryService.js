@@ -1059,6 +1059,14 @@ const startAbandonedCartMaintenanceScheduler = ({ onJourneyUpdate = null } = {})
         }
     };
 
+    setTimeout(async () => {
+        try {
+            await runMaintenanceWithRetry();
+        } catch (error) {
+            console.error('Abandoned cart maintenance bootstrap run failed:', error?.message || error);
+        }
+    }, 5 * 1000);
+
     setInterval(async () => {
         try {
             await runMaintenanceWithRetry();

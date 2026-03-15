@@ -236,6 +236,8 @@ app.get([
     '/',
     '/shop',
     '/about',
+    '/site-credits',
+    '/sitemap',
     '/faq',
     '/contact',
     '/terms',
@@ -256,15 +258,18 @@ app.get([
     }
 });
 app.get('/robots.txt', (_req, res) => {
-    res.type('text/plain').send(buildRobotsTxt());
+    const origin = `${_req.protocol}://${_req.get('host')}`;
+    res.type('text/plain').send(buildRobotsTxt(origin));
 });
-app.get('/sitemap.xml', async (_req, res) => {
+app.get('/sitemap.xml', async (req, res) => {
     try {
         const entries = await loadSitemapEntries();
-        res.type('application/xml').send(buildSitemapXml(entries));
+        const origin = `${req.protocol}://${req.get('host')}`;
+        res.type('application/xml').send(buildSitemapXml(entries, origin));
     } catch (error) {
         console.error('Failed to generate sitemap.xml:', error?.message || error);
-        res.status(500).type('application/xml').send(buildSitemapXml([]));
+        const origin = `${req.protocol}://${req.get('host')}`;
+        res.status(500).type('application/xml').send(buildSitemapXml([], origin));
     }
 });
 // Serve Frontend

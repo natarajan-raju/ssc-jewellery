@@ -5,7 +5,7 @@ import { authService } from '../../services/authService';
 import { auth, googleProvider } from '../../firebase';
 import { signInWithPopup, signOut } from 'firebase/auth';
 import { useAuth } from '../../context/AuthContext'; // [NEW] Import Context
-import { ShieldCheck, Lock, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, Lock, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
 export default function AdminLogin() {
@@ -166,20 +166,6 @@ export default function AdminLogin() {
                     </button>
                 </form>
 
-                {/* Powered By Footer */}
-                <div className="mt-8 pt-6 border-t border-white/5 text-center">
-                    <p className="text-[10px] text-gray-500 flex items-center justify-center gap-1">
-                        Powered by 
-                        <a 
-                            href="https://creativecodz.com" 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="text-gray-400 hover:text-accent transition-colors font-medium flex items-center gap-0.5"
-                        >
-                            Creativecodz <ExternalLink size={8} />
-                        </a>
-                    </p>
-                </div>
             </div>
         </div>
     );

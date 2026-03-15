@@ -47,6 +47,7 @@ const TrackOrder = lazy(() => import('./pages/TrackOrder'));
 const PolicyPage = lazy(() => import('./pages/PolicyPage'));
 const About = lazy(() => import('./pages/About'));
 const SiteCredits = lazy(() => import('./pages/SiteCredits'));
+const SitemapPage = lazy(() => import('./pages/SitemapPage'));
 const Faq = lazy(() => import('./pages/Faq'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 const StorefrontClosed = lazy(() => import('./pages/StorefrontClosed'));
@@ -174,6 +175,7 @@ function App() {
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/site-credits" element={<SiteCredits />} />
+                <Route path="/sitemap" element={<SitemapPage />} />
                 <Route path="/faq" element={<Faq />} />
                 <Route path="/contact" element={<Contact />} />
                 <Route path="/profile" element={<ClientRoute redirectTo="/profile"><Profile /></ClientRoute>} />

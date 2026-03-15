@@ -21,6 +21,7 @@ import {
     buildLocalBusinessSchema,
     buildOrganizationSchema,
     buildProductSchema,
+    buildSiteNavigationSchema,
     buildWebPageSchema,
     buildWebsiteSchema
 } from './schema.js';
@@ -346,6 +347,37 @@ export const buildCreditsSeo = ({ company = {} } = {}) => {
                     url: developer.url
                 }
             })
+        ]
+    };
+};
+
+export const buildSitemapPageSeo = ({ company = {}, links = [] } = {}) => {
+    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const title = 'Sitemap';
+    const description = clampDescription(
+        `Browse the HTML sitemap for ${brand} to access collections, policies, support pages, and important storefront links.`
+    );
+    const navLinks = (Array.isArray(links) ? links : []).slice(0, 40);
+    return {
+        title: toTitle(title),
+        description,
+        keywords: buildKeywords(brand, title, 'html sitemap', 'site links', 'collections'),
+        canonical: buildCanonical('/sitemap'),
+        robots: robotsIndex,
+        image: pickSocialImage({ preferredImages: [company.contactJumbotronImageUrl] }),
+        structuredData: [
+            buildOrganizationSchema(company),
+            buildLocalBusinessSchema(company),
+            buildBreadcrumbSchema([
+                { name: 'Home', url: '/' },
+                { name: 'Sitemap', url: '/sitemap' }
+            ]),
+            buildWebPageSchema({
+                name: `${brand} sitemap`,
+                description,
+                path: '/sitemap'
+            }),
+            buildSiteNavigationSchema(navLinks)
         ]
     };
 };

@@ -9,6 +9,8 @@ const STATIC_ROUTE_PATHS = [
     '/',
     '/shop',
     '/about',
+    '/site-credits',
+    '/sitemap',
     '/faq',
     '/contact',
     '/terms',
@@ -45,17 +47,26 @@ const parseJsonSafe = (value, fallback = null) => {
 
 const normalizeText = (value = '') => String(value || '').trim();
 
-const getBaseUrl = () => String(
+const normalizeBaseUrl = (value = '') => String(value || '').trim().replace(/\/+$/, '');
+
+const getBaseUrl = () => normalizeBaseUrl(
     process.env.APP_BASE_URL
     || process.env.CLIENT_BASE_URL
     || process.env.FRONTEND_URL
     || ''
-).trim().replace(/\/+$/, '');
+);
 
-const absoluteUrl = (pathname = '/') => {
-    const baseUrl = getBaseUrl();
+const absoluteUrl = (pathname = '/', baseUrlOverride = '') => {
+    const baseUrl = normalizeBaseUrl(baseUrlOverride) || getBaseUrl();
     const normalizedPath = String(pathname || '/').startsWith('/') ? String(pathname || '/') : `/${pathname}`;
     return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+};
+
+const absolutizeMaybeRelativeUrl = (value = '', baseUrlOverride = '') => {
+    const raw = normalizeText(value);
+    if (!raw) return raw;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return absoluteUrl(raw, baseUrlOverride);
 };
 
 const escapeXml = (value = '') => String(value || '')
@@ -138,7 +149,7 @@ const injectSeo = (templateHtml, seo) => {
     return stripped.replace('</head>', `${renderSeoHead(seo)}\n</head>`);
 };
 
-const buildRobotsTxt = () => [
+const buildRobotsTxt = (baseUrlOverride = '') => [
     'User-agent: *',
     'Allow: /',
     'Disallow: /admin',
@@ -154,14 +165,14 @@ const buildRobotsTxt = () => [
     'Disallow: /payment/success',
     'Disallow: /payment/failed',
     '',
-    `Sitemap: ${absoluteUrl('/sitemap.xml')}`,
+    `Sitemap: ${absoluteUrl('/sitemap.xml', baseUrlOverride)}`,
     ''
 ].join('\n');
 
-const buildSitemapXml = (entries = []) => {
+const buildSitemapXml = (entries = [], baseUrlOverride = '') => {
     const urls = entries.map(({ loc, lastmod }) => [
         '  <url>',
-        `    <loc>${escapeXml(loc)}</loc>`,
+        `    <loc>${escapeXml(absolutizeMaybeRelativeUrl(loc, baseUrlOverride))}</loc>`,
         lastmod ? `    <lastmod>${escapeXml(lastmod)}</lastmod>` : null,
         '  </url>'
     ].filter(Boolean).join('\n')).join('\n');
@@ -359,6 +370,20 @@ const regenerateStaticArtifacts = async () => {
         '/': rules.buildHomeSeo(shared),
         '/shop': rules.buildShopSeo(shared),
         '/about': rules.buildAboutSeo(shared),
+        '/site-credits': rules.buildCreditsSeo(shared),
+        '/sitemap': rules.buildSitemapPageSeo({
+            company: shared.company,
+            links: [
+                ...STATIC_ROUTE_PATHS.filter((pathname) => pathname !== '/').map((pathname) => ({
+                    name: pathname.replace(/^\//, '').replace(/-/g, ' ') || 'home',
+                    url: pathname
+                })),
+                ...shared.categories.map((category) => ({
+                    name: category.name,
+                    url: `/shop/${encodeURIComponent(category.name)}`
+                }))
+            ]
+        }),
         '/faq': rules.buildFaqSeo(shared),
         '/contact': rules.buildContactSeo(shared),
         '/terms': rules.buildPolicySeo({ company: shared.company, policyKey: 'terms', policyTitle: 'Terms & Conditions' }),

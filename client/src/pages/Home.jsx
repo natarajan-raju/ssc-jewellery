@@ -12,6 +12,7 @@ import { authService } from '../services/authService';
 import emptyIllustration from '../assets/closed.svg';
 import { buildHomeSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
@@ -369,7 +370,7 @@ export default function Home() {
     const fetchCategories = useCallback(async () => {
         try {
             const data = await productService.getCategoryStats(true);
-            const filtered = (Array.isArray(data) ? data : []).filter((c) => Number(c?.product_count || 0) >= 1);
+            const filtered = (Array.isArray(data) ? data : []).filter((c) => isCategoryVisibleInStorefront(c));
             setCategories(filtered);
         } catch (err) {
             console.error("Category load failed", err);
