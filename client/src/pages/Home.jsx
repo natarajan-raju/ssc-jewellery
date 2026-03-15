@@ -520,6 +520,8 @@ export default function Home() {
         // B. Define Handler
         const handleCategoryRefresh = (payload = {}) => {
             const category = payload.category;
+            const action = String(payload?.action || '').toLowerCase();
+            const categoryName = String(category?.name || payload?.categoryName || '').toLowerCase();
             if (category) {
                 productService.patchCategoryStatsCache((current) => {
                     const idx = current.findIndex(c => String(c.id) === String(category.id));
@@ -556,6 +558,19 @@ export default function Home() {
                 return next.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             });
 
+            if ((action === 'reorder' || action === 'autopilot') && categoryName === 'best sellers') {
+                productService.clearProductsCache({ category: 'Best Sellers', status: 'active', sort: 'manual', limit: 10 });
+                fetchBestSellers();
+            }
+            if ((action === 'reorder' || action === 'autopilot') && categoryName === 'new arrivals') {
+                productService.clearProductsCache({ category: 'New Arrivals', status: 'active', sort: 'manual', limit: 10 });
+                fetchNewArrivals();
+            }
+            if ((action === 'reorder' || action === 'autopilot') && categoryName === 'offers') {
+                productService.clearProductsCache({ category: 'Offers', status: 'active', sort: 'manual', limit: 10 });
+                fetchOffers();
+            }
+
             // Best Sellers reorder patch (manual order)
             if (payload.action === 'reorder' && payload.categoryName && payload.categoryName.toLowerCase() === 'best sellers') {
                 const ordered = payload.orderedProductIds || [];
@@ -591,7 +606,7 @@ export default function Home() {
                 }
             }
             const featuredName = featuredCategoryNameRef.current;
-            if (featuredName && payload.categoryName && payload.categoryName.toLowerCase() === featuredName.toLowerCase()) {
+            if ((action === 'reorder' || action === 'autopilot') && featuredName && categoryName === featuredName.toLowerCase()) {
                 productService.clearProductsCache({ category: featuredName, status: 'active', sort: 'manual', limit: 10 });
                 fetchFeaturedSectionProducts({
                     categoryName: featuredName,
@@ -773,7 +788,7 @@ export default function Home() {
             socket.off('cms:carousel_cards_update', fetchBottomCarouselCards);
             socket.off('cms:autopilot_update', fetchFeaturedSection);
         };
-    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchBottomCarouselCards, fetchFeaturedSectionProducts, fetchOffers, fetchCategories, featuredSection?.category_id]); // Depend on socket
+    }, [socket, fetchHero, fetchHeroTexts, fetchBanner, fetchSecondaryBanner, fetchTertiaryBanner, fetchFeaturedSection, fetchBottomCarouselCards, fetchFeaturedSectionProducts, fetchBestSellers, fetchNewArrivals, fetchOffers, fetchCategories, featuredSection?.category_id]); // Depend on socket
 
     // [NEW] Mouse Move Logic for Info Section
     const handleMouseMove = (e) => {

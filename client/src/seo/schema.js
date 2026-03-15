@@ -105,6 +105,20 @@ export const buildWebsiteSchema = ({ includeSearchAction = false } = {}) => ({
         : {})
 });
 
+export const buildWebPageSchema = ({
+    name = '',
+    description = '',
+    path = '/',
+    about = null
+} = {}) => ({
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: normalizeText(name) || undefined,
+    description: normalizeText(description) || undefined,
+    url: buildCanonical(path),
+    ...(about ? { about } : {})
+});
+
 export const buildBreadcrumbSchema = (items = []) => ({
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -116,6 +130,18 @@ export const buildBreadcrumbSchema = (items = []) => ({
             name: item.name,
             item: absoluteUrl(item.url)
         }))
+});
+
+export const buildCreativePartnerSchema = ({
+    name = 'Creativecodz',
+    url = 'https://creativecodz.com/',
+    sameAs = ['https://www.instagram.com/creativecodz']
+} = {}) => ({
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: normalizeText(name) || 'Creativecodz',
+    url: normalizeText(url) || 'https://creativecodz.com/',
+    sameAs: (Array.isArray(sameAs) ? sameAs : []).map((value) => normalizeText(value)).filter(Boolean)
 });
 
 export const buildItemListSchema = (products = [], { name = '' } = {}) => ({

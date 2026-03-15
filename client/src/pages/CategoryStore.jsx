@@ -391,17 +391,20 @@ export default function CategoryStore() {
 
         // E. Handle Metadata (Jumbotron/Counts)
         const handleMetadataRefresh = (payload = {}) => {
+            const action = String(payload?.action || '').toLowerCase();
+            const payloadCategoryName = String(payload?.categoryName || payload?.category?.name || '').toLowerCase();
+            const matchesByName = payloadCategoryName && payloadCategoryName === normalizedCategoryName;
+            const matchesById = categoryInfo && payload?.categoryId && String(categoryInfo.id) === String(payload.categoryId);
+            const touchesCurrentCategory = matchesByName || matchesById;
             fetchCategoryMetadata(true);
-            if (payload.action === 'reorder') {
+            if (action === 'reorder' || action === 'autopilot' || action === 'sync_all') {
                 clearCurrentCategoryCache();
-                if (isManualSort) {
-                    scheduleManualRefresh();
+                if (touchesCurrentCategory) {
+                    refreshLoadedPagesInCurrentSort();
                     return;
                 }
             }
-            if (payload.action === 'reorder' && payload.orderedProductIds) {
-                const matchesByName = payload.categoryName && payload.categoryName.toLowerCase() === normalizedCategoryName;
-                const matchesById = categoryInfo && payload.categoryId && String(categoryInfo.id) === String(payload.categoryId);
+            if (action === 'reorder' && payload.orderedProductIds) {
                 if (matchesByName || matchesById) {
                     setProducts(prev => reorderByIds(prev, payload.orderedProductIds));
                 }

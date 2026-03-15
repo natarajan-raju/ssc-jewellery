@@ -457,11 +457,19 @@ export default function Shop() {
     }, [isManualSort, refreshLoadedPagesInCurrentSort]);
 
     const handleCategoryRefresh = useCallback((payload = {}) => {
-        if (payload.action === 'reorder') {
+        const action = String(payload?.action || '').toLowerCase();
+        const payloadCategoryName = String(payload?.categoryName || payload?.category?.name || '').toLowerCase();
+        const selectedCategoryName = String(selectedCategory || '').toLowerCase();
+        const touchesCurrentCategory = selectedCategoryName === 'all'
+            || (payloadCategoryName && payloadCategoryName === selectedCategoryName);
+        if (action === 'reorder' || action === 'autopilot' || action === 'sync_all') {
             productService.clearProductsCache({ category: selectedCategory === 'all' ? undefined : selectedCategory });
+            if (touchesCurrentCategory) {
+                refreshLoadedPagesInCurrentSort();
+            }
         }
         loadCategories(true);
-    }, [loadCategories, selectedCategory]);
+    }, [loadCategories, refreshLoadedPagesInCurrentSort, selectedCategory]);
 
     const handleProductCreate = useCallback((product) => {
             loadCategories(true);

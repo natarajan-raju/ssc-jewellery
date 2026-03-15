@@ -3,7 +3,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
-import { buildAboutSeo, buildCategorySeo, buildContactSeo, buildFaqSeo, buildHomeSeo, buildPolicySeo, buildProductSeo, buildShopSeo } from '../src/seo/rules.js';
+import { buildAboutSeo, buildCategorySeo, buildContactSeo, buildCreditsSeo, buildFaqSeo, buildHomeSeo, buildPolicySeo, buildProductSeo, buildShopSeo } from '../src/seo/rules.js';
 import { absoluteUrl } from '../src/seo/helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,12 +88,33 @@ const buildSitemapXml = (entries = []) => {
     return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 };
 
+const buildRobotsTxt = (sitemapUrl = '') => [
+    'User-agent: *',
+    'Allow: /',
+    'Disallow: /admin',
+    'Disallow: /login',
+    'Disallow: /register',
+    'Disallow: /forgot-password',
+    'Disallow: /profile',
+    'Disallow: /wishlist',
+    'Disallow: /orders',
+    'Disallow: /track-order',
+    'Disallow: /cart',
+    'Disallow: /checkout',
+    'Disallow: /payment/success',
+    'Disallow: /payment/failed',
+    '',
+    sitemapUrl ? `Sitemap: ${sitemapUrl}` : null,
+    ''
+].filter((line) => line !== null).join('\n');
+
 const buildRouteEntries = ({ company, categories, products }) => {
     const today = new Date().toISOString().slice(0, 10);
     const staticPages = [
         { path: '/', seo: buildHomeSeo({ company, categories, products: products.slice(0, 12) }), lastmod: today },
         { path: '/shop', seo: buildShopSeo({ company, categories, products: products.slice(0, 20) }), lastmod: today },
         { path: '/about', seo: buildAboutSeo({ company, categories, products: products.slice(0, 8) }), lastmod: today },
+        { path: '/site-credits', seo: buildCreditsSeo({ company }), lastmod: today },
         { path: '/faq', seo: buildFaqSeo({ company }), lastmod: today },
         { path: '/contact', seo: buildContactSeo({ company }), lastmod: today },
         { path: '/terms', seo: buildPolicySeo({ company, policyKey: 'terms', policyTitle: 'Terms & Conditions' }), lastmod: today },
@@ -137,6 +158,13 @@ const run = async () => {
     for (const route of routes) {
         await writeRouteHtml(route.path, injectSeo(templateHtml, route.seo));
     }
+
+    const sitemapEntries = routes.map((route) => ({
+        loc: absoluteUrl(route.path),
+        lastmod: route.lastmod
+    }));
+    await fs.writeFile(path.join(distDir, 'sitemap.xml'), buildSitemapXml(sitemapEntries), 'utf8');
+    await fs.writeFile(path.join(distDir, 'robots.txt'), buildRobotsTxt(absoluteUrl('/sitemap.xml')), 'utf8');
 };
 
 run().catch((error) => {

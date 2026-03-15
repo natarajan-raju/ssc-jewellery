@@ -2,9 +2,6 @@ const Product = require('../models/Product');
 const fs = require('fs');
 const path = require('path');
 const {
-    refreshCategoryAutopilotCatalog
-} = require('../services/categoryAutopilotService');
-const {
     queueCategoryDelete,
     queueCategoryRefresh,
     queueProductDelete,
@@ -590,9 +587,6 @@ const updateCategoryAutopilot = async (req, res) => {
             categoryName: category?.name || categoryStats?.name || '',
             reason: enabled ? 'category_autopilot_enable' : 'category_autopilot_disable'
         });
-        if (enabled) {
-            await refreshCategoryAutopilotCatalog(req.params.id, { force: true }).catch(() => null);
-        }
         res.json({ category: categoryStats, enabled });
     } catch (error) {
         const status = String(error.message || '').toLowerCase().includes('not found') ? 404 : 400;

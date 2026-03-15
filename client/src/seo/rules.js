@@ -15,11 +15,13 @@ import {
 } from './helpers.js';
 import {
     buildBreadcrumbSchema,
+    buildCreativePartnerSchema,
     buildFaqSchema,
     buildItemListSchema,
     buildLocalBusinessSchema,
     buildOrganizationSchema,
     buildProductSchema,
+    buildWebPageSchema,
     buildWebsiteSchema
 } from './schema.js';
 
@@ -309,6 +311,41 @@ export const buildPolicySeo = ({ company = {}, policyKey = 'terms', policyTitle 
                 { name: 'Home', url: '/' },
                 { name: policyTitle, url: `/${policyKey === 'terms' ? 'terms' : policyKey}` }
             ])
+        ]
+    };
+};
+
+export const buildCreditsSeo = ({ company = {} } = {}) => {
+    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const title = 'Site Credits';
+    const description = clampDescription(
+        `Website design, frontend implementation, and technical development credits for ${brand}, created by Creativecodz.`
+    );
+    const developer = buildCreativePartnerSchema();
+    return {
+        title: toTitle(title),
+        description,
+        keywords: buildKeywords(brand, title, 'website credits', 'development partner', 'Creativecodz'),
+        canonical: buildCanonical('/site-credits'),
+        robots: robotsIndex,
+        image: pickSocialImage({ preferredImages: [company.contactJumbotronImageUrl] }),
+        structuredData: [
+            buildOrganizationSchema(company),
+            developer,
+            buildBreadcrumbSchema([
+                { name: 'Home', url: '/' },
+                { name: 'Site Credits', url: '/site-credits' }
+            ]),
+            buildWebPageSchema({
+                name: `${brand} site credits`,
+                description,
+                path: '/site-credits',
+                about: {
+                    '@type': 'Organization',
+                    name: developer.name,
+                    url: developer.url
+                }
+            })
         ]
     };
 };

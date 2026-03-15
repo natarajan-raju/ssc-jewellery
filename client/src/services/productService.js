@@ -515,6 +515,7 @@ export const productService = {
             body: JSON.stringify({ enabled })
         });
         const data = await handleResponse(res);
+        productService.clearProductsCache();
         clearCategoryCaches();
         return data;
     },
