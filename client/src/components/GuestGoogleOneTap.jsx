@@ -33,8 +33,9 @@ function GuestGoogleOneTapEnabled() {
 
   const isGuest = !user;
   const isAdminRoute = location.pathname.startsWith('/admin');
+  const isForgotPasswordRoute = location.pathname.startsWith('/forgot-password');
   const isApplePhone = isAppleMobileDevice();
-  const isEnabled = isGuest && !isAdminRoute && !isApplePhone && !cooldownActive;
+  const isEnabled = isGuest && !isAdminRoute && !isForgotPasswordRoute && !isApplePhone && !cooldownActive;
 
   useEffect(() => {
     if (!cooldownActive) return;
@@ -78,6 +79,7 @@ function GuestGoogleOneTapEnabled() {
       console.warn('Google One Tap did not initialize or was blocked by browser/Google policy.', {
         isGuest,
         isAdminRoute,
+        isForgotPasswordRoute,
         isApplePhone,
         host: typeof window !== 'undefined' ? window.location.host : ''
       });

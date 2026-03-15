@@ -11,6 +11,7 @@ import EmptyState from '../../components/EmptyState';
 
 const journeyStatusOptions = [
     { value: 'all', label: 'All' },
+    { value: 'pending', label: 'Pending' },
     { value: 'active', label: 'Active' },
     { value: 'recovered', label: 'Recovered' },
     { value: 'expired', label: 'Expired' },
@@ -53,6 +54,7 @@ const parseIntegerCsv = (value, { min = 0, fieldLabel = 'Field' } = {}) => {
 
 const statusClass = (status) => {
     const key = String(status || '').toLowerCase();
+    if (key === 'pending') return 'bg-violet-50 text-violet-700';
     if (key === 'recovered') return 'bg-emerald-50 text-emerald-700';
     if (key === 'active') return 'bg-blue-50 text-blue-700';
     if (key === 'expired') return 'bg-amber-50 text-amber-700';
@@ -803,7 +805,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                             ) : '—'}
                                         </td>
                                         <td className="px-5 py-3 text-right">
-                                            <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
+                                            {journey.source_type === 'candidate' ? (
+                                                <span className="text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
+                                            ) : (
+                                                <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -838,7 +844,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                     </div>
                                 </div>
                                 <div className="mt-3 flex justify-end">
-                                    <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
+                                    {journey.source_type === 'candidate' ? (
+                                        <span className="text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
+                                    ) : (
+                                        <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
+                                    )}
                                 </div>
                             </div>
                         ))}

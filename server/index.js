@@ -19,6 +19,7 @@ const { resolveBrandingAsset } = require('./utils/brandingAssets');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
+const shouldRunBackgroundJobs = isProduction || ['1', 'true', 'yes', 'on'].includes(String(process.env.ENABLE_BACKGROUND_JOBS_IN_DEV || '').trim().toLowerCase());
 const projectRoot = path.join(__dirname, '..');
 const rootDevEnvPath = path.join(projectRoot, '.env.dev');
 const rootEnvPath = path.join(projectRoot, '.env');
@@ -525,6 +526,10 @@ const broadcastJourneyUpdate = (payload = {}) => {
 
 const initBackgroundJobs = () => {
     if (backgroundJobsStarted) return;
+    if (!shouldRunBackgroundJobs) {
+        console.log('Boot: background jobs disabled for this environment');
+        return;
+    }
     backgroundJobsStarted = true;
     console.log('Boot: starting background jobs');
 

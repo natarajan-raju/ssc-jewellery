@@ -177,7 +177,7 @@ export const adminService = {
             const data = await adminService.getUsers(page, role, pageSize, search);
             const users = data.users || data || [];
             all.push(...users);
-            totalPages = data.pagination?.totalPages || 1;
+            totalPages = Number(data.totalPages || data.pagination?.totalPages || 1);
             page += 1;
         } while (page <= totalPages);
         return all;

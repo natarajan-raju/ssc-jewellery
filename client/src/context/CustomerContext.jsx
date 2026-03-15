@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { adminService } from '../services/adminService';
 import { useAuth } from './AuthContext';
@@ -5,7 +6,7 @@ import { useSocket } from './SocketContext';
 
 const CustomerContext = createContext(null);
 const CACHE_TTL = 5 * 60 * 1000;
-const STORAGE_KEY = 'admin_users_cache_v1';
+const STORAGE_KEY = 'admin_users_cache_v2';
 
 export const CustomerProvider = ({ children }) => {
     const { user } = useAuth();
@@ -20,13 +21,16 @@ export const CustomerProvider = ({ children }) => {
 
         setLoading(true);
         try {
+            adminService.clearCache();
             const all = await adminService.getUsersAll('all');
             setUsers(all);
             const ts = Date.now();
             setLastFetchedAt(ts);
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: all, ts }));
-            } catch {}
+            } catch {
+                // Ignore storage write failures for admin list cache.
+            }
         } finally {
             setLoading(false);
         }
@@ -39,8 +43,10 @@ export const CustomerProvider = ({ children }) => {
                 setUsers(cached.users);
                 setLastFetchedAt(cached.ts || 0);
             }
-        } catch {}
-        refreshUsers(false);
+        } catch {
+            // Ignore malformed cache payloads and refetch.
+        }
+        refreshUsers(true);
     }, [refreshUsers]);
 
     useEffect(() => {
@@ -53,7 +59,9 @@ export const CustomerProvider = ({ children }) => {
                 setLastFetchedAt(ts);
                 try {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: nextUsers, ts }));
-                } catch {}
+                } catch {
+                    // Ignore storage write failures for admin list cache.
+                }
                 return nextUsers;
             });
         };

@@ -1739,7 +1739,10 @@ const getUserCart = async (req, res) => {
         const userToFetch = await User.findById(req.params.id);
         if (!userToFetch) return res.status(404).json({ message: 'User not found' });
         const items = await Cart.getByUser(req.params.id);
-        res.json({ items });
+        res.json({
+            items,
+            lastActivityAt: userToFetch?.abandoned_cart_last_activity_at || null
+        });
     } catch (error) {
         console.error('Admin cart fetch error:', error);
         res.status(500).json({ message: 'Server Error' });

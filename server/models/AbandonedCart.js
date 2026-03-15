@@ -1096,6 +1096,84 @@ class AbandonedCart {
         };
     }
 
+    static async listPendingCandidatesAdvanced({
+        search = '',
+        sortBy = 'newest',
+        limit = 50,
+        offset = 0,
+        rangeDays = 90
+    } = {}) {
+        const campaign = await AbandonedCart.getCampaign();
+        const inactivityMinutes = Math.max(1, Number(campaign?.inactivityMinutes || DEFAULT_CAMPAIGN.inactivityMinutes));
+        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 90)));
+        const params = [];
+        let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer' AND COALESCE(u.is_active, 0) = 1";
+        where += ' AND c.last_activity_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+        params.push(safeRangeDays);
+        if (search) {
+            const term = `%${search}%`;
+            where += ' AND (u.name LIKE ? OR u.email LIKE ? OR u.mobile LIKE ? OR c.user_id LIKE ?)';
+            params.push(term, term, term, term);
+        }
+
+        let orderBy = 'c.last_activity_at DESC, c.user_id DESC';
+        const queryParams = [...params];
+        if (sortBy === 'oldest') orderBy = 'c.last_activity_at ASC, c.user_id ASC';
+        if (sortBy === 'highest_value') orderBy = 'c.cart_total_subunits DESC, c.user_id DESC';
+        if (sortBy === 'lowest_value') orderBy = 'c.cart_total_subunits ASC, c.user_id DESC';
+        if (sortBy === 'next_due') {
+            orderBy = 'DATE_ADD(c.last_activity_at, INTERVAL ? MINUTE) ASC, c.user_id DESC';
+            queryParams.push(inactivityMinutes);
+        }
+
+        const [countRows] = await db.execute(
+            `SELECT COUNT(*) as total
+             FROM abandoned_cart_candidates c
+             LEFT JOIN users u ON u.id = c.user_id
+             LEFT JOIN abandoned_cart_journeys j ON j.user_id = c.user_id AND j.status = 'active'
+             ${where} AND j.id IS NULL`,
+            params
+        );
+        const total = Number(countRows[0]?.total || 0);
+
+        const [rows] = await db.execute(
+            `SELECT c.user_id, c.cart_item_count, c.cart_total_subunits, c.currency, c.last_activity_at, c.created_at, c.updated_at,
+                    u.name as customer_name, u.email as customer_email, u.mobile as customer_mobile
+             FROM abandoned_cart_candidates c
+             LEFT JOIN users u ON u.id = c.user_id
+             LEFT JOIN abandoned_cart_journeys j ON j.user_id = c.user_id AND j.status = 'active'
+             ${where} AND j.id IS NULL
+             ORDER BY ${orderBy}
+             LIMIT ? OFFSET ?`,
+            [...queryParams, Number(limit || 50), Number(offset || 0)]
+        );
+
+        const candidates = rows.map((row) => {
+            const lastActivity = new Date(row.last_activity_at || Date.now());
+            const nextAttemptAt = new Date(lastActivity.getTime() + inactivityMinutes * 60 * 1000);
+            return {
+                id: `candidate:${row.user_id}`,
+                user_id: row.user_id,
+                status: 'pending',
+                source_type: 'candidate',
+                cart_item_count: Number(row.cart_item_count || 0),
+                cart_total_subunits: Number(row.cart_total_subunits || 0),
+                currency: String(row.currency || 'INR'),
+                customer_name: row.customer_name || '',
+                customer_email: row.customer_email || '',
+                customer_mobile: row.customer_mobile || '',
+                last_attempt_no: 0,
+                last_activity_at: row.last_activity_at,
+                computed_last_activity_at: row.last_activity_at,
+                next_attempt_at: nextAttemptAt.toISOString(),
+                created_at: row.created_at,
+                updated_at: row.updated_at
+            };
+        });
+
+        return { candidates, total };
+    }
+
     static async getInsights({ rangeDays = 30 } = {}) {
         const safeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
         const [summaryRows] = await db.execute(

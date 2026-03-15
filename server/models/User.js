@@ -185,7 +185,19 @@ class User {
 
     static async findById(id) {
         const [rows] = await db.execute(
-            `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier
+            `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier,
+                    (
+                        SELECT MAX(activity_at)
+                        FROM (
+                            SELECT ac.last_activity_at AS activity_at
+                            FROM abandoned_cart_candidates ac
+                            WHERE ac.user_id = u.id
+                            UNION ALL
+                            SELECT COALESCE(aj.last_activity_at, aj.updated_at, aj.created_at) AS activity_at
+                            FROM abandoned_cart_journeys aj
+                            WHERE aj.user_id = u.id
+                        ) cart_activity
+                    ) as abandoned_cart_last_activity_at
              FROM users u
              LEFT JOIN user_loyalty ul ON ul.user_id = u.id
              WHERE u.id = ?`,

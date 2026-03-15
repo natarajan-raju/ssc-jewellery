@@ -147,6 +147,37 @@ const appendCacheBust = (url = '', version = '') => {
     return `${normalizedUrl}${separator}v=${encodeURIComponent(normalizedVersion)}`;
 };
 
+const BannerFrame = ({ imageUrl = '', alt = 'Banner' }) => (
+    <div
+        className="relative w-full overflow-hidden"
+        style={{
+            backgroundColor: 'var(--tier-page-bg, #eef1f6)',
+            minHeight: 'clamp(220px, 32vw, 420px)'
+        }}
+    >
+        <div className="absolute inset-0 scale-110">
+            <img
+                src={imageUrl}
+                alt=""
+                aria-hidden="true"
+                className="w-full h-full object-cover blur-2xl opacity-60"
+                loading="lazy"
+                decoding="async"
+            />
+            <div className="absolute inset-0 bg-white/25 backdrop-blur-[2px]" />
+        </div>
+        <div className="relative z-10 flex min-h-[clamp(220px,32vw,420px)] w-full items-center justify-center px-3 py-4 md:px-6">
+            <img
+                src={imageUrl}
+                alt={alt}
+                className="max-h-[clamp(200px,28vw,380px)] w-auto max-w-full object-contain"
+                loading="lazy"
+                decoding="async"
+            />
+        </div>
+    </div>
+);
+
 const PROMO_TITLE_FONTS = [
     '"Impact", "Arial Black", sans-serif',
     '"Playfair Display", Georgia, serif',
@@ -1230,18 +1261,7 @@ export default function Home() {
                         const link = homeBanner?.link || '';
                         const imageUrl = appendCacheBust(homeBanner?.image_url || '', bannerVersions.primary);
                         if (!hasBannerImage(imageUrl)) return null;
-                        const content = (
-                            <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
-                                <div className="pt-[56.25%]" />
-                                <img
-                                    src={imageUrl}
-                                    alt="Featured banner"
-                                    className="absolute inset-0 w-full h-full object-contain"
-                                    loading="lazy"
-                                    decoding="async"
-                                />
-                            </div>
-                        );
+                        const content = <BannerFrame imageUrl={imageUrl} alt="Featured banner" />;
 
                         if (!link) return content;
                         if (isExternalLink(link)) {
@@ -1312,18 +1332,7 @@ export default function Home() {
                         const link = secondaryBanner?.link || '';
                         const imageUrl = appendCacheBust(secondaryBanner?.image_url || '', bannerVersions.secondary);
                         if (!hasBannerImage(imageUrl)) return null;
-                        const content = (
-                            <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
-                                <div className="pt-[56.25%]" />
-                                <img
-                                    src={imageUrl}
-                                    alt="Featured banner"
-                                    className="absolute inset-0 w-full h-full object-contain"
-                                    loading="lazy"
-                                    decoding="async"
-                                />
-                            </div>
-                        );
+                        const content = <BannerFrame imageUrl={imageUrl} alt="Featured banner" />;
 
                         if (!link) return content;
                         if (isExternalLink(link)) {
@@ -1417,18 +1426,7 @@ export default function Home() {
                         const link = tertiaryBanner?.link || '';
                         const imageUrl = appendCacheBust(tertiaryBanner?.image_url || '', bannerVersions.tertiary);
                         if (!hasBannerImage(imageUrl)) return null;
-                        const content = (
-                            <div className="relative w-full overflow-hidden" style={{ backgroundColor: 'var(--tier-page-bg, #eef1f6)' }}>
-                                <div className="pt-[56.25%]" />
-                                <img
-                                    src={imageUrl}
-                                    alt="Home banner 3"
-                                    className="absolute inset-0 w-full h-full object-cover"
-                                    loading="lazy"
-                                    decoding="async"
-                                />
-                            </div>
-                        );
+                        const content = <BannerFrame imageUrl={imageUrl} alt="Home banner 3" />;
 
                         if (!link) return content;
                         if (isExternalLink(link)) {

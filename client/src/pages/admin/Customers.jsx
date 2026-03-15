@@ -327,7 +327,13 @@ export default function Customers({
         try {
             const data = await adminService.getUserCart(user.id);
             const nextItems = data.items || [];
+            const nextLastActivity = data.lastActivityAt || user?.abandoned_cart_last_activity_at || user?.abandonedCartLastActivityAt || null;
             setCartItems(nextItems);
+            setSelectedUser((prev) => ({
+                ...(prev || user),
+                abandoned_cart_last_activity_at: nextLastActivity,
+                abandonedCartLastActivityAt: nextLastActivity
+            }));
             const nextCount = nextItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
             setCartCountOverrides((prev) => ({ ...prev, [user.id]: nextCount }));
         } catch {
