@@ -983,6 +983,20 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                                 {attempt.discount_code && <p className="text-xs text-gray-500">Discount: {attempt.discount_code} ({attempt.discount_percent || 0}%)</p>}
                                                 <p className="text-xs text-gray-500">Payment Link ID: {attempt.payment_link_id || '—'}</p>
                                                 <p className="text-xs text-gray-500">Payment ID: {attempt.response_json?.paymentId || '—'}</p>
+                                                {attempt.error_message && (
+                                                    <p className="text-xs text-red-600 mt-1">Failure: {attempt.error_message}</p>
+                                                )}
+                                                {!attempt.error_message && attempt.status === 'failed' && (
+                                                    <p className="text-xs text-red-600 mt-1">
+                                                        Failure: {
+                                                            attempt.response_json?.email?.message
+                                                            || attempt.response_json?.whatsapp?.message
+                                                            || attempt.response_json?.email?.reason
+                                                            || attempt.response_json?.whatsapp?.reason
+                                                            || 'All enabled recovery channels failed'
+                                                        }
+                                                    </p>
+                                                )}
                                                 {attempt.payment_link_url && <a className="text-xs text-primary" href={attempt.payment_link_url} target="_blank" rel="noreferrer">Open payment link</a>}
                                                 <p className="text-xs text-gray-400 mt-1">{formatAdminDateTime(attempt.created_at)}</p>
                                             </div>
