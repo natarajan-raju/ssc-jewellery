@@ -1057,6 +1057,17 @@ export default function Home() {
                                 </Link>
                             ))}
                         </div>
+                        <div className="mx-auto mt-10 flex max-w-4xl items-center gap-4 md:mt-12">
+                            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.35em] text-amber-500/80">
+                                Explore More
+                            </span>
+                            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
+                        </div>
+                        <div
+                            aria-hidden="true"
+                            className="mx-auto mt-4 h-[6px] max-w-3xl rounded-full bg-[radial-gradient(circle,_rgba(217,119,6,0.34)_1.2px,_transparent_1.2px)] bg-[length:14px_6px] bg-center bg-repeat-x"
+                        />
                     </div>
                 )}
                 <div className="text-center mb-10">

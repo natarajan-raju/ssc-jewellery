@@ -364,7 +364,11 @@ export default function CustomerCouponPopup() {
                             <div className={`transition-all duration-500 ${scratchUnlocked ? 'ring-4 ring-amber-300 shadow-2xl shadow-amber-200/60' : ''}`}>
                                 {isMobileScreen
                                     ? (coupon ? renderCouponCard() : renderGiftPrompt('Scratch and reveal your surprise offer'))
-                                    : renderGiftPrompt('Your surprise offer is waiting inside')}
+                                    : (
+                                        <div className="flex flex-col items-center justify-center rounded-xl border border-amber-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 px-6 py-8">
+                                            <img src={giftIllustration} alt="Gift offer" className="w-24 md:w-28 h-auto opacity-90" />
+                                        </div>
+                                    )}
                             </div>
                             {isMobileScreen && (
                                 <canvas
