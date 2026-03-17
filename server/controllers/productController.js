@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const CompanyProfile = require('../models/CompanyProfile');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -38,6 +39,10 @@ const normalizeVideoType = (value = '') => {
     const raw = String(value || '').trim().toLowerCase();
     if (raw === 'youtube' || raw === 'instagram') return raw;
     return '';
+};
+const normalizeUsageAudience = (value = '') => {
+    const raw = String(value || '').trim().toLowerCase();
+    return ['men', 'women', 'kids'].includes(raw) ? raw : '';
 };
 
 const normalizeVariantForPublic = (variant = {}) => {
@@ -83,6 +88,7 @@ const serializePublicProduct = (product = {}) => {
         status: product.status,
         media: safeParse(product.media, []),
         categories: safeParse(product.categories, []),
+        usageAudience: normalizeUsageAudience(product.usageAudience || product.usage_audience),
         related_products: safeParse(product.related_products, {}),
         additional_info: safeParse(product.additional_info, []),
         polish_warranty_months: product.polish_warranty_months,
@@ -131,6 +137,7 @@ const getProducts = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const category = req.query.category || 'all';
         const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
+        const usageAudience = normalizeUsageAudience(req.query.usageAudience || '');
         
         // Staff sees only Active? (Optional requirement, usually Staff sees all too)
         const status = req.query.status || 'all'; 
@@ -138,7 +145,7 @@ const getProducts = async (req, res) => {
 
         const resolvedStatus = canViewAdminProductData(req) ? status : 'active';
         const viewerKey = req?.user?.id ? String(req.user.id) : 'guest';
-        const result = await Product.getPaginated(page, limit, category, resolvedStatus, sort, categoryId, viewerKey);
+        const result = await Product.getPaginated(page, limit, category, resolvedStatus, sort, categoryId, usageAudience, viewerKey);
         if (!canViewAdminProductData(req)) {
             result.products = (result.products || []).filter((product) => String(product.status || '').toLowerCase() === 'active').map(serializePublicProduct);
         }
@@ -160,6 +167,7 @@ const searchProducts = async (req, res) => {
         const category = String(req.query.category || 'all');
         const status = String(req.query.status || 'active');
         const sort = String(req.query.sort || 'relevance');
+        const usageAudience = normalizeUsageAudience(req.query.usageAudience || '');
         const inStockOnly = String(req.query.inStockOnly || 'false') === 'true';
         const minPrice = req.query.minPrice ?? null;
         const maxPrice = req.query.maxPrice ?? null;
@@ -172,6 +180,7 @@ const searchProducts = async (req, res) => {
             category,
             status: resolvedStatus,
             sort,
+            usageAudience,
             inStockOnly,
             minPrice,
             maxPrice
@@ -225,6 +234,7 @@ const getSingleProduct = async (req, res) => {
 // --- 2. CREATE PRODUCT ---
 const createProduct = async (req, res) => {
     try {
+        const companyProfile = await CompanyProfile.get();
         const media = [];
         if (Array.isArray(req.files)) {
             req.files.forEach(file => media.push({ type: 'image', url: `/uploads/products/${file.filename}` }));
@@ -254,11 +264,15 @@ const createProduct = async (req, res) => {
             low_stock_threshold: req.body.low_stock_threshold || 0,
             media: media,
             categories: asArray(req.body.categories, { allowSingleString: true }),
+            usageAudience: normalizeUsageAudience(req.body.usageAudience || ''),
             related_products: asObject(req.body.related_products),
             additional_info: asArray(req.body.additional_info),
             options: asArray(req.body.options),
             variants: asArray(req.body.variants)
         };
+        if (companyProfile?.usageAudienceEnabled && !productData.usageAudience) {
+            return res.status(400).json({ message: 'Usage Audience is required when usage audience classification is enabled' });
+        }
 
         const newProduct = await Product.create(productData);
         const createdProduct = await Product.findById(newProduct.id);
@@ -298,6 +312,7 @@ const deleteProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
     try {
         const { id } = req.params;
+        const companyProfile = await CompanyProfile.get();
         const existingProduct = await Product.findById(id).catch(() => null);
         const previousCategories = asArray(existingProduct?.categories, { allowSingleString: true });
         
@@ -351,11 +366,15 @@ const updateProduct = async (req, res) => {
 
             media: finalMedia,
             categories: asArray(req.body.categories, { allowSingleString: true }),
+            usageAudience: normalizeUsageAudience(req.body.usageAudience || existingProduct?.usageAudience || existingProduct?.usage_audience || ''),
             related_products: asObject(req.body.related_products),
             additional_info: asArray(req.body.additional_info),
             options: asArray(req.body.options),
             variants: asArray(req.body.variants)
         };
+        if (companyProfile?.usageAudienceEnabled && !productData.usageAudience) {
+            return res.status(400).json({ message: 'Usage Audience is required when usage audience classification is enabled' });
+        }
 
         await Product.update(id, productData);
         // 2. [FIX] Fetch the FRESH updated product from DB (ensures we get new Variant IDs)

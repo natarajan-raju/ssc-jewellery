@@ -27,6 +27,10 @@ const DEFAULT_COMPANY_PROFILE = {
     emailChannelEnabled: true,
     whatsappChannelEnabled: true,
     whatsappModuleSettings: { ...DEFAULT_WHATSAPP_MODULE_SETTINGS },
+    usageAudienceEnabled: false,
+    usageAudienceMenImageUrl: '',
+    usageAudienceWomenImageUrl: '',
+    usageAudienceKidsImageUrl: '',
     razorpayKeyId: '',
     razorpayEmiMinAmount: 3000,
     razorpayStartingTenureMonths: 12
@@ -69,6 +73,10 @@ const normalizeRow = (row) => {
         emailChannelEnabled: Number(row.email_channel_enabled ?? 1) === 1,
         whatsappChannelEnabled: Number(row.whatsapp_channel_enabled ?? 1) === 1,
         whatsappModuleSettings: normalizeWhatsappModuleSettings(row.whatsapp_module_settings_json),
+        usageAudienceEnabled: Number(row.usage_audience_enabled || 0) === 1,
+        usageAudienceMenImageUrl: row.usage_audience_men_image_url || '',
+        usageAudienceWomenImageUrl: row.usage_audience_women_image_url || '',
+        usageAudienceKidsImageUrl: row.usage_audience_kids_image_url || '',
         razorpayKeyId: row.razorpay_key_id || '',
         razorpayEmiMinAmount: Math.max(1, Number(row.razorpay_emi_min_amount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
         razorpayStartingTenureMonths: Math.max(1, Number(row.razorpay_starting_tenure_months || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
@@ -84,8 +92,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -113,6 +121,10 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.emailChannelEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.whatsappChannelEnabled ? 1 : 0,
                 JSON.stringify(DEFAULT_COMPANY_PROFILE.whatsappModuleSettings),
+                DEFAULT_COMPANY_PROFILE.usageAudienceEnabled ? 1 : 0,
+                DEFAULT_COMPANY_PROFILE.usageAudienceMenImageUrl,
+                DEFAULT_COMPANY_PROFILE.usageAudienceWomenImageUrl,
+                DEFAULT_COMPANY_PROFILE.usageAudienceKidsImageUrl,
                 DEFAULT_COMPANY_PROFILE.razorpayKeyId,
                 '',
                 '',
@@ -170,6 +182,10 @@ class CompanyProfile {
             whatsappModuleSettings: typeof payload.whatsappModuleSettings === 'undefined'
                 ? existingWhatsappModuleSettings
                 : normalizeWhatsappModuleSettings(payload.whatsappModuleSettings),
+            usageAudienceEnabled: payload.usageAudienceEnabled === true || payload.usageAudienceEnabled === 1 || String(payload.usageAudienceEnabled || '').toLowerCase() === 'true',
+            usageAudienceMenImageUrl: String(payload.usageAudienceMenImageUrl || '').trim(),
+            usageAudienceWomenImageUrl: String(payload.usageAudienceWomenImageUrl || '').trim(),
+            usageAudienceKidsImageUrl: String(payload.usageAudienceKidsImageUrl || '').trim(),
             razorpayKeyId: String(payload.razorpayKeyId || '').trim(),
             razorpayKeySecret: incomingKeySecret !== null ? incomingKeySecret : existingRawKeySecret,
             razorpayWebhookSecret: incomingWebhookSecret !== null ? incomingWebhookSecret : existingRawWebhookSecret,
@@ -179,8 +195,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 storefront_open = VALUES(storefront_open),
@@ -207,6 +223,10 @@ class CompanyProfile {
                 email_channel_enabled = VALUES(email_channel_enabled),
                 whatsapp_channel_enabled = VALUES(whatsapp_channel_enabled),
                 whatsapp_module_settings_json = VALUES(whatsapp_module_settings_json),
+                usage_audience_enabled = VALUES(usage_audience_enabled),
+                usage_audience_men_image_url = VALUES(usage_audience_men_image_url),
+                usage_audience_women_image_url = VALUES(usage_audience_women_image_url),
+                usage_audience_kids_image_url = VALUES(usage_audience_kids_image_url),
                 razorpay_key_id = VALUES(razorpay_key_id),
                 razorpay_key_secret = VALUES(razorpay_key_secret),
                 razorpay_webhook_secret = VALUES(razorpay_webhook_secret),
@@ -239,6 +259,10 @@ class CompanyProfile {
                 next.emailChannelEnabled ? 1 : 0,
                 next.whatsappChannelEnabled ? 1 : 0,
                 JSON.stringify(next.whatsappModuleSettings),
+                next.usageAudienceEnabled ? 1 : 0,
+                next.usageAudienceMenImageUrl,
+                next.usageAudienceWomenImageUrl,
+                next.usageAudienceKidsImageUrl,
                 next.razorpayKeyId,
                 next.razorpayKeySecret,
                 next.razorpayWebhookSecret,

@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState';
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Filter, Share2, MessageCircle, Facebook, Twitter, Send, Copy, ArrowUp, Home, LayoutGrid } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { useCms } from '../hooks/useCms';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
 import { buildShopSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
@@ -49,8 +50,10 @@ const mergeUniqueProducts = (base = [], incoming = []) => {
 export default function Shop() {
     const [searchParams, setSearchParams] = useSearchParams();
     const { getCarouselCards } = useCms();
+    const { companyInfo } = usePublicCompanyInfo();
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [selectedUsageAudience, setSelectedUsageAudience] = useState(() => String(searchParams.get('usageAudience') || '').trim().toLowerCase());
     const [products, setProducts] = useState([]);
     const [page, setPage] = useState(1);
     const [hasMore, setHasMore] = useState(true);
@@ -88,9 +91,28 @@ export default function Shop() {
     }), [categories, products, selectedCategory]);
     useSeo(seoConfig);
 
+    const usageAudienceEnabled = companyInfo?.usageAudienceEnabled === true;
+    const usageAudienceOptions = useMemo(() => {
+        if (!usageAudienceEnabled) return [];
+        return [
+            { value: '', label: 'All Audiences', imageUrl: '' },
+            { value: 'men', label: 'Men', imageUrl: companyInfo?.usageAudienceMenImageUrl || '' },
+            { value: 'women', label: 'Women', imageUrl: companyInfo?.usageAudienceWomenImageUrl || '' },
+            { value: 'kids', label: 'Kids', imageUrl: companyInfo?.usageAudienceKidsImageUrl || '' }
+        ];
+    }, [companyInfo?.usageAudienceKidsImageUrl, companyInfo?.usageAudienceMenImageUrl, companyInfo?.usageAudienceWomenImageUrl, usageAudienceEnabled]);
+
+    useEffect(() => {
+        if (!usageAudienceEnabled && selectedUsageAudience) {
+            setSelectedUsageAudience('');
+        }
+    }, [selectedUsageAudience, usageAudienceEnabled]);
+
     useEffect(() => {
         const nextQuery = String(searchParams.get('q') || '').trim();
         setSearchTerm((current) => (current === nextQuery ? current : nextQuery));
+        const nextUsageAudience = String(searchParams.get('usageAudience') || '').trim().toLowerCase();
+        setSelectedUsageAudience((current) => (current === nextUsageAudience ? current : nextUsageAudience));
     }, [searchParams]);
 
     const normalizeCategoryList = useCallback((value) => {
@@ -256,12 +278,14 @@ export default function Shop() {
         const nextParams = new URLSearchParams(searchParams);
         if (trimmedQuery) nextParams.set('q', trimmedQuery);
         else nextParams.delete('q');
+        if (selectedUsageAudience) nextParams.set('usageAudience', selectedUsageAudience);
+        else nextParams.delete('usageAudience');
         const currentSerialized = searchParams.toString();
         const nextSerialized = nextParams.toString();
         if (currentSerialized !== nextSerialized) {
             setSearchParams(nextParams, { replace: true });
         }
-    }, [searchParams, searchTerm, setSearchParams]);
+    }, [searchParams, searchTerm, selectedUsageAudience, setSearchParams]);
 
     useEffect(() => {
         const toggleVisibility = () => {
@@ -287,14 +311,14 @@ export default function Shop() {
         loadingRef.current = true;
         if (!append && !skipLoading) setIsLoading(true);
 
-        const requestKey = `${selectedCategory}::${sortBy}`;
+        const requestKey = `${selectedCategory}::${selectedUsageAudience}::${sortBy}`;
         requestKeyRef.current = requestKey;
         try {
             const categoryParam = selectedCategory === 'all' ? 'all' : selectedCategory;
             const serverSort = sortBy === 'default'
                 ? (categoryParam === 'all' ? 'newest' : 'manual')
                 : sortBy;
-            const data = await productService.getProducts(currentPage, categoryParam, 'active', serverSort, PAGE_LIMIT);
+            const data = await productService.getProducts(currentPage, categoryParam, 'active', serverSort, PAGE_LIMIT, null, selectedUsageAudience);
             if (requestKeyRef.current !== requestKey) return [];
 
             const newItems = Array.isArray(data?.products) ? data.products : [];
@@ -314,7 +338,7 @@ export default function Shop() {
             loadingRef.current = false;
             if (!skipLoading) setIsLoading(false);
         }
-    }, [selectedCategory, sortBy]);
+    }, [selectedCategory, selectedUsageAudience, sortBy]);
 
     useEffect(() => {
         loadCategories();
@@ -325,9 +349,9 @@ export default function Shop() {
         setPage(1);
         setHasMore(true);
         loadedPagesRef.current = new Set();
-        requestKeyRef.current = `${selectedCategory}::${sortBy}`;
+        requestKeyRef.current = `${selectedCategory}::${selectedUsageAudience}::${sortBy}`;
         fetchProducts(1, { append: false, force: true });
-    }, [selectedCategory, sortBy, fetchProducts]);
+    }, [selectedCategory, selectedUsageAudience, sortBy, fetchProducts]);
 
     useEffect(() => {
         if (!sentinelRef.current) return;
@@ -373,6 +397,7 @@ export default function Shop() {
                     page: 1,
                     limit: SEARCH_LIMIT,
                     category: selectedCategory,
+                    usageAudience: selectedUsageAudience,
                     status: 'active',
                     sort: searchSort,
                     inStockOnly,
@@ -395,15 +420,18 @@ export default function Shop() {
         return () => {
             if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
         };
-    }, [searchTerm, selectedCategory, sortBy, inStockOnly, priceRange.min, priceRange.max]);
+    }, [searchTerm, selectedCategory, selectedUsageAudience, sortBy, inStockOnly, priceRange.min, priceRange.max]);
 
     const shouldItemBeVisible = useCallback((item) => {
         if (!item || item.status !== 'active') return false;
+        if (selectedUsageAudience && String(item?.usageAudience || item?.usage_audience || '').toLowerCase() !== selectedUsageAudience) {
+            return false;
+        }
         if (selectedCategory === 'all') return true;
         const clean = selectedCategory.toLowerCase();
         const itemCategories = normalizeCategoryList(item.categories);
         return itemCategories.some(c => String(c).toLowerCase() === clean);
-    }, [normalizeCategoryList, selectedCategory]);
+    }, [normalizeCategoryList, selectedCategory, selectedUsageAudience]);
 
     const currentServerSort = useMemo(() => (
         sortBy === 'default'
@@ -424,7 +452,7 @@ export default function Shop() {
         if (!isManualSort || loadingRef.current) return;
         loadingRef.current = true;
         try {
-            const requestKey = `${selectedCategory}::${sortBy}`;
+            const requestKey = `${selectedCategory}::${selectedUsageAudience}::${sortBy}`;
             requestKeyRef.current = requestKey;
             const loaded = Array.from(loadedPagesRef.current).sort((a, b) => a - b);
             const pagesToLoad = loaded.length ? loaded : [1];
@@ -432,7 +460,7 @@ export default function Shop() {
             let lastBatchSize = PAGE_LIMIT;
 
             for (const pg of pagesToLoad) {
-                const data = await productService.getProducts(pg, selectedCategory, 'active', currentServerSort, PAGE_LIMIT);
+                const data = await productService.getProducts(pg, selectedCategory, 'active', currentServerSort, PAGE_LIMIT, null, selectedUsageAudience);
                 if (requestKeyRef.current !== requestKey) return;
                 const batch = Array.isArray(data?.products) ? data.products : [];
                 merged = mergeUniqueProducts(merged, batch);
@@ -447,7 +475,7 @@ export default function Shop() {
         } finally {
             loadingRef.current = false;
         }
-    }, [currentServerSort, isManualSort, selectedCategory, sortBy]);
+    }, [currentServerSort, isManualSort, selectedCategory, selectedUsageAudience, sortBy]);
 
     const scheduleManualRefresh = useCallback(() => {
         if (!isManualSort) return;
@@ -620,6 +648,19 @@ export default function Shop() {
         if (!searchTerm.trim()) return filteredAndSortedProducts;
         return mergeUniqueProducts(localSearchResults, searchResults);
     }, [filteredAndSortedProducts, localSearchResults, searchResults, searchTerm]);
+    const hasActiveFilters = Boolean(
+        selectedUsageAudience
+        || searchTerm.trim()
+        || inStockOnly
+        || priceRange.min
+        || priceRange.max
+    );
+    const clearFilters = useCallback(() => {
+        setSearchTerm('');
+        setSelectedUsageAudience('');
+        setInStockOnly(false);
+        setPriceRange({ min: '', max: '' });
+    }, []);
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20 w-full">
@@ -687,6 +728,49 @@ export default function Shop() {
                 <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-8">
                     {/* Sidebar */}
                     <aside className="bg-white rounded-2xl border border-gray-200 p-4 h-fit">
+                        <h3 className="text-sm font-bold text-gray-700 uppercase tracking-widest mb-4 hidden md:block">Categories</h3>
+                        {usageAudienceEnabled && (
+                            <>
+                                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-widest mb-4">Usage Audience</h3>
+                                <div className="md:hidden relative mb-5">
+                                    <select
+                                        value={selectedUsageAudience}
+                                        onChange={(e) => setSelectedUsageAudience(e.target.value)}
+                                        className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:border-primary shadow-sm"
+                                    >
+                                        {usageAudienceOptions.map((option) => (
+                                            <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="hidden md:grid grid-cols-1 gap-2 mb-6">
+                                    {usageAudienceOptions.map((option) => {
+                                        const isActive = option.value === selectedUsageAudience;
+                                        return (
+                                            <button
+                                                key={option.value || 'all'}
+                                                type="button"
+                                                onClick={() => setSelectedUsageAudience(option.value)}
+                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                                    isActive ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-50'
+                                                }`}
+                                            >
+                                                <div className="w-9 h-9 rounded-full bg-gray-100 overflow-hidden border border-white shadow-inner shrink-0">
+                                                    {option.imageUrl ? (
+                                                        <img src={option.imageUrl} alt={option.label} className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center bg-primary/10">
+                                                            <LayoutGrid size={16} className={isActive ? 'text-white' : 'text-primary'} />
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <span className="truncate">{option.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
                         <h3 className="text-sm font-bold text-gray-700 uppercase tracking-widest mb-4 hidden md:block">Categories</h3>
                         {/* Mobile dropdown */}
                         <div className="md:hidden relative" ref={categoryDropdownRef}>
@@ -781,6 +865,7 @@ export default function Shop() {
                         <div className="mb-3">
                             <h2 className="text-xl md:text-2xl font-serif text-primary">
                                 {selectedCategory === 'all' ? 'All Products' : selectedCategory}
+                                {selectedUsageAudience ? ` • ${selectedUsageAudience.charAt(0).toUpperCase()}${selectedUsageAudience.slice(1)}` : ''}
                             </h2>
                         </div>
                         <div className="sticky top-[64px] z-40 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-sm w-full transition-all duration-300 mb-4">
@@ -792,7 +877,7 @@ export default function Shop() {
                                     >
                                         <Filter size={18} className={showFilters ? "fill-current" : ""} />
                                         <span>Filters</span>
-                                        {inStockOnly || priceRange.min || priceRange.max ? (
+                                        {hasActiveFilters ? (
                                             <span className="bg-accent text-primary text-[10px] px-1.5 rounded-full font-bold">!</span>
                                         ) : null}
                                     </button>
@@ -827,6 +912,20 @@ export default function Shop() {
                                             className="w-48 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
                                         />
                                     </div>
+                                    {usageAudienceEnabled && (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-gray-600 font-medium">Usage:</span>
+                                            <select
+                                                value={selectedUsageAudience}
+                                                onChange={(e) => setSelectedUsageAudience(e.target.value)}
+                                                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary bg-white"
+                                            >
+                                                {usageAudienceOptions.map((option) => (
+                                                    <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
                                     <label className="flex items-center gap-2 cursor-pointer select-none">
                                         <div className="relative">
                                             <input
@@ -858,6 +957,15 @@ export default function Shop() {
                                             className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
                                         />
                                     </div>
+                                    {hasActiveFilters && (
+                                        <button
+                                            type="button"
+                                            onClick={clearFilters}
+                                            className="text-xs text-red-500 hover:text-red-700 font-bold"
+                                        >
+                                            Clear Filters
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>

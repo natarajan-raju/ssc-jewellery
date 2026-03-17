@@ -1,11 +1,12 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { productService } from '../../services/productService';
+import { adminService } from '../../services/adminService';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { 
     Loader2, Search, Plus, Package, 
     ChevronLeft, ChevronRight, Edit3, Trash2, Eye, EyeOff, Filter,
-    Infinity as InfinityIcon, AlertTriangle
+    Infinity as InfinityIcon, AlertTriangle, Upload, X
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
@@ -105,6 +106,11 @@ const extractCategoryNames = (value) => {
 const ADMIN_FILTER_ALL = 'all';
 const ADMIN_FILTER_UNCATEGORIZED = 'uncategorized';
 const POST_CRUD_REFRESH_DELAY_MS = 180;
+const USAGE_AUDIENCE_ITEMS = [
+    { key: 'men', label: 'Men', field: 'usageAudienceMenImageUrl' },
+    { key: 'women', label: 'Women', field: 'usageAudienceWomenImageUrl' },
+    { key: 'kids', label: 'Kids', field: 'usageAudienceKidsImageUrl' }
+];
 
 export default function Products({ onNavigate, focusProductId = null, onFocusHandled = () => {} }) {
     const [allProducts, setAllProducts] = useState([]);
@@ -123,7 +129,33 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const [editingProduct, setEditingProduct] = useState(null);
     const [productToDelete, setProductToDelete] = useState(null); // For Delete Confirmation
     const [refreshTick, setRefreshTick] = useState(0);
+    const [usageAudienceConfig, setUsageAudienceConfig] = useState({
+        enabled: false,
+        usageAudienceMenImageUrl: '',
+        usageAudienceWomenImageUrl: '',
+        usageAudienceKidsImageUrl: ''
+    });
+    const [usageAudienceDraft, setUsageAudienceDraft] = useState({
+        enabled: true,
+        usageAudienceMenImageUrl: '',
+        usageAudienceWomenImageUrl: '',
+        usageAudienceKidsImageUrl: ''
+    });
+    const [isUsageAudienceModalOpen, setIsUsageAudienceModalOpen] = useState(false);
+    const [isUsageAudienceSaving, setIsUsageAudienceSaving] = useState(false);
+    const [uploadingAudienceKey, setUploadingAudienceKey] = useState('');
     const toast = useToast();
+
+    const applyUsageAudienceConfig = useCallback((company = {}) => {
+        const next = {
+            enabled: company?.usageAudienceEnabled === true,
+            usageAudienceMenImageUrl: String(company?.usageAudienceMenImageUrl || '').trim(),
+            usageAudienceWomenImageUrl: String(company?.usageAudienceWomenImageUrl || '').trim(),
+            usageAudienceKidsImageUrl: String(company?.usageAudienceKidsImageUrl || '').trim()
+        };
+        setUsageAudienceConfig(next);
+        setUsageAudienceDraft({ enabled: true, ...next });
+    }, []);
 
     const loadCategories = useCallback(async () => {
         setIsCategoriesLoading(true);
@@ -207,6 +239,18 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     }, [loadCategories]);
 
     useEffect(() => {
+        const loadUsageAudienceConfig = async () => {
+            try {
+                const data = await adminService.getCompanyInfo();
+                applyUsageAudienceConfig(data?.company || {});
+            } catch (error) {
+                console.error('Failed to load usage audience settings', error);
+            }
+        };
+        loadUsageAudienceConfig();
+    }, [applyUsageAudienceConfig]);
+
+    useEffect(() => {
         setPage(1);
         fetchCategoryProducts({ category: filterCategory, force: false });
     }, [filterCategory, fetchCategoryProducts]);
@@ -265,6 +309,10 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             if (!id) return;
             patchCurrentCategoryList((prev) => prev.filter((item) => String(item?.id || '') !== String(id)));
             scheduleCurrentCategoryRefresh();
+        },
+        'company:info_update': ({ company } = {}) => {
+            if (!company || typeof company !== 'object') return;
+            applyUsageAudienceConfig(company);
         }
     });
 
@@ -333,6 +381,80 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
         setEditingProduct(null);
     };
 
+    const handleOpenUsageAudienceModal = () => {
+        setUsageAudienceDraft({
+            enabled: true,
+            usageAudienceMenImageUrl: usageAudienceConfig.usageAudienceMenImageUrl || '',
+            usageAudienceWomenImageUrl: usageAudienceConfig.usageAudienceWomenImageUrl || '',
+            usageAudienceKidsImageUrl: usageAudienceConfig.usageAudienceKidsImageUrl || ''
+        });
+        setIsUsageAudienceModalOpen(true);
+    };
+
+    const handleUsageAudienceToggle = async () => {
+        if (usageAudienceConfig.enabled) {
+            setIsUsageAudienceSaving(true);
+            try {
+                const data = await adminService.updateCompanyInfo({
+                    usageAudienceEnabled: false,
+                    usageAudienceMenImageUrl: usageAudienceConfig.usageAudienceMenImageUrl || '',
+                    usageAudienceWomenImageUrl: usageAudienceConfig.usageAudienceWomenImageUrl || '',
+                    usageAudienceKidsImageUrl: usageAudienceConfig.usageAudienceKidsImageUrl || ''
+                });
+                applyUsageAudienceConfig(data?.company || {});
+                toast.success('Usage audience classification disabled');
+            } catch (error) {
+                toast.error(error?.message || 'Failed to disable usage audience classification');
+            } finally {
+                setIsUsageAudienceSaving(false);
+            }
+            return;
+        }
+        handleOpenUsageAudienceModal();
+    };
+
+    const handleUsageAudienceImageUpload = async (key, file) => {
+        if (!file) return;
+        setUploadingAudienceKey(key);
+        try {
+            const data = await adminService.uploadUsageAudienceImage(file);
+            const imageUrl = String(data?.url || '').trim();
+            if (!imageUrl) throw new Error('Upload did not return an image URL');
+            const field = USAGE_AUDIENCE_ITEMS.find((item) => item.key === key)?.field;
+            if (!field) throw new Error('Invalid usage audience image target');
+            setUsageAudienceDraft((prev) => ({ ...prev, [field]: imageUrl }));
+            toast.success(`${USAGE_AUDIENCE_ITEMS.find((item) => item.key === key)?.label || 'Usage'} image uploaded`);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to upload usage audience image');
+        } finally {
+            setUploadingAudienceKey('');
+        }
+    };
+
+    const handleSaveUsageAudienceSettings = async () => {
+        const missing = USAGE_AUDIENCE_ITEMS.find((item) => !String(usageAudienceDraft[item.field] || '').trim());
+        if (missing) {
+            toast.error(`${missing.label} image is required`);
+            return;
+        }
+        setIsUsageAudienceSaving(true);
+        try {
+            const data = await adminService.updateCompanyInfo({
+                usageAudienceEnabled: true,
+                usageAudienceMenImageUrl: usageAudienceDraft.usageAudienceMenImageUrl || '',
+                usageAudienceWomenImageUrl: usageAudienceDraft.usageAudienceWomenImageUrl || '',
+                usageAudienceKidsImageUrl: usageAudienceDraft.usageAudienceKidsImageUrl || ''
+            });
+            applyUsageAudienceConfig(data?.company || {});
+            setIsUsageAudienceModalOpen(false);
+            toast.success('Usage audience classification saved');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to save usage audience settings');
+        } finally {
+            setIsUsageAudienceSaving(false);
+        }
+    };
+
     // --- SEARCH FILTER ---
     const PAGE_SIZE = 10;
     const filteredProducts = useMemo(() => {
@@ -363,7 +485,76 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                 onClose={handleCloseModal} 
                 onConfirm={handleSaveProduct}
                 productToEdit={editingProduct}
+                usageAudienceConfig={usageAudienceConfig}
             />
+
+            {isUsageAudienceModalOpen && createPortal(
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-800">Usage Audience Setup</h3>
+                                <p className="text-sm text-gray-500 mt-1">Upload storefront tiles for Men, Women, and Kids.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsUsageAudienceModalOpen(false)}
+                                className="p-2 rounded-full hover:bg-gray-100 text-gray-500"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
+                            {USAGE_AUDIENCE_ITEMS.map((item) => (
+                                <div key={item.key} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                                    <p className="text-sm font-bold text-gray-800">{item.label}</p>
+                                    <div className="mt-3 aspect-[4/5] rounded-2xl overflow-hidden border border-gray-200 bg-white">
+                                        {usageAudienceDraft[item.field] ? (
+                                            <img src={usageAudienceDraft[item.field]} alt={item.label} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex items-center justify-center text-sm text-gray-400">
+                                                No image uploaded
+                                            </div>
+                                        )}
+                                    </div>
+                                    <label className="mt-4 inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary text-accent text-sm font-semibold cursor-pointer hover:bg-primary-light">
+                                        <Upload size={16} />
+                                        {uploadingAudienceKey === item.key ? 'Uploading...' : `Upload ${item.label}`}
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(event) => {
+                                                const file = event.target.files?.[0];
+                                                handleUsageAudienceImageUpload(item.key, file);
+                                                event.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-white">
+                            <button
+                                type="button"
+                                onClick={() => setIsUsageAudienceModalOpen(false)}
+                                className="px-4 py-2 rounded-xl font-bold text-gray-500 hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveUsageAudienceSettings}
+                                disabled={isUsageAudienceSaving}
+                                className="px-5 py-2.5 rounded-xl font-bold bg-primary text-accent hover:bg-primary-light disabled:opacity-60"
+                            >
+                                {isUsageAudienceSaving ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
             {/* --- DELETE CONFIRMATION MODAL --- */}
             {productToDelete && createPortal(
@@ -451,6 +642,35 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                     >
                         <Plus size={20} strokeWidth={3} />
                         <span className="whitespace-nowrap">Add Product</span>
+                    </button>
+                </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                    <h2 className="text-base font-bold text-gray-800">Classify products by usage audience</h2>
+                    <p className="text-sm text-gray-500 mt-1">Enable Men, Women, and Kids tagging for products and storefront browsing.</p>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    {usageAudienceConfig.enabled && (
+                        <button
+                            type="button"
+                            onClick={handleOpenUsageAudienceModal}
+                            className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                            Manage Images
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={handleUsageAudienceToggle}
+                        disabled={isUsageAudienceSaving}
+                        className={`inline-flex items-center justify-between gap-1.5 px-2.5 py-2 rounded-full text-sm font-bold min-w-[116px] transition-colors ${
+                            usageAudienceConfig.enabled ? 'bg-primary text-accent' : 'bg-gray-200 text-gray-700'
+                        } ${isUsageAudienceSaving ? 'opacity-60' : ''}`}
+                    >
+                        <span>{usageAudienceConfig.enabled ? 'Enabled' : 'Disabled'}</span>
+                        <span className={`h-5 w-5 rounded-full bg-white transition-transform ${usageAudienceConfig.enabled ? 'translate-x-0 text-primary' : 'text-gray-400'}`} />
                     </button>
                 </div>
             </div>

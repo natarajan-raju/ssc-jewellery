@@ -15,6 +15,11 @@ class Product {
         return String(value || '').trim().toLowerCase();
     }
 
+    static normalizeUsageAudience(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        return ['men', 'women', 'kids'].includes(normalized) ? normalized : '';
+    }
+
     static getDefaultSystemCategories() {
         return [
             { key: 'best_sellers', name: 'Best Sellers', image: '/assets/category.jpg', immutable: true },
@@ -135,6 +140,7 @@ class Product {
             ...row,
             media: typeof row.media === 'string' ? JSON.parse(row.media) : (row.media || []),
             categories: typeof row.categories === 'string' ? JSON.parse(row.categories) : (row.categories || []),
+            usageAudience: Product.normalizeUsageAudience(row.usage_audience),
             related_products: typeof row.related_products === 'string' ? JSON.parse(row.related_products) : (row.related_products || {}),
             additional_info: typeof row.additional_info === 'string' ? JSON.parse(row.additional_info) : (row.additional_info || []),
             options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
@@ -191,7 +197,7 @@ class Product {
 
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
     // --- 1. GET PAGINATED (Fetches Variants & Options) ---
-    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest', categoryId = null, viewerKey = '') {
+    static async getPaginated(page = 1, limit = 10, category = null, status = null, sort = 'newest', categoryId = null, usageAudience = '', viewerKey = '') {
         const offset = (page - 1) * limit;
         const params = [];
         const conditions = [];
@@ -284,6 +290,11 @@ class Product {
             conditions.push('p.status = ?');
             params.push(status);
         }
+        const normalizedUsageAudience = Product.normalizeUsageAudience(usageAudience);
+        if (normalizedUsageAudience) {
+            conditions.push('p.usage_audience = ?');
+            params.push(normalizedUsageAudience);
+        }
 
         // 4. Construct WHERE Clause
         let whereClause = '';
@@ -327,6 +338,7 @@ class Product {
         category = 'all',
         status = 'active',
         sort = 'relevance',
+        usageAudience = '',
         inStockOnly = false,
         minPrice = null,
         maxPrice = null
@@ -380,6 +392,11 @@ class Product {
         if (status && status !== 'all') {
             conditions.push('p.status = ?');
             params.push(status);
+        }
+        const normalizedUsageAudience = Product.normalizeUsageAudience(usageAudience);
+        if (normalizedUsageAudience) {
+            conditions.push('p.usage_audience = ?');
+            params.push(normalizedUsageAudience);
         }
 
         if (q) {
@@ -488,6 +505,7 @@ class Product {
         // [FIX] Parse JSON fields (Ensure Socket receives Arrays/Objects, not Strings)
         product.media = typeof product.media === 'string' ? JSON.parse(product.media) : (product.media || []);
         product.categories = typeof product.categories === 'string' ? JSON.parse(product.categories) : (product.categories || []);
+        product.usageAudience = Product.normalizeUsageAudience(product.usage_audience);
         product.related_products = typeof product.related_products === 'string' ? JSON.parse(product.related_products) : (product.related_products || {});
         product.additional_info = typeof product.additional_info === 'string' ? JSON.parse(product.additional_info) : (product.additional_info || []);
         product.options = typeof product.options === 'string' ? JSON.parse(product.options) : (product.options || []);
@@ -516,14 +534,15 @@ class Product {
             // 1. Insert Main Product
             const query = `
                 INSERT INTO products 
-                (id, title, subtitle, description, ribbon_tag, media, categories,related_products, additional_info, polish_warranty_months, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, tax_config_id, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, title, subtitle, description, ribbon_tag, media, categories, usage_audience, related_products, additional_info, polish_warranty_months, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, tax_config_id, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             await connection.execute(query, [
                 uniqueId, data.title, data.subtitle || null, data.description || null, data.ribbon_tag || null,
                 JSON.stringify(data.media || []), 
                 JSON.stringify(data.categories || []), 
+                Product.normalizeUsageAudience(data.usageAudience) || null,
                 JSON.stringify(data.related_products || {}),
                 JSON.stringify(data.additional_info || []),
                 Number.isFinite(Number(data.polish_warranty_months)) ? Number(data.polish_warranty_months) : 6,
@@ -592,9 +611,11 @@ class Product {
             Object.keys(data).forEach(key => {
                 if(key === 'variants') return; // Handle separately
                 // if(key === 'categories') return; // Handle separately
-                fields.push(`${key} = ?`);
+                fields.push(`${key === 'usageAudience' ? 'usage_audience' : key} = ?`);
                 if (['media','categories','related_products','additional_info','options'].includes(key)) {
                     values.push(JSON.stringify(data[key]));
+                } else if (key === 'usageAudience') {
+                    values.push(Product.normalizeUsageAudience(data[key]) || null);
                 } else {
                     values.push(data[key]);
                 }

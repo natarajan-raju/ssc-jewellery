@@ -21,31 +21,33 @@ const clearCategoryCaches = () => {
     }
 };
 
-const buildProductsCacheKey = (page, category, status, sort, limit, categoryId = '') =>
-    `page${page}_limit${limit}_cat${category}_catid${categoryId || ''}_stat${status}_sort${sort}`;
+const buildProductsCacheKey = (page, category, status, sort, limit, categoryId = '', usageAudience = '') =>
+    `page${page}_limit${limit}_cat${category}_catid${categoryId || ''}_usage${usageAudience || ''}_stat${status}_sort${sort}`;
 const buildSearchCacheKey = ({
     query = '',
     page = 1,
     limit = 40,
     category = 'all',
+    usageAudience = '',
     status = 'active',
     sort = 'relevance',
     inStockOnly = false,
     minPrice = '',
     maxPrice = ''
 } = {}) =>
-    `search_q${String(query || '').trim().toLowerCase()}_p${page}_l${limit}_cat${category}_stat${status}_sort${sort}_stock${inStockOnly ? 1 : 0}_min${minPrice ?? ''}_max${maxPrice ?? ''}`;
+    `search_q${String(query || '').trim().toLowerCase()}_p${page}_l${limit}_cat${category}_usage${usageAudience || ''}_stat${status}_sort${sort}_stock${inStockOnly ? 1 : 0}_min${minPrice ?? ''}_max${maxPrice ?? ''}`;
 
 const parseProductsCacheKey = (key = '') => {
-    const match = /^page(\d+)_limit(\d+)_cat(.*)_catid(.*)_stat(.+)_sort(.+)$/.exec(String(key));
+    const match = /^page(\d+)_limit(\d+)_cat(.*)_catid(.*)_usage(.*)_stat(.+)_sort(.+)$/.exec(String(key));
     if (!match) return null;
     return {
         page: Number(match[1]),
         limit: Number(match[2]),
         category: match[3],
         categoryId: match[4],
-        status: match[5],
-        sort: match[6]
+        usageAudience: match[5],
+        status: match[6],
+        sort: match[7]
     };
 };
 
@@ -107,6 +109,11 @@ const matchesStatus = (product, status) => {
     if (normalizeText(status) === 'all') return true;
     return normalizeText(product?.status) === normalizeText(status);
 };
+const matchesUsageAudience = (product, usageAudience) => {
+    const normalizedAudience = normalizeText(usageAudience);
+    if (!normalizedAudience) return true;
+    return normalizeText(product?.usageAudience || product?.usage_audience) === normalizedAudience;
+};
 const safeLocalStorageJson = (key, fallback = {}) => {
     try {
         const raw = localStorage.getItem(key);
@@ -149,9 +156,9 @@ export const productService = {
         try { localStorage.removeItem(CATEGORY_STATS_CACHE_KEY); } catch { /* ignore storage errors */ }
     },
     // --- GET PRODUCTS (With Caching) ---
-    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10, categoryId = null, { forceRefresh = false } = {}) => {
+    getProducts: async (page = 1, category = 'all', status = 'all', sort = 'newest', limit = 10, categoryId = null, usageAudience = '', { forceRefresh = false } = {}) => {
         // [NEW] Include sort + limit in cache key
-        const cacheKey = buildProductsCacheKey(page, category, status, sort, limit, categoryId || '');
+        const cacheKey = buildProductsCacheKey(page, category, status, sort, limit, categoryId || '', usageAudience || '');
 
         const cached = productCache[cacheKey];
         if (!forceRefresh && cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
@@ -168,6 +175,7 @@ export const productService = {
         });
         if (forceRefresh) params.set('force', '1');
         if (categoryId) params.set('categoryId', String(categoryId));
+        if (usageAudience) params.set('usageAudience', String(usageAudience));
         const res = await getWithRetry(`${API_URL}?${params.toString()}`, {
             headers: { 
                 ...getAuthHeader(),
@@ -184,6 +192,7 @@ export const productService = {
         page = 1,
         limit = 40,
         category = 'all',
+        usageAudience = '',
         status = 'active',
         sort = 'relevance',
         inStockOnly = false,
@@ -199,6 +208,7 @@ export const productService = {
             page,
             limit,
             category,
+            usageAudience,
             status,
             sort,
             inStockOnly,
@@ -218,6 +228,7 @@ export const productService = {
             status: String(status || 'active'),
             sort: String(sort || 'relevance')
         });
+        if (usageAudience) params.set('usageAudience', String(usageAudience));
         if (inStockOnly) params.set('inStockOnly', 'true');
         if (minPrice !== '' && minPrice != null) params.set('minPrice', String(minPrice));
         if (maxPrice !== '' && maxPrice != null) params.set('maxPrice', String(maxPrice));
@@ -233,16 +244,18 @@ export const productService = {
         productCache[cacheKey] = { data, timestamp: Date.now() };
         return data;
     },
-    clearProductsCache: ({ category, status, sort, limit } = {}) => {
+    clearProductsCache: ({ category, status, sort, limit, usageAudience } = {}) => {
         const keys = Object.keys(productCache);
         keys.forEach((key) => {
             if (key.startsWith('search_')) {
                 if (category && !key.includes(`_cat${category}_`)) return;
+                if (usageAudience && !key.includes(`_usage${usageAudience}_`)) return;
                 delete productCache[key];
                 return;
             }
             if (!key.startsWith('page')) return;
             if (category && !key.includes(`_cat${category}_`)) return;
+            if (usageAudience && !key.includes(`_usage${usageAudience}_`)) return;
             if (status && !key.includes(`_stat${status}_`)) return;
             if (sort && !key.includes(`_sort${sort}`)) return;
             if (limit && !key.includes(`_limit${limit}_`)) return;
@@ -314,7 +327,9 @@ export const productService = {
                 }
                 touched = true;
                 const merged = { ...product, ...updatedProduct };
-                const keep = matchesCategory(merged, meta.category) && matchesStatus(merged, meta.status);
+                const keep = matchesCategory(merged, meta.category)
+                    && matchesStatus(merged, meta.status)
+                    && matchesUsageAudience(merged, meta.usageAudience);
                 if (keep) nextProducts.push(merged);
             });
 

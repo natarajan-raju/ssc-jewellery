@@ -393,6 +393,17 @@ export const adminService = {
         });
         return handleResponse(res);
     },
+    uploadUsageAudienceImage: async (file) => {
+        const token = getStoredToken();
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch(`${UPLOAD_API_URL}/usage-audience-image`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+        });
+        return handleResponse(res);
+    },
     uploadCompanyLogo: async (file) => {
         const token = getStoredToken();
         const formData = new FormData();

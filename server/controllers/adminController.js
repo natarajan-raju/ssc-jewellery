@@ -2001,6 +2001,12 @@ const updateCompanyInfo = async (req, res) => {
         const latitude = String(mergedPayload.latitude ?? '').trim();
         const longitude = String(mergedPayload.longitude ?? '').trim();
         const contactJumbotronImageUrl = String(mergedPayload.contactJumbotronImageUrl || '').trim();
+        const usageAudienceEnabled = mergedPayload.usageAudienceEnabled === true
+            || mergedPayload.usageAudienceEnabled === 1
+            || String(mergedPayload.usageAudienceEnabled || '').toLowerCase() === 'true';
+        const usageAudienceMenImageUrl = String(mergedPayload.usageAudienceMenImageUrl || '').trim();
+        const usageAudienceWomenImageUrl = String(mergedPayload.usageAudienceWomenImageUrl || '').trim();
+        const usageAudienceKidsImageUrl = String(mergedPayload.usageAudienceKidsImageUrl || '').trim();
         const razorpayKeyId = String(mergedPayload.razorpayKeyId || '').trim();
         const razorpayKeySecret = typeof mergedPayload.razorpayKeySecret === 'string'
             ? String(mergedPayload.razorpayKeySecret || '').trim()
@@ -2059,6 +2065,18 @@ const updateCompanyInfo = async (req, res) => {
         if (appleTouchIconUrl && !isValidUrl(appleTouchIconUrl) && !appleTouchIconUrl.startsWith('/')) {
             return res.status(400).json({ message: 'Apple touch icon must be a valid URL or absolute asset path' });
         }
+        if (usageAudienceMenImageUrl && !isValidUrl(usageAudienceMenImageUrl) && !usageAudienceMenImageUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Men usage image must be a valid URL or absolute asset path' });
+        }
+        if (usageAudienceWomenImageUrl && !isValidUrl(usageAudienceWomenImageUrl) && !usageAudienceWomenImageUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Women usage image must be a valid URL or absolute asset path' });
+        }
+        if (usageAudienceKidsImageUrl && !isValidUrl(usageAudienceKidsImageUrl) && !usageAudienceKidsImageUrl.startsWith('/')) {
+            return res.status(400).json({ message: 'Kids usage image must be a valid URL or absolute asset path' });
+        }
+        if (usageAudienceEnabled && (!usageAudienceMenImageUrl || !usageAudienceWomenImageUrl || !usageAudienceKidsImageUrl)) {
+            return res.status(400).json({ message: 'Men, Women, and Kids usage images are required when usage audience classification is enabled' });
+        }
         if (razorpayKeyId && !/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(razorpayKeyId)) {
             return res.status(400).json({ message: 'Razorpay Key ID format is invalid' });
         }
@@ -2101,6 +2119,24 @@ const updateCompanyInfo = async (req, res) => {
             && existingCompany.contactJumbotronImageUrl !== company?.contactJumbotronImageUrl
         ) {
             await removeUploadedAssetIfLocal(existingCompany.contactJumbotronImageUrl);
+        }
+        if (
+            existingCompany?.usageAudienceMenImageUrl
+            && existingCompany.usageAudienceMenImageUrl !== company?.usageAudienceMenImageUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.usageAudienceMenImageUrl);
+        }
+        if (
+            existingCompany?.usageAudienceWomenImageUrl
+            && existingCompany.usageAudienceWomenImageUrl !== company?.usageAudienceWomenImageUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.usageAudienceWomenImageUrl);
+        }
+        if (
+            existingCompany?.usageAudienceKidsImageUrl
+            && existingCompany.usageAudienceKidsImageUrl !== company?.usageAudienceKidsImageUrl
+        ) {
+            await removeUploadedAssetIfLocal(existingCompany.usageAudienceKidsImageUrl);
         }
         await emitCompanyTaxUpdate(req, { includeCompany: true });
         queueFullRefresh('company_update');

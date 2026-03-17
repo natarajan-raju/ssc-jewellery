@@ -567,6 +567,12 @@ export default function CategoryStore() {
         if (!searchTerm.trim()) return filteredAndSortedProducts;
         return mergeUniqueProducts(localSearchResults, searchResults);
     }, [filteredAndSortedProducts, localSearchResults, searchResults, searchTerm]);
+    const hasActiveFilters = Boolean(searchTerm.trim() || inStockOnly || priceRange.min || priceRange.max);
+    const clearFilters = useCallback(() => {
+        setSearchTerm('');
+        setInStockOnly(false);
+        setPriceRange({ min: '', max: '' });
+    }, []);
 
     return (
         <div className="min-h-screen bg-gray-50 pb-20 w-full">
@@ -646,7 +652,7 @@ export default function CategoryStore() {
                         >
                             <Filter size={18} className={showFilters ? "fill-current" : ""} /> 
                             <span>Filters</span>
-                            {inStockOnly || priceRange.min || priceRange.max ? (
+                            {hasActiveFilters ? (
                                 <span className="bg-accent text-primary text-[10px] px-1.5 rounded-full font-bold">!</span>
                             ) : null}
                         </button>
@@ -719,12 +725,12 @@ export default function CategoryStore() {
                             </div>
 
                             {/* Clear Button */}
-                            {(inStockOnly || priceRange.min || priceRange.max) && (
+                            {hasActiveFilters && (
                                 <button 
-                                    onClick={() => { setInStockOnly(false); setPriceRange({ min: '', max: '' }); }}
+                                    onClick={clearFilters}
                                     className="text-xs text-red-500 hover:text-red-700 font-bold ml-auto md:ml-0"
                                 >
-                                    Clear All
+                                    Clear Filters
                                 </button>
                             )}
                         </div>

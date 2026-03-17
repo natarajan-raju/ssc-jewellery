@@ -6,7 +6,13 @@ import { productService } from '../services/productService';
 import { adminService } from '../services/adminService';
 import { getGstRateSplit } from '../utils/gst';
 
-export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null }) {
+const USAGE_AUDIENCE_OPTIONS = [
+    { value: 'men', label: 'Men' },
+    { value: 'women', label: 'Women' },
+    { value: 'kids', label: 'Kids' }
+];
+
+export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null, usageAudienceConfig = {} }) {
     const getYoutubeVideoId = (value = '') => {
         const raw = String(value || '').trim();
         if (!raw) return '';
@@ -62,7 +68,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         ribbon_tag: '', sku: '', weight_kg: '', status: 'active',
         track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
         polish_warranty_months: '6',
-        categories: []
+        categories: [],
+        usageAudience: ''
     });
     const [availableTaxes, setAvailableTaxes] = useState([]);
 
@@ -98,6 +105,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     // ... inside AddProductModal component ...
     const [isCategoriesLoading, setIsCategoriesLoading] = useState(false); // <--- Add this
     const categoryInputRef = useRef(null);
+    const usageAudienceEnabled = usageAudienceConfig?.enabled === true;
     // --- 2. EFFECT: POPULATE ON EDIT & FETCH CATEGORIES ---
     useEffect(() => {
         if (isOpen) {
@@ -127,7 +135,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     status: productToEdit.status || 'active', 
                     tax_config_id: productToEdit.tax_config_id ? String(productToEdit.tax_config_id) : '',
                     polish_warranty_months: String(productToEdit.polish_warranty_months || 6),
-                    categories: productToEdit.categories || [],                    
+                    categories: productToEdit.categories || [],
+                    usageAudience: String(productToEdit.usageAudience || productToEdit.usage_audience || '').trim().toLowerCase(),
                     track_quantity: toBool(productToEdit.track_quantity),
                     quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
                     track_low_stock: toBool(productToEdit.track_low_stock),
@@ -162,7 +171,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     title: '', subtitle: '', description: '', mrp: '', discount_price: '', ribbon_tag: '', sku: '',
                     weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
                     polish_warranty_months: '6',
-                    categories: []
+                    categories: [],
+                    usageAudience: ''
                 });
                 setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
                 setRelatedProducts({ show: false, title: '', category: '' });
@@ -474,6 +484,9 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const handleSubmit = async () => {
         if (!formData.title) return toast.error("Title required");
         if (options.length === 0 && !formData.mrp) return toast.error("MRP is required");
+        if (usageAudienceEnabled && !String(formData.usageAudience || '').trim()) {
+            return toast.error('Usage Audience is required');
+        }
 
         setIsLoading(true);
         try {
@@ -568,6 +581,22 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                         <option value="inactive">Inactive</option>
                                     </select>
                                 </div>
+                                {usageAudienceEnabled && (
+                                    <div className="space-y-4">
+                                        <label className="block text-sm font-bold text-gray-700">Usage Audience *</label>
+                                        <select
+                                            name="usageAudience"
+                                            value={formData.usageAudience}
+                                            onChange={handleChange}
+                                            className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white"
+                                        >
+                                            <option value="">Select audience</option>
+                                            {USAGE_AUDIENCE_OPTIONS.map((option) => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
                                 <div className="space-y-4">
                                     <label className="block text-sm font-bold text-gray-700">Tax Rate</label>
                                     <select

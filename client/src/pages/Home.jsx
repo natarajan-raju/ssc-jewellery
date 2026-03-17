@@ -14,6 +14,7 @@ import { buildHomeSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
@@ -234,6 +235,7 @@ const TextCarousel = ({ texts }) => {
 export default function Home() {
     const { user, updateUser } = useAuth();
     const { socket } = useSocket();
+    const { companyInfo } = usePublicCompanyInfo();
     const navigate = useNavigate();
     const [slides, setSlides] = useState([]);
     const [categories, setCategories] = useState([]);
@@ -286,6 +288,14 @@ export default function Home() {
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [showBirthdayModal, setShowBirthdayModal] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
+    const usageAudienceCards = useMemo(() => {
+        if (companyInfo?.usageAudienceEnabled !== true) return [];
+        return [
+            { key: 'men', label: 'Men', imageUrl: companyInfo?.usageAudienceMenImageUrl || '' },
+            { key: 'women', label: 'Women', imageUrl: companyInfo?.usageAudienceWomenImageUrl || '' },
+            { key: 'kids', label: 'Kids', imageUrl: companyInfo?.usageAudienceKidsImageUrl || '' }
+        ].filter((item) => item.imageUrl);
+    }, [companyInfo?.usageAudienceEnabled, companyInfo?.usageAudienceKidsImageUrl, companyInfo?.usageAudienceMenImageUrl, companyInfo?.usageAudienceWomenImageUrl]);
 
     const confettiPieces = useRef(
         Array.from({ length: 36 }, (_, i) => ({
@@ -1018,6 +1028,37 @@ export default function Home() {
 
             {/* --- FEATURED CATEGORIES --- */}
             <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface rounded-none md:rounded-2xl">
+                {usageAudienceCards.length > 0 && (
+                    <div className="mb-12">
+                        <div className="text-center mb-8">
+                            <h2 className="text-3xl font-serif text-primary">Shop by Usage</h2>
+                            <p className="text-gray-500 mt-2">Browse collections curated for Men, Women and Kids</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+                            {usageAudienceCards.map((item) => (
+                                <Link
+                                    key={item.key}
+                                    to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
+                                    className="group cursor-pointer overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+                                >
+                                    <div className="aspect-[4/5] overflow-hidden">
+                                        <img
+                                            src={item.imageUrl}
+                                            alt={item.label}
+                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                            loading="lazy"
+                                            decoding="async"
+                                        />
+                                    </div>
+                                    <div className="px-5 py-4">
+                                        <h3 className="text-xl font-serif text-primary">{item.label}</h3>
+                                        <p className="text-sm text-gray-500 mt-1">Explore {item.label.toLowerCase()} collections</p>
+                                    </div>
+                                </Link>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="text-center mb-10">
                     <h2 className="text-3xl font-serif text-primary">Featured Categories</h2>
                     <p className="text-gray-500 mt-2">Explore our wide range of handcrafted collections</p>

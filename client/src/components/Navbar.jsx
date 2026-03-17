@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart, Search, Medal, Crown, Gem } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -7,7 +7,7 @@ import { productService } from '../services/productService';
 import emptyIllustration from '../assets/closed.svg';
 import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
-import { usePublicCategories } from '../hooks/usePublicSiteShell';
+import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { formatTierLabel } from '../utils/tierFormat';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import EmptyState from './EmptyState';
@@ -92,6 +92,7 @@ const getPriceLabel = (product = {}) => {
 export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
+    const { companyInfo } = usePublicCompanyInfo();
     const [shakeCart, setShakeCart] = useState(false);
     const [popBadge, setPopBadge] = useState(false);
     const prevCountRef = useRef(itemCount);
@@ -385,6 +386,14 @@ export default function Navbar() {
     const tierLabel = formatTierLabel(user?.loyaltyProfile?.label || cachedUser?.loyaltyProfile?.label || tier);
     const showTierBadge = (user || cachedUser) && tier !== 'regular';
     const effectiveUser = user || cachedUser;
+    const usageAudienceItems = useMemo(() => {
+        if (companyInfo?.usageAudienceEnabled !== true) return [];
+        return [
+            { key: 'men', label: 'Men', imageUrl: companyInfo?.usageAudienceMenImageUrl || '' },
+            { key: 'women', label: 'Women', imageUrl: companyInfo?.usageAudienceWomenImageUrl || '' },
+            { key: 'kids', label: 'Kids', imageUrl: companyInfo?.usageAudienceKidsImageUrl || '' }
+        ].filter((item) => item.imageUrl);
+    }, [companyInfo?.usageAudienceEnabled, companyInfo?.usageAudienceKidsImageUrl, companyInfo?.usageAudienceMenImageUrl, companyInfo?.usageAudienceWomenImageUrl]);
     const handleCartClick = () => {
         setIsUserMenuOpen(false);
         setIsMegaOpen(false);
@@ -401,16 +410,21 @@ export default function Navbar() {
                 <div className="flex justify-between items-center">
                     
                     
-                    <Link to="/" className="flex items-center gap-2 group">
+                    <Link to="/" className="flex items-center gap-2.5 min-w-0 group">
                         <img 
                             src={BRAND_LOGO_URL} 
                             alt="Logo" 
-                            className={`w-auto object-contain transition-all duration-300 h-10`}
+                            className="h-10 w-auto shrink-0 object-contain transition-all duration-300"
                             decoding="async"
                             fetchPriority="high"
                         />
-                        <span className={`font-serif font-bold tracking-wide text-primary transition-all duration-300 text-xl`}>
-                            SSC Jewellery
+                        <span className="flex min-w-0 flex-col justify-center leading-none">
+                            <span className="truncate font-serif text-[1.05rem] font-bold tracking-[0.08em] text-primary transition-all duration-300 md:text-[1.2rem]">
+                                Sree Sai Collections
+                            </span>
+                            <span className="mt-1 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-800 md:text-[10px]">
+                                1 gm Imitiation Jewellery
+                            </span>
                         </span>
                     </Link>
 
@@ -450,7 +464,7 @@ export default function Navbar() {
                                     isMegaOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
                                 }`}
                             >
-                                <div className="p-6">
+                                <div className="p-6 max-h-[calc(100vh-8rem)] overflow-y-auto">
                                     <div className="flex items-center justify-between">
                                         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse Categories</p>
                                         <Link to="/shop" className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors">
@@ -505,6 +519,36 @@ export default function Navbar() {
                                             );
                                         })}
                                     </div>
+                                    {usageAudienceItems.length > 0 && (
+                                        <>
+                                            <div className="mt-8 flex items-center justify-between">
+                                                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse by Usage</p>
+                                            </div>
+                                            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                {usageAudienceItems.map((item) => (
+                                                    <Link
+                                                        key={`usage-${item.key}`}
+                                                        to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
+                                                        onClick={() => setIsMegaOpen(false)}
+                                                        className="group overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 hover:bg-white hover:shadow-md transition-all"
+                                                    >
+                                                        <div className="aspect-[4/5] overflow-hidden">
+                                                            <img
+                                                                src={item.imageUrl}
+                                                                alt={item.label}
+                                                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                                            />
+                                                        </div>
+                                                        <div className="px-4 py-3">
+                                                            <span className="text-sm font-semibold text-gray-800 group-hover:text-primary transition-colors">
+                                                                {item.label}
+                                                            </span>
+                                                        </div>
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -517,7 +561,7 @@ export default function Navbar() {
                         ))}
                     </div>
 
-                    <div className="hidden lg:block flex-1 max-w-md mx-6" ref={desktopSearchRef}>
+                    <div className="hidden lg:block flex-1 max-w-sm mx-4 xl:max-w-md xl:mx-6" ref={desktopSearchRef}>
                         <div className="relative">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                             <input

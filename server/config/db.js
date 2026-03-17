@@ -2,6 +2,14 @@ const mysql = require('mysql2/promise');
 
 // 1. REMOVED dotenv config (It is handled in server/index.js now)
 
+console.log('Boot: DB env snapshot', {
+    host: process.env.DB_HOST || '(empty)',
+    port: process.env.DB_PORT || '(default)',
+    user: process.env.DB_USER || '(empty)',
+    database: process.env.DB_NAME || '(empty)',
+    hasPassword: Boolean(String(process.env.DB_PASSWORD || ''))
+});
+
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
     user: process.env.DB_USER,
@@ -96,6 +104,7 @@ const initDB = async () => {
                 ribbon_tag VARCHAR(50), 
                 media JSON,
                 categories JSON,
+                usage_audience VARCHAR(20) NULL,
                 related_products JSON,
                 additional_info JSON,
                 polish_warranty_months INT NOT NULL DEFAULT 6,
@@ -118,6 +127,9 @@ const initDB = async () => {
             await connection.query('ALTER TABLE products ADD COLUMN tax_config_id INT NULL');
         } catch {}
         try {
+            await connection.query('ALTER TABLE products ADD COLUMN usage_audience VARCHAR(20) NULL');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE products ADD COLUMN polish_warranty_months INT NOT NULL DEFAULT 6');
         } catch {}
         try {
@@ -131,6 +143,9 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE products ADD INDEX idx_products_tax_config_id (tax_config_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE products ADD INDEX idx_products_usage_audience (usage_audience)');
         } catch {}
 
         // 3.1 CART ITEMS TABLE (User Cart Persistence)
@@ -1144,6 +1159,10 @@ const initDB = async () => {
                 email_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
                 whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
                 whatsapp_module_settings_json JSON NULL,
+                usage_audience_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                usage_audience_men_image_url TEXT,
+                usage_audience_women_image_url TEXT,
+                usage_audience_kids_image_url TEXT,
                 razorpay_key_id VARCHAR(120),
                 razorpay_key_secret VARCHAR(160),
                 razorpay_webhook_secret VARCHAR(160),
@@ -1205,6 +1224,18 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN whatsapp_module_settings_json JSON NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN usage_audience_enabled TINYINT(1) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN usage_audience_men_image_url TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN usage_audience_women_image_url TEXT');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE company_profile ADD COLUMN usage_audience_kids_image_url TEXT');
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN razorpay_key_secret VARCHAR(160)');
@@ -1323,9 +1354,9 @@ const initDB = async () => {
         if (companyRows.length === 0) {
             await connection.execute(
                 `INSERT INTO company_profile
-                (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), '', '', '', 3000, 12]
+                (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), 0, '', '', '', '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

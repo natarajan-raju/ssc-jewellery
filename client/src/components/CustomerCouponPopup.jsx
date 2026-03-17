@@ -16,6 +16,8 @@ const MEDIA_BASE_URL = import.meta.env.PROD
         ? `${window.location.protocol}//${window.location.hostname}:5000`
         : 'http://localhost:5000');
 const DEFAULT_POP_CUE = popCue;
+const POPUP_INITIAL_DELAY_MS = 10000;
+const MOBILE_BREAKPOINT_QUERY = '(max-width: 767px)';
 
 const resolveMediaUrl = (value, fallback = '') => {
     const raw = String(value || '').trim();
@@ -46,6 +48,12 @@ const formatCouponOffer = (coupon = null) => {
     return `${value}% OFF`;
 };
 
+const renderGiftPrompt = (message) => (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm font-semibold text-amber-800">
+        {message}
+    </div>
+);
+
 export default function CustomerCouponPopup() {
     const { user, loading } = useAuth();
     const { socket } = useSocket();
@@ -55,6 +63,10 @@ export default function CustomerCouponPopup() {
     const [showGiftIntro, setShowGiftIntro] = useState(false);
     const [scratchUnlocked, setScratchUnlocked] = useState(false);
     const [isScratching, setIsScratching] = useState(false);
+    const [isMobileScreen, setIsMobileScreen] = useState(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+        return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
+    });
     const scratchCanvasRef = useRef(null);
     const isCustomer = !!user && String(user.role || '').toLowerCase() === 'customer';
 
@@ -100,13 +112,26 @@ export default function CustomerCouponPopup() {
     }, [isCustomer, loading, user]);
 
     useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+        const updateScreenMode = (event) => setIsMobileScreen(event.matches);
+
+        if (typeof mediaQuery.addEventListener === 'function') {
+            mediaQuery.addEventListener('change', updateScreenMode);
+            return () => mediaQuery.removeEventListener('change', updateScreenMode);
+        }
+        mediaQuery.addListener(updateScreenMode);
+        return () => mediaQuery.removeListener(updateScreenMode);
+    }, []);
+
+    useEffect(() => {
         if (loading) return;
         if (user && !isCustomer) return;
         let active = true;
         const timer = setTimeout(async () => {
             if (!active) return;
             await loadPopupData();
-        }, 5000);
+        }, POPUP_INITIAL_DELAY_MS);
         return () => {
             active = false;
             clearTimeout(timer);
@@ -152,7 +177,7 @@ export default function CustomerCouponPopup() {
     }, [open, popup, showGiftIntro]);
 
     useEffect(() => {
-        if (!showGiftIntro) return;
+        if (!showGiftIntro || !isMobileScreen) return;
         const canvas = scratchCanvasRef.current;
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
@@ -179,7 +204,7 @@ export default function CustomerCouponPopup() {
             ctx.globalAlpha = 1;
         };
         giftImg.src = giftIllustration;
-    }, [showGiftIntro]);
+    }, [isMobileScreen, showGiftIntro]);
 
     useEffect(() => {
         if (!showGiftIntro || !scratchUnlocked) return;
@@ -226,12 +251,14 @@ export default function CustomerCouponPopup() {
     };
 
     const handleScratchStart = (event) => {
+        if (!isMobileScreen) return;
         setIsScratching(true);
         scratchAt(event);
         updateScratchProgress();
     };
 
     const handleScratchMove = (event) => {
+        if (!isMobileScreen) return;
         if (!isScratching) return;
         scratchAt(event);
         updateScratchProgress();
@@ -241,6 +268,11 @@ export default function CustomerCouponPopup() {
         if (!isScratching) return;
         setIsScratching(false);
         updateScratchProgress();
+    };
+
+    const handleGiftIntroOpen = () => {
+        if (isMobileScreen || scratchUnlocked) return;
+        setScratchUnlocked(true);
     };
 
     const handleDontShowAgain = () => {
@@ -310,7 +342,17 @@ export default function CustomerCouponPopup() {
                             className={`relative mt-5 mx-auto w-full max-w-[360px] touch-none transition-all duration-500 ${
                                 scratchUnlocked ? 'scale-[0.94] translate-y-4 opacity-90' : ''
                             }`}
-                            style={{ touchAction: 'none' }}
+                            style={{ touchAction: isMobileScreen ? 'none' : 'auto' }}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={isMobileScreen ? 'Scratch to reveal your offer' : 'Click to open your offer'}
+                            onClick={handleGiftIntroOpen}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    handleGiftIntroOpen();
+                                }
+                            }}
                             onMouseDown={handleScratchStart}
                             onMouseMove={handleScratchMove}
                             onMouseUp={handleScratchEnd}
@@ -320,18 +362,21 @@ export default function CustomerCouponPopup() {
                             onTouchEnd={handleScratchEnd}
                         >
                             <div className={`transition-all duration-500 ${scratchUnlocked ? 'ring-4 ring-amber-300 shadow-2xl shadow-amber-200/60' : ''}`}>
-                                {coupon ? renderCouponCard() : (
-                                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm font-semibold text-amber-800">
-                                        Scratch and reveal your surprise offer
-                                    </div>
-                                )}
+                                {isMobileScreen
+                                    ? (coupon ? renderCouponCard() : renderGiftPrompt('Scratch and reveal your surprise offer'))
+                                    : renderGiftPrompt('Your surprise offer is waiting inside')}
                             </div>
-                            <canvas
-                                ref={scratchCanvasRef}
-                                className="absolute inset-0 h-full w-full rounded-xl"
-                                style={{ pointerEvents: scratchUnlocked ? 'none' : 'auto' }}
-                            />
+                            {isMobileScreen && (
+                                <canvas
+                                    ref={scratchCanvasRef}
+                                    className="absolute inset-0 h-full w-full rounded-xl"
+                                    style={{ pointerEvents: scratchUnlocked ? 'none' : 'auto' }}
+                                />
+                            )}
                         </div>
+                        <p className="mt-4 text-sm font-medium text-amber-700">
+                            {isMobileScreen ? 'Scratch to reveal' : 'Click to open'}
+                        </p>
                     </div>
                 ) : (
                 <div className="w-full max-w-2xl max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-2xl border border-gray-200 shadow-2xl my-auto">

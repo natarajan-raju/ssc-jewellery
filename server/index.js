@@ -13,9 +13,6 @@ const fs = require('fs');
 const http = require('http'); // [NEW] Import HTTP
 const { Server } = require('socket.io'); // [NEW] Import Socket.io
 const jwt = require('jsonwebtoken');
-const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
-const { getUploadsRoot } = require('./utils/uploadsRoot');
-const { resolveBrandingAsset } = require('./utils/brandingAssets');
 
 const nodeEnv = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
 const isProduction = nodeEnv === 'production';
@@ -55,6 +52,9 @@ if (!String(process.env.JWT_SECRET || '').trim()) {
 }
 console.log('Boot: JWT secret present');
 
+const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
+const { getUploadsRoot } = require('./utils/uploadsRoot');
+const { resolveBrandingAsset } = require('./utils/brandingAssets');
 const db = require('./config/db');
 console.log('Boot: DB module loaded');
 

@@ -27,6 +27,11 @@ const uploadContact = createUploader('contact', {
     allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
     maxFileSizeBytes: 5 * 1024 * 1024
 });
+const uploadUsageAudience = createUploader('categories', {
+    allowedMimeTypes: DEFAULT_IMAGE_MIME_TYPES,
+    allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+    maxFileSizeBytes: 5 * 1024 * 1024
+});
 const brandingImageMimeTypes = [
     ...DEFAULT_IMAGE_MIME_TYPES,
     'image/x-icon',
@@ -83,6 +88,13 @@ router.post('/contact-jumbotron-image', protect, authorize('admin', 'staff'), up
     }
     const url = `/uploads/contact/${req.file.filename}`;
     return res.json({ url });
+});
+
+router.post('/usage-audience-image', protect, authorize('admin', 'staff'), uploadUsageAudience.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ message: 'No image uploaded' });
+    }
+    return res.json({ url: `/uploads/categories/${req.file.filename}` });
 });
 
 router.post('/company-logo', protect, authorize('admin', 'staff'), uploadBrandingLogo.single('image'), (req, res) => {
