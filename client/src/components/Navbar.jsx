@@ -524,25 +524,26 @@ export default function Navbar() {
                                             <div className="mt-8 flex items-center justify-between">
                                                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse by Usage</p>
                                             </div>
-                                            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="mt-5 grid grid-cols-2 lg:grid-cols-3 gap-4">
                                                 {usageAudienceItems.map((item) => (
                                                     <Link
                                                         key={`usage-${item.key}`}
                                                         to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
                                                         onClick={() => setIsMegaOpen(false)}
-                                                        className="group overflow-hidden rounded-2xl border border-gray-100 bg-gray-50 hover:bg-white hover:shadow-md transition-all"
+                                                        className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition-all hover:border-gray-100 hover:bg-gray-50"
                                                     >
-                                                        <div className="aspect-[4/5] overflow-hidden">
+                                                        <div className="h-12 w-12 rounded-full bg-gray-100 shadow-inner overflow-hidden shrink-0">
                                                             <img
                                                                 src={item.imageUrl}
                                                                 alt={item.label}
-                                                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                                                             />
                                                         </div>
-                                                        <div className="px-4 py-3">
+                                                        <div className="flex flex-col min-w-0">
                                                             <span className="text-sm font-semibold text-gray-800 group-hover:text-primary transition-colors">
                                                                 {item.label}
                                                             </span>
+                                                            <span className="text-xs text-gray-400">Shop {item.label.toLowerCase()}</span>
                                                         </div>
                                                     </Link>
                                                 ))}

@@ -84,6 +84,7 @@ export default function Shop() {
     const searchDebounceRef = useRef(null);
     const requestKeyRef = useRef('');
     const manualRefreshTimerRef = useRef(null);
+    const usageScrollRestoreRef = useRef(null);
     const seoConfig = useMemo(() => buildShopSeo({
         categories,
         products,
@@ -283,7 +284,7 @@ export default function Shop() {
         const currentSerialized = searchParams.toString();
         const nextSerialized = nextParams.toString();
         if (currentSerialized !== nextSerialized) {
-            setSearchParams(nextParams, { replace: true });
+            setSearchParams(nextParams, { replace: true, preventScrollReset: true });
         }
     }, [searchParams, searchTerm, selectedUsageAudience, setSearchParams]);
 
@@ -302,6 +303,22 @@ export default function Shop() {
     const scrollToTop = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    const preserveScrollDuringUsageFilter = useCallback((nextValue) => {
+        const nextAudience = String(nextValue || '').trim().toLowerCase();
+        const currentY = window.scrollY;
+        setSelectedUsageAudience(nextAudience);
+        if (usageScrollRestoreRef.current) {
+            window.cancelAnimationFrame(usageScrollRestoreRef.current);
+            usageScrollRestoreRef.current = null;
+        }
+        usageScrollRestoreRef.current = window.requestAnimationFrame(() => {
+            usageScrollRestoreRef.current = window.requestAnimationFrame(() => {
+                window.scrollTo({ top: currentY, left: window.scrollX, behavior: 'auto' });
+                usageScrollRestoreRef.current = null;
+            });
+        });
+    }, []);
 
     const fetchProducts = useCallback(async (
         currentPage,
@@ -602,6 +619,10 @@ export default function Shop() {
                 searchAbortRef.current.abort();
                 searchAbortRef.current = null;
             }
+            if (usageScrollRestoreRef.current) {
+                window.cancelAnimationFrame(usageScrollRestoreRef.current);
+                usageScrollRestoreRef.current = null;
+            }
         };
     }, []);
 
@@ -735,7 +756,7 @@ export default function Shop() {
                                 <div className="md:hidden relative mb-5">
                                     <select
                                         value={selectedUsageAudience}
-                                        onChange={(e) => setSelectedUsageAudience(e.target.value)}
+                                        onChange={(e) => preserveScrollDuringUsageFilter(e.target.value)}
                                         className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:border-primary shadow-sm"
                                     >
                                         {usageAudienceOptions.map((option) => (
@@ -750,7 +771,7 @@ export default function Shop() {
                                             <button
                                                 key={option.value || 'all'}
                                                 type="button"
-                                                onClick={() => setSelectedUsageAudience(option.value)}
+                                                onClick={() => preserveScrollDuringUsageFilter(option.value)}
                                                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                                                     isActive ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-50'
                                                 }`}
@@ -917,7 +938,7 @@ export default function Shop() {
                                             <span className="text-sm text-gray-600 font-medium">Usage:</span>
                                             <select
                                                 value={selectedUsageAudience}
-                                                onChange={(e) => setSelectedUsageAudience(e.target.value)}
+                                                onChange={(e) => preserveScrollDuringUsageFilter(e.target.value)}
                                                 className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary bg-white"
                                             >
                                                 {usageAudienceOptions.map((option) => (
