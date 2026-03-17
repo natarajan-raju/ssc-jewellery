@@ -48,7 +48,7 @@ const mergeUniqueProducts = (base = [], incoming = []) => {
 };
 
 export default function Shop() {
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const { getCarouselCards } = useCms();
     const { companyInfo } = usePublicCompanyInfo();
     const [categories, setCategories] = useState([]);
@@ -276,17 +276,18 @@ export default function Shop() {
 
     useEffect(() => {
         const trimmedQuery = String(searchTerm || '').trim();
-        const nextParams = new URLSearchParams(searchParams);
+        const nextParams = new URLSearchParams(window.location.search);
         if (trimmedQuery) nextParams.set('q', trimmedQuery);
         else nextParams.delete('q');
         if (selectedUsageAudience) nextParams.set('usageAudience', selectedUsageAudience);
         else nextParams.delete('usageAudience');
-        const currentSerialized = searchParams.toString();
+        const currentSerialized = window.location.search.replace(/^\?/, '');
         const nextSerialized = nextParams.toString();
         if (currentSerialized !== nextSerialized) {
-            setSearchParams(nextParams, { replace: true, preventScrollReset: true });
+            const nextUrl = `${window.location.pathname}${nextSerialized ? `?${nextSerialized}` : ''}${window.location.hash || ''}`;
+            window.history.replaceState(window.history.state, '', nextUrl);
         }
-    }, [searchParams, searchTerm, selectedUsageAudience, setSearchParams]);
+    }, [searchTerm, selectedUsageAudience]);
 
     useEffect(() => {
         const toggleVisibility = () => {
@@ -889,7 +890,7 @@ export default function Shop() {
                     </aside>
 
                     {/* Main */}
-                    <section>
+                    <section id="shop-results" className="scroll-mt-28">
                         <div className="mb-3">
                             <h2 className="text-xl md:text-2xl font-serif text-primary">
                                 {selectedCategory === 'all' ? 'All Products' : selectedCategory}

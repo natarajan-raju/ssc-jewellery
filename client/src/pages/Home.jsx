@@ -1038,7 +1038,7 @@ export default function Home() {
                             {usageAudienceCards.map((item) => (
                                 <Link
                                     key={item.key}
-                                    to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
+                                    to={`/shop?usageAudience=${encodeURIComponent(item.key)}#shop-results`}
                                     className="group mx-auto w-full max-w-[290px] cursor-pointer overflow-hidden rounded-[26px] border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl md:max-w-[260px] lg:max-w-[285px]"
                                 >
                                     <div className="aspect-[4/4.7] overflow-hidden">
@@ -1057,16 +1057,16 @@ export default function Home() {
                                 </Link>
                             ))}
                         </div>
-                        <div className="mx-auto mt-10 flex max-w-4xl items-center gap-4 md:mt-12">
-                            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
-                            <span className="text-[10px] font-semibold uppercase tracking-[0.35em] text-amber-500/80">
+                        <div className="mx-auto mt-10 flex max-w-5xl items-center gap-5 md:mt-12">
+                            <span className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-amber-400/90 to-transparent" />
+                            <span className="text-[11px] font-bold uppercase tracking-[0.38em] text-amber-700">
                                 Explore More
                             </span>
-                            <span className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-200 to-transparent" />
+                            <span className="h-[2px] flex-1 bg-gradient-to-r from-transparent via-amber-400/90 to-transparent" />
                         </div>
                         <div
                             aria-hidden="true"
-                            className="mx-auto mt-4 h-[6px] max-w-3xl rounded-full bg-[radial-gradient(circle,_rgba(217,119,6,0.34)_1.2px,_transparent_1.2px)] bg-[length:14px_6px] bg-center bg-repeat-x"
+                            className="mx-auto mt-4 h-[8px] max-w-4xl rounded-full bg-[radial-gradient(circle,_rgba(180,83,9,0.72)_1.6px,_transparent_1.6px)] bg-[length:16px_8px] bg-center bg-repeat-x"
                         />
                     </div>
                 )}
