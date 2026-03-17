@@ -42,7 +42,9 @@ const readCompanyInfo = async (force = false) => {
     if (companyCache.promise) return companyCache.promise;
 
     companyCache.promise = (async () => {
-        const res = await fetch(`${CMS_API_URL}/company-info`);
+        const res = await fetch(`${CMS_API_URL}/company-info`, {
+            cache: 'no-store'
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
             throw new Error(data?.message || 'Failed to load company info');

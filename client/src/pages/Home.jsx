@@ -1034,14 +1034,14 @@ export default function Home() {
                             <h2 className="text-3xl font-serif text-primary">Shop by Usage</h2>
                             <p className="text-gray-500 mt-2">Browse collections curated for Men, Women and Kids</p>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+                        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 md:grid-cols-3 md:gap-5 lg:max-w-5xl">
                             {usageAudienceCards.map((item) => (
                                 <Link
                                     key={item.key}
                                     to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
-                                    className="group cursor-pointer overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
+                                    className="group mx-auto w-full max-w-[290px] cursor-pointer overflow-hidden rounded-[26px] border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl md:max-w-[260px] lg:max-w-[285px]"
                                 >
-                                    <div className="aspect-[4/5] overflow-hidden">
+                                    <div className="aspect-[4/4.7] overflow-hidden">
                                         <img
                                             src={item.imageUrl}
                                             alt={item.label}
@@ -1050,9 +1050,9 @@ export default function Home() {
                                             decoding="async"
                                         />
                                     </div>
-                                    <div className="px-5 py-4">
-                                        <h3 className="text-xl font-serif text-primary">{item.label}</h3>
-                                        <p className="text-sm text-gray-500 mt-1">Explore {item.label.toLowerCase()} collections</p>
+                                    <div className="px-4 py-3.5 md:px-4.5 md:py-3.5">
+                                        <h3 className="text-lg font-serif text-primary md:text-xl">{item.label}</h3>
+                                        <p className="mt-1 text-xs text-gray-500 md:text-sm">Explore {item.label.toLowerCase()} collections</p>
                                     </div>
                                 </Link>
                             ))}

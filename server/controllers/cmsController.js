@@ -459,6 +459,7 @@ const updateAutopilotConfig = async (req, res) => {
 const getCompanyInfo = async (_req, res) => {
     try {
         const profile = await CompanyProfile.get();
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
         res.json({
             company: {
                 displayName: profile.displayName,
@@ -475,7 +476,12 @@ const getCompanyInfo = async (_req, res) => {
                 storefrontOpen: profile.storefrontOpen !== false,
                 razorpayKeyId: profile.razorpayKeyId || '',
                 razorpayEmiMinAmount: Number(profile.razorpayEmiMinAmount || 3000),
-                razorpayStartingTenureMonths: Number(profile.razorpayStartingTenureMonths || 12)
+                razorpayStartingTenureMonths: Number(profile.razorpayStartingTenureMonths || 12),
+                usageAudienceEnabled: profile.usageAudienceEnabled === true,
+                usageAudienceMenImageUrl: profile.usageAudienceMenImageUrl || '',
+                usageAudienceWomenImageUrl: profile.usageAudienceWomenImageUrl || '',
+                usageAudienceKidsImageUrl: profile.usageAudienceKidsImageUrl || '',
+                updatedAt: profile.updatedAt || null
             }
         });
     } catch (error) {

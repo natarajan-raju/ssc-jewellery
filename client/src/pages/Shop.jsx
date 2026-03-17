@@ -307,6 +307,7 @@ export default function Shop() {
     const preserveScrollDuringUsageFilter = useCallback((nextValue) => {
         const nextAudience = String(nextValue || '').trim().toLowerCase();
         const currentY = window.scrollY;
+        setShowFilters(true);
         setSelectedUsageAudience(nextAudience);
         if (usageScrollRestoreRef.current) {
             window.cancelAnimationFrame(usageScrollRestoreRef.current);
@@ -319,6 +320,12 @@ export default function Shop() {
             });
         });
     }, []);
+
+    useEffect(() => {
+        if (selectedUsageAudience) {
+            setShowFilters(true);
+        }
+    }, [selectedUsageAudience]);
 
     const fetchProducts = useCallback(async (
         currentPage,
