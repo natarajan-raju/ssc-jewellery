@@ -168,7 +168,7 @@ const BannerFrame = ({ imageUrl = '', alt = 'Banner' }) => (
             <div className="absolute inset-0 bg-white/25 backdrop-blur-[2px]" />
         </div>
         <div className="relative z-10 flex min-h-[clamp(220px,32vw,420px)] w-full items-center justify-center px-3 py-4 md:px-6">
-            <div className="flex w-[95vw] max-w-[95vw] items-center justify-center md:w-[80vw] md:max-w-[80vw]">
+            <div className="flex w-[95vw] max-w-[95vw] items-center justify-center md:w-[85vw] md:max-w-[85vw]">
                 <img
                     src={imageUrl}
                     alt={alt}
