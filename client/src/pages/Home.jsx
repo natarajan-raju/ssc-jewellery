@@ -168,13 +168,15 @@ const BannerFrame = ({ imageUrl = '', alt = 'Banner' }) => (
             <div className="absolute inset-0 bg-white/25 backdrop-blur-[2px]" />
         </div>
         <div className="relative z-10 flex min-h-[clamp(220px,32vw,420px)] w-full items-center justify-center px-3 py-4 md:px-6">
-            <img
-                src={imageUrl}
-                alt={alt}
-                className="max-h-[clamp(200px,28vw,380px)] w-auto max-w-full object-contain"
-                loading="lazy"
-                decoding="async"
-            />
+            <div className="flex w-full max-w-[1200px] items-center justify-center">
+                <img
+                    src={imageUrl}
+                    alt={alt}
+                    className="max-h-[clamp(200px,28vw,380px)] w-full max-w-[1200px] object-contain"
+                    loading="lazy"
+                    decoding="async"
+                />
+            </div>
         </div>
     </div>
 );
