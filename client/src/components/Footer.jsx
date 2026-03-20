@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Instagram, Youtube, Facebook, Phone, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
+import { Instagram, Youtube, Facebook, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
@@ -59,6 +59,10 @@ export default function Footer() {
     const whatsappLink = company.whatsappNumber
         ? `https://wa.me/${String(company.whatsappNumber).replace(/\D/g, '')}`
         : '';
+    const footerWhatsappNumbers = [
+        String(company.contactNumber || '').trim(),
+        '83001 28100'
+    ].filter(Boolean);
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
 
     return (
@@ -171,12 +175,24 @@ export default function Footer() {
                             <span className="text-white/40">Email not set</span>
                         )}
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Phone size={16} className="text-accent" />
-                        {company.contactNumber ? (
-                            <a href={`tel:${company.contactNumber}`} className="text-white/60 hover:text-accent">{company.contactNumber}</a>
+                    <div className="flex items-start gap-2">
+                        <MessageCircle size={16} className="text-[#25D366] mt-0.5" />
+                        {footerWhatsappNumbers.length ? (
+                            <div className="flex flex-col">
+                                {footerWhatsappNumbers.map((number) => (
+                                    <a
+                                        key={number}
+                                        href={`https://wa.me/${String(number).replace(/\D/g, '')}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-white/60 hover:text-[#25D366]"
+                                    >
+                                        {number}
+                                    </a>
+                                ))}
+                            </div>
                         ) : (
-                            <span className="text-white/40">Phone not set</span>
+                            <span className="text-white/40">WhatsApp not set</span>
                         )}
                     </div>
                     {Boolean(String(company.gstNumber || '').trim()) && (
