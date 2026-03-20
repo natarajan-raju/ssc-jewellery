@@ -896,10 +896,13 @@ class AbandonedCart {
         const [rows] = await db.execute(
             `SELECT j.*, u.name as customer_name, u.email as customer_email, u.mobile as customer_mobile,
                     o.order_ref as recovered_order_ref, o.total as recovered_order_total,
-                    GREATEST(
-                        COALESCE(la.last_attempt_at, '1000-01-01 00:00:00'),
-                        COALESCE(j.last_activity_at, '1000-01-01 00:00:00'),
-                        COALESCE(j.updated_at, '1000-01-01 00:00:00')
+                    NULLIF(
+                        GREATEST(
+                            COALESCE(la.last_attempt_at, '1000-01-01 00:00:00'),
+                            COALESCE(j.last_activity_at, '1000-01-01 00:00:00'),
+                            COALESCE(j.updated_at, '1000-01-01 00:00:00')
+                        ),
+                        '1000-01-01 00:00:00'
                     ) as computed_last_activity_at
              FROM abandoned_cart_journeys j
              LEFT JOIN users u ON u.id = j.user_id
@@ -1067,10 +1070,13 @@ class AbandonedCart {
         const [rows] = await db.execute(
             `SELECT j.*, u.name as customer_name, u.email as customer_email, u.mobile as customer_mobile,
                     o.order_ref as recovered_order_ref, o.total as recovered_order_total,
-                    GREATEST(
-                        COALESCE(la.last_attempt_at, '1000-01-01 00:00:00'),
-                        COALESCE(j.last_activity_at, '1000-01-01 00:00:00'),
-                        COALESCE(j.updated_at, '1000-01-01 00:00:00')
+                    NULLIF(
+                        GREATEST(
+                            COALESCE(la.last_attempt_at, '1000-01-01 00:00:00'),
+                            COALESCE(j.last_activity_at, '1000-01-01 00:00:00'),
+                            COALESCE(j.updated_at, '1000-01-01 00:00:00')
+                        ),
+                        '1000-01-01 00:00:00'
                     ) as computed_last_activity_at
              FROM abandoned_cart_journeys j
              LEFT JOIN users u ON u.id = j.user_id
