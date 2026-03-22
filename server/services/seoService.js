@@ -35,6 +35,8 @@ const state = {
     sitemapLoadedAt: null
 };
 
+const CLIENT_PUBLIC_ROOT = path.resolve(__dirname, '../../client/public');
+
 const parseJsonSafe = (value, fallback = null) => {
     if (value == null) return fallback;
     if (typeof value === 'object') return value;
@@ -85,7 +87,12 @@ const escapeHtml = (value = '') => String(value || '')
 
 const getSeoArtifactsRoot = () => {
     const configuredRoot = String(process.env.SEO_ARTIFACTS_ROOT || '').trim();
-    if (configuredRoot) return path.resolve(configuredRoot);
+    if (configuredRoot) {
+        if (path.isAbsolute(configuredRoot) && (configuredRoot === '/public' || configuredRoot.startsWith('/public/'))) {
+            return path.resolve(CLIENT_PUBLIC_ROOT, `.${configuredRoot.replace(/^\/public/, '')}`);
+        }
+        return path.resolve(configuredRoot);
+    }
     return path.resolve(__dirname, '../../.cache/seo-artifacts');
 };
 

@@ -2,10 +2,25 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULT_UPLOADS_ROOT = path.resolve(__dirname, '../../client/public/uploads');
+const CLIENT_PUBLIC_ROOT = path.resolve(__dirname, '../../client/public');
+
+const normalizeConfiguredRoot = (configuredRoot = '') => {
+    const raw = String(configuredRoot || '').trim();
+    if (!raw) return DEFAULT_UPLOADS_ROOT;
+
+    if (path.isAbsolute(raw)) {
+        if (raw === '/public' || raw.startsWith('/public/')) {
+            return path.resolve(CLIENT_PUBLIC_ROOT, `.${raw.replace(/^\/public/, '')}`);
+        }
+        return raw;
+    }
+
+    return path.resolve(raw);
+};
 
 const getUploadsRoot = () => {
     const configuredRoot = String(process.env.UPLOADS_ROOT || '').trim();
-    return configuredRoot ? path.resolve(configuredRoot) : DEFAULT_UPLOADS_ROOT;
+    return normalizeConfiguredRoot(configuredRoot);
 };
 
 const ensureUploadsSubdir = (subdir = '') => {

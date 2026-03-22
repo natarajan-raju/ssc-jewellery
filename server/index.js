@@ -299,9 +299,13 @@ const startServer = async () => {
         } else {
             console.log('Boot: DB readiness promise not found, continuing');
         }
-        console.log('Boot: initializing SEO automation');
-        await initSeoAutomation();
-        console.log('Boot: SEO automation initialized');
+        if (isProduction) {
+            console.log('Boot: initializing SEO automation');
+            await initSeoAutomation();
+            console.log('Boot: SEO automation initialized');
+        } else {
+            console.log('Boot: skipping SEO automation in development');
+        }
     } catch (error) {
         console.error('Database bootstrap failed. Server not started:', error?.message || error);
         process.exit(1);
